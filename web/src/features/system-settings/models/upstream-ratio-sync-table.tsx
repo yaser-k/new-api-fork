@@ -212,7 +212,7 @@ export function UpstreamRatioSyncTable(props: UpstreamRatioSyncTableProps) {
           {props.toolbar}
           <div className='relative min-w-40 flex-1 sm:max-w-72'>
             <Search
-              className='text-muted-foreground absolute top-1/2 left-2 size-4 -translate-y-1/2'
+              className='text-muted-foreground absolute top-1/2 start-2 size-4 -translate-y-1/2'
               aria-hidden
             />
             <Input
