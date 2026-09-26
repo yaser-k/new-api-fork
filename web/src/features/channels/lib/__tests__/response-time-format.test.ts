@@ -46,10 +46,50 @@ describe('formatResponseTime milliseconds', () => {
       formatResponseTime(456, interpolate, toIntlLocale('xx-invalid'))
     ).toBe('456ms')
   })
+})
 
-  it('keeps the seconds value unchanged', () => {
+describe('formatResponseTime seconds', () => {
+  it.each([
+    [1234, '1.23s'],
+    [1200, '1.20s'],
+    [1005, '1.00s'],
+    [12345670, '12345.67s'],
+  ])(
+    'keeps the English output of %d ms exactly as toFixed(2) wrote it',
+    (timeMs, expected) => {
+      expect(formatResponseTime(timeMs, interpolate, toIntlLocale('en'))).toBe(
+        expected
+      )
+    }
+  )
+
+  it('writes seconds with Persian digits and decimal separator in Persian', () => {
     expect(formatResponseTime(1234, interpolate, toIntlLocale('fa'))).toBe(
-      '1.23s'
+      '۱٫۲۳s'
     )
+  })
+
+  it.each(['fr', 'ru', 'vi'])(
+    'writes seconds with a decimal comma for %s',
+    (language) => {
+      expect(
+        formatResponseTime(1234, interpolate, toIntlLocale(language))
+      ).toBe('1,23s')
+    }
+  )
+
+  it.each(['zhCN', 'zhTW', 'ja'])(
+    'keeps the decimal point for %s',
+    (language) => {
+      expect(
+        formatResponseTime(1200, interpolate, toIntlLocale(language))
+      ).toBe('1.20s')
+    }
+  )
+
+  it('keeps the decimal point for an unknown interface language', () => {
+    expect(
+      formatResponseTime(1234, interpolate, toIntlLocale('xx-invalid'))
+    ).toBe('1.23s')
   })
 })

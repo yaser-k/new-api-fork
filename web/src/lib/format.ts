@@ -40,6 +40,24 @@ export function formatNumber(
   )
 }
 
+/**
+ * Format a number with a fixed count of fraction digits and no grouping, in
+ * the given locale. Rounds exactly like `Number.prototype.toFixed`, so the
+ * digits match `value.toFixed(digits)`; only the digit shapes and the decimal
+ * separator follow the locale.
+ */
+export function formatFixed(
+  value: number,
+  digits: number,
+  locales?: Intl.LocalesArgument
+): string {
+  return Intl.NumberFormat(locales, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    useGrouping: false,
+  }).format(Number(value.toFixed(digits)))
+}
+
 export function formatCompactNumber(
   value: number | null | undefined,
   locales?: Intl.LocalesArgument

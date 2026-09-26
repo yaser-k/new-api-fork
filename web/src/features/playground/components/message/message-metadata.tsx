@@ -20,7 +20,7 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { toIntlLocale } from '@/i18n/languages'
-import { formatNumber } from '@/lib/format'
+import { formatFixed, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { MessageAlignment } from '../../lib'
@@ -58,7 +58,7 @@ function formatDuration(
     })
   }
 
-  return t('{{value}}s', { value: (durationMs / 1000).toFixed(2) })
+  return t('{{value}}s', { value: formatFixed(durationMs / 1000, 2, locale) })
 }
 
 export function MessageMetadata(props: MessageMetadataProps) {
