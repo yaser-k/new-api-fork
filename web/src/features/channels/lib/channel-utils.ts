@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { formatCurrencyFromUSD, formatQuotaWithCurrency } from '@/lib/currency'
-import { formatTimestampToDate } from '@/lib/format'
+import { formatNumber, formatTimestampToDate } from '@/lib/format'
 
 import {
   CHANNEL_STATUS_CONFIG,
@@ -366,14 +366,21 @@ type TFunction = (key: string, options?: { value?: number | string }) => string
 
 /**
  * Format response time in milliseconds to human-readable.
- * Pass `t` from useTranslation() for i18n (e.g. "Not tested", "{{value}}ms", "{{value}}s").
+ * Pass `t` from useTranslation() for i18n (e.g. "Not tested", "{{value}}ms", "{{value}}s"),
+ * and the interface locale (toIntlLocale) so milliseconds use its digits.
  */
-export function formatResponseTime(timeMs: number, t?: TFunction): string {
+export function formatResponseTime(
+  timeMs: number,
+  t?: TFunction,
+  locale?: Intl.LocalesArgument
+): string {
   if (timeMs === 0) {
     return t ? t('Not tested') : 'Not tested'
   }
   if (timeMs < 1000) {
-    return t ? t('{{value}}ms', { value: timeMs }) : `${timeMs}ms`
+    return t
+      ? t('{{value}}ms', { value: formatNumber(timeMs, locale) })
+      : `${timeMs}ms`
   }
   return t
     ? t('{{value}}s', { value: (timeMs / 1000).toFixed(2) })

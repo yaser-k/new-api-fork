@@ -1198,7 +1198,7 @@ export function useChannelsColumns(
 
           return (
             <StatusBadge
-              label={formatResponseTime(responseTime, t)}
+              label={formatResponseTime(responseTime, t, locale)}
               variant={config.variant}
               size='sm'
               copyable={false}
