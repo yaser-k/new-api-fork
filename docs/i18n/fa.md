@@ -82,6 +82,31 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
 | vendor (the maker of a model, such as OpenAI) | سازنده | These are model makers, not sellers; «فروشنده» would be wrong and «ارائه‌دهنده» is taken by provider. |
 | header (HTTP request header) | هدر | The loanword Persian developers use; the header names themselves stay English. |
 | tier (pricing tier) | سطح | Standard term for a pricing level. |
+| base URL | نشانی پایه | «نشانی» is the Persian interface word for an address; URL stays English only where the value itself is meant. |
+| tag (a label on channels or models) | برچسب | Standard term. An HTML or XML tag such as `<think>` is «تگ». |
+| priority, weight (channel selection) | اولویت، وزن | Standard terms. |
+| mapping (model mapping, status code mapping) | نگاشت | Standard technical term for a key-to-value map. |
+| model redirect | تغییر مسیر مدل | Says what happens to the request. Sending a person to another page is «انتقال» instead. |
+| override (parameter, header or quota override) | بازنویسی | The value replaces the one that would otherwise apply; «جایگزینی» is kept for replace. |
+| pass-through (request body or headers) | عبور مستقیم | The request goes upstream unchanged. |
+| forward (send a request upstream) | ارسال | Plain verb. Native forwarding is «ارسال بدون تبدیل»; a forwarding route is «مسیر هدایت». |
+| route, routing | مسیر، مسیریابی | Standard terms. |
+| fallback route | مسیر پیش‌فرض | The route used when no rule matches. |
+| endpoint | نقطۀ پایانی (plural: نقطه‌های پایانی) | Standard technical term. |
+| source, target (in a mapping or conversion) | مبدأ، مقصد | Standard terms. |
+| converter (protocol or format) | مبدل | Standard technical term. |
+| regex, regular expression | عبارت باقاعده | The established Persian term. |
+| catch-all (rule) | فراگیر | A rule that matches everything. |
+| connection shards (HTTP/2) | بخش‌های اتصال | Describes the split connection pool. |
+| multi-key (channel) | چندکلیدی | One channel with several keys. |
+| polling (multi-key mode) | نوبتی | Keys are used in turn. Polling an asynchronous task for its result is «بررسی دوره‌ای». |
+| credential | اعتبارنامه | Standard security term. «اطلاعات کاربری» is kept for a person's sign-in details. |
+| metadata | فراداده | Standard technical term. |
+| container, replica | کانتینر، رپلیکا | Loanwords Persian developers use. |
+| snapshot (saved state of data) | نمای لحظه‌ای | Describes a picture of the data at one moment. |
+| reset credit (a provider's usage reset) | اعتبار بازنشانی | Matches «بازنشانی» for reset. |
+| prompt, system prompt | پرامپت، پرامپت سیستمی | The loanword Persian AI users know. |
+| cache | کش | Widely used loanword. |
 
 ## Terms that stay in English
 
