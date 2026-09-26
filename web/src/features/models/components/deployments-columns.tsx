@@ -76,7 +76,7 @@ export function useDeploymentsColumns(opts: {
             variant='neutral'
             copyText={name}
             size='sm'
-            className='-ml-1.5 font-mono'
+            className='-ms-1.5 font-mono'
           />
         )
       },
@@ -100,7 +100,7 @@ export function useDeploymentsColumns(opts: {
             variant={config.variant}
             size='sm'
             copyable={false}
-            className='-ml-1.5'
+            className='-ms-1.5'
           />
         )
       },
@@ -132,7 +132,7 @@ export function useDeploymentsColumns(opts: {
             autoColor={String(provider)}
             size='sm'
             copyable={false}
-            className='-ml-1.5'
+            className='-ms-1.5'
           />
         )
       },
@@ -261,7 +261,7 @@ export function useDeploymentsColumns(opts: {
           ''
 
         return (
-          <div className='-ml-2.5 flex items-center gap-1'>
+          <div className='-ms-2.5 flex items-center gap-1'>
             <Button
               variant='ghost'
               size='icon-sm'
