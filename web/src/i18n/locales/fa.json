@@ -71,7 +71,7 @@
     "{{total}} models · {{syncable}} syncable · {{skipped}} skipped this time": "{{total}} مدل · {{syncable}} قابل همگام‌سازی · {{skipped}} ردشده در این نوبت",
     "{{unit}} tokens": "⁨{{unit}}⁩ توکن",
     "{{value}} tokens/s": "{{value}} توکن در ثانیه",
-    "{{value}}ms": "⁨{{value}}⁩ میلی‌ثانیه",
+    "{{value}}ms": "⁨{{value}}⁩ ms",
     "{{value}}s": "⁨{{value}}⁩ ثانیه",
     "#1 by usage": "رتبۀ اول مصرف",
     "% off": "% تخفیف",
