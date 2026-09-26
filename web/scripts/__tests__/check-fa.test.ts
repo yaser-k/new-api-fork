@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,6 +28,7 @@ const english = {
   'Sign in': 'Sign in',
   'Go to page {{page}}': 'Go to page {{page}}',
   'Learn more': 'Learn more',
+  'OAuth Client ID': 'OAuth Client ID',
 }
 
 // [rule, key, planted Persian value]
@@ -68,7 +69,10 @@ const cases = [
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 let directory: string
 
-function runCheck(translation: Record<string, string>) {
+function runCheck(
+  translation: Record<string, string>,
+  extraArgs: string[] = []
+) {
   const faPath = join(
     directory,
     `fa-${Math.random().toString(36).slice(2)}.json`
@@ -81,9 +85,17 @@ function runCheck(translation: Record<string, string>) {
       faPath,
       '--en',
       join(directory, 'en.json'),
+      ...extraArgs,
     ],
     { cwd: root, encoding: 'utf8' }
   )
+}
+
+function writeSource(source: string) {
+  const srcDir = join(directory, `src-${Math.random().toString(36).slice(2)}`)
+  mkdirSync(srcDir)
+  writeFileSync(join(srcDir, 'form.tsx'), source)
+  return srcDir
 }
 
 beforeAll(() => {
@@ -116,5 +128,58 @@ describe('check-fa', () => {
 
     expect(result.stdout).toContain(`[${rule}]`)
     expect(result.status).toBe(1)
+  })
+
+  describe('placeholder of a dir=ltr input', () => {
+    const ltrInput =
+      "export const Field = () => <Input dir='ltr' placeholder={t('OAuth Client ID')} />\n"
+
+    it('reports a Persian value without a right-to-left isolate', () => {
+      const srcDir = writeSource(ltrInput)
+
+      const result = runCheck({ 'OAuth Client ID': 'شناسۀ کلاینت OAuth' }, [
+        '--src',
+        srcDir,
+      ])
+
+      expect(result.stdout).toContain('[ltr-placeholder-isolate]')
+      expect(result.status).toBe(1)
+    })
+
+    it('accepts a Persian value wrapped in RLI and PDI', () => {
+      const srcDir = writeSource(ltrInput)
+
+      const result = runCheck(
+        { 'OAuth Client ID': '\u2067شناسۀ کلاینت OAuth\u2069' },
+        ['--src', srcDir]
+      )
+
+      expect(result.stdout).toContain('no findings')
+      expect(result.status).toBe(0)
+    })
+
+    it('ignores the same placeholder on an input without dir=ltr', () => {
+      const srcDir = writeSource(
+        "export const Field = () => <Input placeholder={t('OAuth Client ID')} />\n"
+      )
+
+      const result = runCheck({ 'OAuth Client ID': 'شناسۀ کلاینت OAuth' }, [
+        '--src',
+        srcDir,
+      ])
+
+      expect(result.status).toBe(0)
+    })
+
+    it('finds no unwrapped Persian placeholder in the project sources', () => {
+      const result = spawnSync(
+        process.execPath,
+        [join(root, 'scripts/check-fa.mjs')],
+        { cwd: root, encoding: 'utf8' }
+      )
+
+      expect(result.stdout).not.toContain('[ltr-placeholder-isolate]')
+      expect(result.status).toBe(0)
+    })
   })
 })

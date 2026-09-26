@@ -142,6 +142,7 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
     | `Last active {{time}} · Expires {{expires}}` | `آخرین فعالیت: [FSI]{{time}}[PDI] · انقضا: [FSI]{{expires}}[PDI]` |
 
     In the `newKeys` object of the i18n script, write them as the JavaScript escapes `\u2068` and `\u2069`; the script stores the characters themselves in `fa.json`.
+11. An input or text area that holds a URL, an ID or code keeps `dir="ltr"` in Persian, so a typed value runs left to right. Its placeholder takes the same direction, which scrambles a Persian placeholder: `شناسۀ آیکون (مثلاً github یا gitlab)` shows its words and parentheses out of order. `dir="auto"` does not help, because an empty input takes its direction from its value, not its placeholder. Wrap the whole Persian value of such a placeholder in U+2067 RLI (right-to-left isolate) and U+2069 PDI: `[RLI]شناسۀ کلاینت OAuth[PDI]`. The value then reads right to left inside the left-to-right input, and other languages are unchanged. In the i18n script, write them as `\u2067` and `\u2069`.
 
 ## Style
 
@@ -154,7 +155,7 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
 
 ## Automated check
 
-`bun run i18n:check-fa` (from `web/`) runs `web/scripts/check-fa.mjs` against `fa.json` and exits with code 1 on any finding. It checks rules 1 to 8, the isolate pairing in rule 10 (an FSI, LRI or RLI without its PDI, or a PDI without an opener), empty values, stray whitespace, and keys that do not exist in `en.json`.
+`bun run i18n:check-fa` (from `web/`) runs `web/scripts/check-fa.mjs` against `fa.json` and exits with code 1 on any finding. It checks rules 1 to 8, the isolate pairing in rule 10 (an FSI, LRI or RLI without its PDI, or a PDI without an opener), empty values, stray whitespace, and keys that do not exist in `en.json`. For rule 11 it parses the `.tsx` and `.jsx` files under `src/` (with `@babel/parser`), collects the `t('…')` keys in the `placeholder` of every element with a literal `dir='ltr'`, and reports each one whose Persian value is not wrapped in RLI … PDI. The source scan runs when no `fa.json` path is given, or with `--src <dir>`.
 
 Its ZWNJ checks for joined words are heuristics:
 

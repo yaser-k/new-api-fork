@@ -19,9 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 // Checks the Persian locale against the typography rules in docs/i18n/fa.md.
 //
 // Usage (from web/): node scripts/check-fa.mjs [fa.json] [--en en.json]
+//   [--src dir]
+// Without a fa.json argument, the source directory defaults to src/ and is
+// scanned for left-to-right inputs whose placeholder is a Persian translation.
 // Exits with code 1 when any finding is reported.
 import fs from 'node:fs/promises'
 import path from 'node:path'
+
+import { parse } from '@babel/parser'
 
 const ZWNJ = '‌'
 // Persian letters only (no digits, punctuation or diacritics). Includes the
@@ -198,6 +203,7 @@ const WORD_RULES = [
 
 // Directional isolates: LRI, RLI and FSI open one, PDI closes the innermost.
 const ISOLATE_OPENERS = '\u2066\u2067\u2068'
+const RLI = '\u2067'
 const PDI = '\u2069'
 
 function hasUnbalancedIsolates(value) {
@@ -279,21 +285,131 @@ function checkPersianTranslations(faTranslation, enTranslation) {
   return findings
 }
 
+function attributeValue(element, name) {
+  const attribute = element.attributes.find(
+    (item) => item.type === 'JSXAttribute' && item.name.name === name
+  )
+  if (!attribute?.value) return undefined
+  if (attribute.value.type === 'StringLiteral') return attribute.value
+  if (attribute.value.type === 'JSXExpressionContainer') {
+    return attribute.value.expression
+  }
+  return undefined
+}
+
+function translationKeysIn(node, keys = []) {
+  if (!node || typeof node.type !== 'string') return keys
+  if (
+    node.type === 'CallExpression' &&
+    node.callee.type === 'Identifier' &&
+    node.callee.name === 't' &&
+    node.arguments[0]?.type === 'StringLiteral'
+  ) {
+    keys.push(node.arguments[0].value)
+  }
+  for (const [field, child] of Object.entries(node)) {
+    if (field === 'loc' || field === 'start' || field === 'end') continue
+    const children = Array.isArray(child) ? child : [child]
+    for (const item of children) {
+      if (item && typeof item.type === 'string') translationKeysIn(item, keys)
+    }
+  }
+  return keys
+}
+
+function forEachJsxElement(node, visit) {
+  if (!node || typeof node.type !== 'string') return
+  if (node.type === 'JSXOpeningElement') visit(node)
+  for (const [field, child] of Object.entries(node)) {
+    if (field === 'loc' || field === 'start' || field === 'end') continue
+    const children = Array.isArray(child) ? child : [child]
+    for (const item of children) {
+      if (item && typeof item.type === 'string') forEachJsxElement(item, visit)
+    }
+  }
+}
+
+async function sourceFiles(directory) {
+  const entries = await fs.readdir(directory, {
+    recursive: true,
+    withFileTypes: true,
+  })
+  return entries
+    .filter((entry) => entry.isFile() && /\.[jt]sx$/.test(entry.name))
+    .map((entry) => path.join(entry.parentPath, entry.name))
+}
+
+/**
+ * Returns the translation keys used as the placeholder of an element with a
+ * fixed dir='ltr' (inputs for URLs, IDs and code), with the file they are in.
+ */
+async function leftToRightPlaceholderKeys(directory) {
+  const keys = new Map()
+  for (const file of await sourceFiles(directory)) {
+    const ast = parse(await fs.readFile(file, 'utf8'), {
+      sourceType: 'module',
+      plugins: ['jsx', 'typescript'],
+      errorRecovery: true,
+    })
+    forEachJsxElement(ast.program, (element) => {
+      const dir = attributeValue(element, 'dir')
+      if (dir?.type !== 'StringLiteral' || dir.value !== 'ltr') return
+      const placeholder = attributeValue(element, 'placeholder')
+      for (const key of translationKeysIn(placeholder)) {
+        if (!keys.has(key)) keys.set(key, path.relative(directory, file))
+      }
+    })
+  }
+  return keys
+}
+
+/**
+ * A Persian placeholder inside a left-to-right input takes the input's
+ * direction, which scrambles its word order. It must be one right-to-left
+ * isolate (RLI ... PDI) so it reads in order while typed values stay LTR.
+ */
+function checkLeftToRightPlaceholders(faTranslation, placeholderKeys) {
+  const findings = []
+  for (const [key, file] of placeholderKeys) {
+    const value = faTranslation[key]
+    if (typeof value !== 'string' || !new RegExp(P).test(value)) continue
+    if (value.startsWith(RLI) && value.endsWith(PDI)) continue
+    findings.push({
+      key,
+      rule: 'ltr-placeholder-isolate',
+      message: `placeholder of a dir='ltr' input (${file}); wrap the whole value in RLI (U+2067) and PDI (U+2069)`,
+    })
+  }
+  return findings
+}
+
 async function main() {
   const args = process.argv.slice(2)
   const enFlag = args.indexOf('--en')
   const enPath = path.resolve(
     enFlag === -1 ? 'src/i18n/locales/en.json' : args[enFlag + 1]
   )
-  const positional =
-    enFlag === -1
-      ? args
-      : args.filter((_, i) => i !== enFlag && i !== enFlag + 1)
+  const srcFlag = args.indexOf('--src')
+  const flagIndexes = new Set(
+    [enFlag, srcFlag].filter((i) => i !== -1).flatMap((i) => [i, i + 1])
+  )
+  const positional = args.filter((_, i) => !flagIndexes.has(i))
   const faPath = path.resolve(positional[0] ?? 'src/i18n/locales/fa.json')
+  let srcDir
+  if (srcFlag !== -1) srcDir = path.resolve(args[srcFlag + 1])
+  else if (positional.length === 0) srcDir = path.resolve('src')
 
   const fa = JSON.parse(await fs.readFile(faPath, 'utf8')).translation ?? {}
   const en = JSON.parse(await fs.readFile(enPath, 'utf8')).translation ?? {}
   const findings = checkPersianTranslations(fa, en)
+  if (srcDir) {
+    findings.push(
+      ...checkLeftToRightPlaceholders(
+        fa,
+        await leftToRightPlaceholderKeys(srcDir)
+      )
+    )
+  }
 
   for (const finding of findings) {
     console.log(
