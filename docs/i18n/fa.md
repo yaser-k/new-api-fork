@@ -107,6 +107,8 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
 | reset credit (a provider's usage reset) | اعتبار بازنشانی | Matches «بازنشانی» for reset. |
 | prompt, system prompt | پرامپت، پرامپت سیستمی | The loanword Persian AI users know. |
 | cache | کش | Widely used loanword. |
+| search | جست‌وجو | The two-part spelling with ZWNJ, as the Academy of Persian Language writes it; not «جستجو». |
+| template | الگو | Used for rule, parameter and payment templates; «قالب» is kept for format. |
 
 ## Terms that stay in English
 
