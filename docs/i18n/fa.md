@@ -168,6 +168,8 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
 
 `bun run i18n:check-fa` (from `web/`) runs `web/scripts/check-fa.mjs` against `fa.json` and exits with code 1 on any finding. It checks rules 1 to 8, the isolate pairing in rule 10 (an FSI, LRI or RLI without its PDI, or a PDI without an opener), empty values, stray whitespace, and keys that do not exist in `en.json`. For rule 11 it parses the `.tsx` and `.jsx` files under `src/` (with `@babel/parser`), collects the `t('…')` keys in the `placeholder` of every element with a literal `dir='ltr'`, and reports each one whose Persian value is not wrapped in RLI … PDI. The source scan runs when no `fa.json` path is given, or with `--src <dir>`.
 
+Dependency note: `check-fa` imports `@babel/parser` directly, so it is declared as a dev dependency of `web/` (`^7.29.7`, MIT, maintained by the Babel team, no runtime dependency besides `@babel/types`, not part of the app bundle). The same package is already required by `@babel/core`, `@tanstack/router-plugin` and `shadcn`; after an upgrade, check that `web/bun.lock` still has a single `@babel/parser` entry.
+
 Its ZWNJ checks for joined words are heuristics:
 
 - Joined می or نمی is detected on any word starting with them, except a short list of real words (میان، میزان، میانگین، میلیون and similar) kept in the script.
