@@ -59,13 +59,15 @@ html:lang(fa) .font-sans {
     U+08E3-08FF, U+200C-200D, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
 }
 
-/* Code, keyboard keys and sample output are left-to-right text. On a
- * right-to-left page they would inherit `direction: rtl`, which moves the
+/* Code, keyboard keys and sample output are usually left-to-right text. On
+ * a right-to-left page they would be laid out right to left, which moves the
  * slashes and punctuation of paths, regexes and commands to the other end.
- * An explicit `dir` on the element still wins. */
+ * `plaintext` isolates them and takes the text direction from their own
+ * content. `direction` is left alone, so logical insets and alignment (a
+ * key cap pinned with `end-*`, for example) keep following the page. An
+ * explicit `dir` on the element still wins. */
 [dir='rtl'] :is(code, kbd, samp):not([dir]) {
-  direction: ltr;
-  unicode-bidi: isolate;
+  unicode-bidi: plaintext;
 }
 
 html:lang(fa) {

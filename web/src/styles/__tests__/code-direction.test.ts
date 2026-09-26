@@ -22,11 +22,12 @@ import path from 'node:path'
 import { compile } from '@tailwindcss/node'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-// Code, keyboard keys and sample output are left-to-right text. On a
-// right-to-left page they inherit `direction: rtl`, so a path such as
-// `/api/ratio` or a list of regexes has its slashes and punctuation moved to
-// the other end. The stylesheet gives them their own direction there, and
-// leaves left-to-right pages untouched.
+// Code, keyboard keys and sample output are usually left-to-right text. On a
+// right-to-left page a path such as `/api/ratio` or a list of regexes would
+// have its slashes and punctuation moved to the other end. The stylesheet
+// isolates them with `unicode-bidi: plaintext`, which takes the direction
+// from their content, and leaves `direction` alone so logical insets such as
+// a key cap pinned with `end-*` keep following the page.
 
 const STYLESHEET = path.resolve(import.meta.dirname, '../index.css')
 
@@ -66,19 +67,23 @@ function styleOf(root: HTMLElement, selector: string): CSSStyleDeclaration {
 }
 
 describe('code direction', () => {
-  it('isolates inline code as left-to-right text on a right-to-left page', () => {
+  it('isolates inline code with its own text direction on a right-to-left page', () => {
     const root = renderInside('rtl', '<p>از طریق <code>/api/ratio</code></p>')
 
-    const code = styleOf(root, 'code')
-    expect(code.direction).toBe('ltr')
-    expect(code.unicodeBidi).toBe('isolate')
+    expect(styleOf(root, 'code').unicodeBidi).toBe('plaintext')
+  })
+
+  it('keeps the page direction for positioning and alignment', () => {
+    const root = renderInside('rtl', '<kbd>⌘K</kbd>')
+
+    expect(styleOf(root, 'kbd').direction).not.toBe('ltr')
   })
 
   it('applies to keyboard keys and sample output too', () => {
     const root = renderInside('rtl', '<kbd>Ctrl+K</kbd><samp>200 OK</samp>')
 
-    expect(styleOf(root, 'kbd').direction).toBe('ltr')
-    expect(styleOf(root, 'samp').direction).toBe('ltr')
+    expect(styleOf(root, 'kbd').unicodeBidi).toBe('plaintext')
+    expect(styleOf(root, 'samp').unicodeBidi).toBe('plaintext')
   })
 
   it('respects an explicit dir attribute on the element', () => {
@@ -90,6 +95,6 @@ describe('code direction', () => {
   it('adds nothing on a left-to-right page', () => {
     const root = renderInside('ltr', '<p>via <code>/api/ratio</code></p>')
 
-    expect(styleOf(root, 'code').unicodeBidi).not.toBe('isolate')
+    expect(styleOf(root, 'code').unicodeBidi).not.toBe('plaintext')
   })
 })
