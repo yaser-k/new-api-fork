@@ -207,6 +207,15 @@ if (!only || only === '15') {
   )
   console.log(`response time cells: ${JSON.stringify(rt)}`)
   await shot('152-channels-table')
+  // The table scrolls sideways; bring the response-time column into view.
+  await page.evaluate(() => {
+    const th = [...document.querySelectorAll('main table thead th')].find((el) =>
+      /پاسخ|Response/.test(el.textContent ?? '')
+    )
+    th?.scrollIntoView({ inline: 'center', block: 'nearest' })
+  })
+  await page.waitForTimeout(500)
+  await shot('153-channels-table-response-time')
 }
 
 console.log(`console errors: ${JSON.stringify([...new Set(consoleErrors)].slice(0, 10))}`)
