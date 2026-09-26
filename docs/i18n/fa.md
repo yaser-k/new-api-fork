@@ -109,6 +109,17 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
 | cache | کش | Widely used loanword. |
 | search | جست‌وجو | The two-part spelling with ZWNJ, as the Academy of Persian Language writes it; not «جستجو». |
 | template | الگو | Used for rule, parameter and payment templates; «قالب» is kept for format. |
+| node (a deployment instance in the flow chart and system info) | گره | Matches «نام گره»; an instance record is «نمونه». |
+| flow (traffic flow chart) | جریان | Describes the Sankey chart of requests. |
+| artifact (files a task produced) | خروجی (plural: خروجی‌ها) | Matches «خروجی» for output; «آرتیفکت» is jargon. |
+| pop-up (window) | پنجرۀ بازشو | Standard interface term. |
+| inference (server, status) | استنتاج | Standard machine learning term. |
+| schema (usage schema) | طرح‌واره | Standard technical term. |
+| marketplace (plugin sources) | بازارچه | A small catalogue of installable plugins; «مارکت‌پلیس» is a loanword users do not need. |
+| factory plugin, built-in | داخلی | The plugin shipped with the product; «کارخانه‌ای» reads like a factory reset. |
+| dry run | اجرای آزمایشی | Runs without effect. A plugin sandbox is «محیط آزمایشی». |
+| changelog | فهرست تغییرات | Standard term. |
+| integrity hash, integrity check | هش یکپارچگی، بررسی یکپارچگی | Standard security terms. |
 
 ## Terms that stay in English
 
