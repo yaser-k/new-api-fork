@@ -21,6 +21,14 @@ import { describe, expect, it } from 'vitest'
 
 import { Dialog, DialogContent, DialogTitle } from '../dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../sheet'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../table'
 
 // The close buttons are absolutely positioned over the header. A physical
 // `right-*` offset puts them on top of a right-aligned RTL title.
@@ -55,5 +63,36 @@ describe('close button placement in right-to-left layouts', () => {
     const close = screen.getByRole('button', { name: 'Close' })
     expect(close).toHaveClass('end-2')
     expect(close).not.toHaveClass('right-2')
+  })
+})
+
+// A physical `text-left` header sits at the far side of its column in RTL,
+// away from the cells below it, which start at the right.
+describe('table header alignment in right-to-left layouts', () => {
+  it('aligns header cells to the inline start and clears checkbox padding at the inline end', () => {
+    render(
+      <div dir='rtl'>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Group name</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell>default</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+    )
+
+    const header = screen.getByRole('columnheader', { name: 'Group name' })
+    expect(header).toHaveClass('text-start')
+    expect(header).not.toHaveClass('text-left')
+    expect(header.className).toContain('[&:has([role=checkbox])]:pe-0')
+    expect(screen.getByRole('cell', { name: 'default' }).className).toContain(
+      '[&:has([role=checkbox])]:pe-0'
+    )
   })
 })
