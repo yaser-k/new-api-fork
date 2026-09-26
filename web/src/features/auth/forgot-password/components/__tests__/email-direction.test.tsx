@@ -16,22 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MESSAGE_ROLES } from '../../constants'
-import type { Message, PlaygroundMessageLayoutMode } from '../../types'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
+import { expect, it } from 'vitest'
 
-export type MessageAlignment = 'left' | 'right'
+import { ForgotPasswordForm } from '../forgot-password-form'
 
-export function getMessageAlignment(
-  message: Message,
-  layoutMode: PlaygroundMessageLayoutMode
-): MessageAlignment {
-  if (layoutMode === 'left') {
-    return 'left'
-  }
+it('keeps the email address input left to right on a right-to-left page', () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, enabled: false } },
+  })
 
-  return message.from === MESSAGE_ROLES.USER ? 'right' : 'left'
-}
+  render(
+    <QueryClientProvider client={queryClient}>
+      <div dir='rtl'>
+        <ForgotPasswordForm />
+      </div>
+    </QueryClientProvider>
+  )
 
-export function getMessageAlignmentClass(alignment: MessageAlignment): string {
-  return alignment === 'right' ? 'items-end text-end' : 'items-start text-start'
-}
+  expect(screen.getByPlaceholderText('name@example.com')).toHaveAttribute(
+    'dir',
+    'ltr'
+  )
+})

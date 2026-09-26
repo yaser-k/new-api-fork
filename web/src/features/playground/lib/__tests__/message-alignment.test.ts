@@ -16,22 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { MESSAGE_ROLES } from '../../constants'
-import type { Message, PlaygroundMessageLayoutMode } from '../../types'
+import { expect, it } from 'vitest'
 
-export type MessageAlignment = 'left' | 'right'
+import { getMessageAlignmentClass } from '../message/message-layout-utils'
 
-export function getMessageAlignment(
-  message: Message,
-  layoutMode: PlaygroundMessageLayoutMode
-): MessageAlignment {
-  if (layoutMode === 'left') {
-    return 'left'
-  }
+it('aligns user message text to the inline end, so it follows the bubble in right-to-left pages', () => {
+  const classes = getMessageAlignmentClass('right').split(' ')
 
-  return message.from === MESSAGE_ROLES.USER ? 'right' : 'left'
-}
+  expect(classes).toContain('text-end')
+  expect(classes).not.toContain('text-right')
+})
 
-export function getMessageAlignmentClass(alignment: MessageAlignment): string {
-  return alignment === 'right' ? 'items-end text-end' : 'items-start text-start'
-}
+it('aligns assistant message text to the inline start, so it follows the bubble in right-to-left pages', () => {
+  const classes = getMessageAlignmentClass('left').split(' ')
+
+  expect(classes).toContain('text-start')
+  expect(classes).not.toContain('text-left')
+})

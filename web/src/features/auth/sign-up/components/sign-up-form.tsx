@@ -315,6 +315,7 @@ export function SignUpForm({
                     <Input
                       placeholder={t('name@example.com')}
                       type='email'
+                      dir='ltr'
                       {...field}
                     />
                   </FormControl>

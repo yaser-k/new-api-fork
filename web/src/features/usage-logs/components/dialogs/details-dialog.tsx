@@ -663,7 +663,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       titleClassName='flex items-center gap-2 text-base'
       descriptionClassName='sr-only'
       contentHeight='min(72dvh, 720px)'
-      bodyClassName='pr-2 sm:pr-4'
+      bodyClassName='pe-2 sm:pe-4'
     >
       <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3'>
         {/* Overview section - key identifiers */}
