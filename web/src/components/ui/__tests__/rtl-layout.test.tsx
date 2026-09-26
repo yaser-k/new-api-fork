@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest'
 
 import { Dialog, DialogContent, DialogTitle } from '../dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../sheet'
+import { Switch } from '../switch'
 import {
   Table,
   TableBody,
@@ -95,4 +96,27 @@ describe('table header alignment in right-to-left layouts', () => {
       '[&:has([role=checkbox])]:pe-0'
     )
   })
+})
+
+// The thumb of a checked switch moves along the x axis. A physical positive
+// translation pushes it out of the track in RTL, where it starts at the right.
+describe('switch thumb in right-to-left layouts', () => {
+  it.each(['default', 'sm'] as const)(
+    'moves the %s checked thumb towards the inline end in RTL',
+    (size) => {
+      render(
+        <div dir='rtl'>
+          <Switch size={size} defaultChecked aria-label='Enable filtering' />
+        </div>
+      )
+
+      const thumb = screen
+        .getByRole('switch', { name: 'Enable filtering' })
+        .querySelector('[data-slot="switch-thumb"]')
+      expect(thumb).toHaveClass(
+        `group-data-[size=${size}]/switch:data-checked:translate-x-[calc(100%-2px)]`,
+        `group-data-[size=${size}]/switch:data-checked:rtl:-translate-x-[calc(100%-2px)]`
+      )
+    }
+  )
 })
