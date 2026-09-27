@@ -86,6 +86,24 @@ describe('code direction', () => {
     expect(styleOf(root, 'samp').unicodeBidi).toBe('plaintext')
   })
 
+  it('isolates preformatted blocks, such as JSON and logs, on a right-to-left page', () => {
+    const root = renderInside('rtl', '<pre>{"model": "gpt-4.1"}</pre>')
+
+    expect(styleOf(root, 'pre').unicodeBidi).toBe('plaintext')
+  })
+
+  it('leaves a preformatted block with an explicit dir alone', () => {
+    const root = renderInside('rtl', '<pre dir="ltr">GET /v1/models</pre>')
+
+    expect(styleOf(root, 'pre').unicodeBidi).not.toBe('plaintext')
+  })
+
+  it('adds nothing to preformatted blocks on a left-to-right page', () => {
+    const root = renderInside('ltr', '<pre>{"model": "gpt-4.1"}</pre>')
+
+    expect(styleOf(root, 'pre').unicodeBidi).not.toBe('plaintext')
+  })
+
   it('respects an explicit dir attribute on the element', () => {
     const root = renderInside('rtl', '<code dir="rtl">مقدار</code>')
 
