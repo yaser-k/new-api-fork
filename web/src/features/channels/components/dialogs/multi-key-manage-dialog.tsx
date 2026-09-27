@@ -331,7 +331,7 @@ export function MultiKeyManageDialog({
                   size='sm'
                   onClick={() => setConfirmAction({ type: 'enable-all' })}
                 >
-                  <Power className='mr-2 h-4 w-4' />
+                  <Power className='me-2 h-4 w-4' />
                   {t('Enable All')}
                 </Button>
               )}
@@ -342,7 +342,7 @@ export function MultiKeyManageDialog({
                   size='sm'
                   onClick={() => setConfirmAction({ type: 'disable-all' })}
                 >
-                  <PowerOff className='mr-2 h-4 w-4' />
+                  <PowerOff className='me-2 h-4 w-4' />
                   {t('Disable All')}
                 </Button>
               )}
@@ -362,7 +362,7 @@ export function MultiKeyManageDialog({
                       : t('No permission to perform this action')
                   }
                 >
-                  <Trash2 className='mr-2 h-4 w-4' />
+                  <Trash2 className='me-2 h-4 w-4' />
                   {t('Delete Auto-Disabled')}
                 </Button>
               )}
@@ -429,7 +429,7 @@ export function MultiKeyManageDialog({
                   {
                     id: 'actions',
                     header: t('Actions'),
-                    className: 'text-right',
+                    className: 'text-end',
                     cell: (key) => (
                       <MultiKeyTableRowActions
                         keyIndex={key.index}
