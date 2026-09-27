@@ -41,6 +41,7 @@ import type {
   UserChartsFilters,
 } from '@/features/dashboard/types'
 import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -215,7 +216,7 @@ export function UserCharts(props: UserChartsProps) {
                 value={String(limit)}
                 className='px-2.5 text-xs'
               >
-                {t('Top {{count}}', { count: limit })}
+                {t('Top {{count}}', { count: formatNumber(limit, locale) })}
               </TabsTrigger>
             ))}
           </TabsList>
