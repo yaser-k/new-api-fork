@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, it } from 'vitest'
 
-import { formatValueChange, INTERFACE_LANGUAGE_OPTIONS } from '../languages'
+import {
+  formatValueChain,
+  formatValueChange,
+  INTERFACE_LANGUAGE_OPTIONS,
+} from '../languages'
 
 const FSI = '⁨'
 const PDI = '⁩'
@@ -47,5 +51,30 @@ describe('formatValueChange', () => {
   it('falls back to the left-to-right arrow for an unknown language', () => {
     expect(formatValueChange('a', 'b', 'xx-invalid')).toBe('a → b')
     expect(formatValueChange('a', 'b', undefined)).toBe('a → b')
+  })
+})
+
+describe('formatValueChain', () => {
+  it.each(
+    INTERFACE_LANGUAGE_OPTIONS.filter((option) => option.code !== 'fa').map(
+      (option) => option.code
+    )
+  )('for %s, joins the values with left-to-right arrows', (code) => {
+    expect(formatValueChain(['3', '7', '12'], code)).toBe('3 → 7 → 12')
+  })
+
+  it('for Persian, isolates each value and points every arrow to the left', () => {
+    expect(formatValueChain(['3', '7', '12'], 'fa')).toBe(
+      `${FSI}3${PDI} ← ${FSI}7${PDI} ← ${FSI}12${PDI}`
+    )
+  })
+
+  it('writes a single value without an arrow', () => {
+    expect(formatValueChain(['3'], 'en')).toBe('3')
+    expect(formatValueChain(['3'], 'fa')).toBe(`${FSI}3${PDI}`)
+  })
+
+  it('falls back to left-to-right arrows for an unknown language', () => {
+    expect(formatValueChain(['a', 'b', 'c'], 'xx-invalid')).toBe('a → b → c')
   })
 })

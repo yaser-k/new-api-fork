@@ -84,10 +84,23 @@ export function formatValueChange(
   to: string,
   language?: string | null
 ): string {
+  return formatValueChain([from, to], language)
+}
+
+/**
+ * Join a sequence of values (a retry chain, for example) with arrows that
+ * read in the direction of the interface language, the same way as
+ * `formatValueChange`: `a → b → c` left to right, `a ← b ← c` with each value
+ * isolated right to left.
+ */
+export function formatValueChain(
+  values: readonly string[],
+  language?: string | null
+): string {
   if (getInterfaceLanguageDirection(language) === 'ltr') {
-    return `${from} → ${to}`
+    return values.join(' → ')
   }
-  return `\u2068${from}\u2069 ← \u2068${to}\u2069`
+  return values.map((value) => `\u2068${value}\u2069`).join(' ← ')
 }
 
 export function normalizeInterfaceLanguage(value?: string | null): string {

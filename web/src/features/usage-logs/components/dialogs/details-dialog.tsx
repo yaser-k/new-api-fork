@@ -62,7 +62,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { toIntlLocale } from '@/i18n/languages'
+import { formatValueChain, toIntlLocale } from '@/i18n/languages'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   formatLogQuota,
@@ -638,7 +638,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
-    useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+    useChannel && useChannel.length > 0
+      ? formatValueChain(useChannel.map(String), locale)
+      : undefined
   const reasoningEffortVariant = getReasoningEffortVariant(
     other?.reasoning_effort
   )
