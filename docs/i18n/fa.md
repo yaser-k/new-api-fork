@@ -120,8 +120,8 @@ Use these terms consistently. If a new recurring term comes up, add it here firs
 | dry run | اجرای آزمایشی | Runs without effect. A plugin sandbox is «محیط آزمایشی». |
 | changelog | فهرست تغییرات | Standard term. |
 | integrity hash, integrity check | هش یکپارچگی، بررسی یکپارچگی | Standard security terms. |
-| load, loading, reload, upload | بارگذاری (reload: دوباره بارگذاری کردن) | One term for loading data and uploading files. «بارگیری» means download and is not used for load. |
-| download | دانلود | The word users know; the existing values use it. |
+| load, loading, reload, upload | بارگذاری (reload: دوباره بارگذاری کردن) | One term for loading data and uploading files. |
+| download, downloaded | دانلود، دانلودشده | The word users know; every download string uses it. «دریافت» is kept for fetch and pull. |
 | async, asynchronous | ناهمگام | Written joined, like همگام; the prefix نا and the compound are not separated by ZWNJ (rule 1 does not apply). |
 
 ## Terms that stay in English
