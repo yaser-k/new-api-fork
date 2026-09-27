@@ -87,7 +87,7 @@ describe('dashboard flow numbers', () => {
 
   it('in Persian, writes the tooltip share and request count with Persian digits', () => {
     const datum = { share: 0.4567, requests: 1234 }
-    expect(lineValue(toIntlLocale('fa'), 'Share', datum)).toBe('۴۵٫۷%')
+    expect(lineValue(toIntlLocale('fa'), 'Share', datum)).toBe('۴۵٫۷٪')
     expect(lineValue(toIntlLocale('fa'), 'Requests', datum)).toBe('۱٬۲۳۴')
   })
 })

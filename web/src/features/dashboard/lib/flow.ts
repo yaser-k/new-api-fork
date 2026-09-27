@@ -32,7 +32,7 @@ import type {
   FlowSummary,
   ProcessedFlowData,
 } from '@/features/dashboard/types'
-import { formatFixed } from '@/lib/format'
+import { appendPercentSign, formatFixed } from '@/lib/format'
 
 import { getDashboardChartColors } from './charts'
 
@@ -1114,7 +1114,10 @@ function tooltipMetricLines(
     {
       key: labels.share,
       value: (datum: Record<string, unknown>) =>
-        `${formatFixed(metricValue(datum, 'share') * 100, 1, locale)}%`,
+        appendPercentSign(
+          formatFixed(metricValue(datum, 'share') * 100, 1, locale),
+          locale
+        ),
       visible: (datum: Record<string, unknown>) => hasMetric(datum, 'share'),
     },
   ]

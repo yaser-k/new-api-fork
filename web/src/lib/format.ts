@@ -58,6 +58,21 @@ export function formatFixed(
   }).format(Number(value.toFixed(digits)))
 }
 
+/**
+ * Append the percent sign of the locale to a number already formatted in that
+ * locale: `%` for most languages, `٪` for Persian. Only the sign follows the
+ * locale; it is appended with no space, as the callers wrote it before.
+ */
+export function appendPercentSign(
+  formattedNumber: string,
+  locales?: Intl.LocalesArgument
+): string {
+  const sign = Intl.NumberFormat(locales, { style: 'percent' })
+    .formatToParts(0)
+    .find((part) => part.type === 'percentSign')?.value
+  return `${formattedNumber}${sign ?? '%'}`
+}
+
 export function formatCompactNumber(
   value: number | null | undefined,
   locales?: Intl.LocalesArgument

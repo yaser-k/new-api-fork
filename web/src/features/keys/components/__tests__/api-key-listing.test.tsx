@@ -237,6 +237,7 @@ it('re-renders quota amounts with Persian digits after switching the interface l
     await globalI18n.changeLanguage('fa')
   })
   expect(screen.getByRole('button')).toHaveTextContent('۸۰۱۲۰')
+  expect(screen.getByRole('button')).toHaveAccessibleName(/۴۰٪/)
 
   await act(async () => {
     await globalI18n.changeLanguage('en')

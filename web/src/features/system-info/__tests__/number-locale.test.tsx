@@ -93,13 +93,13 @@ describe('system info numbers', () => {
     mockApi()
     renderWithClient(<SystemInstancesPanel />)
 
-    expect(await screen.findByText('۴۵٫۲%')).toBeInTheDocument()
+    expect(await screen.findByText('۴۵٫۲٪')).toBeInTheDocument()
     expect(screen.getByText(/every ۳۰s/)).toBeInTheDocument()
   })
 
   it.each([
     ['en', '75%'],
-    ['fa', '۷۵%'],
+    ['fa', '۷۵٪'],
   ])('in %s, writes the task progress as %s', async (language, expected) => {
     await i18next.changeLanguage(language)
     render(

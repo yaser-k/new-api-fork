@@ -57,6 +57,7 @@ import {
 } from '@/components/ui/tooltip'
 import { toIntlLocale } from '@/i18n/languages'
 import {
+  appendPercentSign,
   formatGregorianTitle,
   formatNumber,
   formatTimestampRelative,
@@ -123,9 +124,10 @@ function formatPercent(
   locale: Intl.LocalesArgument
 ) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-'
-  return `${new Intl.NumberFormat(locale, {
-    maximumFractionDigits: 1,
-  }).format(value)}%`
+  return appendPercentSign(
+    new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value),
+    locale
+  )
 }
 
 function formatBytes(

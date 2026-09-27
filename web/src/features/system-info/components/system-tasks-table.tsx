@@ -34,6 +34,7 @@ import type {
 } from '@/features/system-settings/types'
 import { toIntlLocale } from '@/i18n/languages'
 import {
+  appendPercentSign,
   formatNumber,
   formatTimestampRelative,
   formatTimestampToDate,
@@ -152,7 +153,7 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
                   <span className='text-muted-foreground w-10 text-end text-xs tabular-nums'>
                     {progress === null
                       ? '-'
-                      : `${formatNumber(progress, locale)}%`}
+                      : appendPercentSign(formatNumber(progress, locale), locale)}
                   </span>
                 </div>
               </TableCell>
