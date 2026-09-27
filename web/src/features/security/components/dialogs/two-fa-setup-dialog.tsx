@@ -185,7 +185,7 @@ export function TwoFASetupDialog(props: TwoFASetupDialogProps) {
                   variant='outline'
                   size='default'
                   className='w-full'
-                  iconClassName='mr-2 size-4'
+                  iconClassName='me-2 size-4'
                   tooltip={t('Copy all backup codes')}
                   aria-label={t('Copy all backup codes')}
                 >

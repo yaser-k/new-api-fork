@@ -190,7 +190,7 @@ export function AccessTokenCard() {
       />
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
         <SheetContent className='w-full sm:max-w-5xl' showCloseButton={false}>
-          <SheetHeader className='border-b pr-20'>
+          <SheetHeader className='border-b pe-20'>
             <SheetTitle>{t('Access records')}</SheetTitle>
             <SheetDescription>
               {t(
@@ -203,7 +203,7 @@ export function AccessTokenCard() {
               <Button
                 size='sm'
                 variant='ghost'
-                className='absolute top-3 right-3'
+                className='absolute end-3 top-3'
               />
             }
           >

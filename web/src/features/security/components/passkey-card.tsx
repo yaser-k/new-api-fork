@@ -233,7 +233,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
                     {removing ? (
                       <Loader2 className='me-2 h-4 w-4 animate-spin' />
                     ) : (
-                      <AlertTriangle className='mr-2 h-4 w-4' />
+                      <AlertTriangle className='me-2 h-4 w-4' />
                     )}
                     {t('Remove Passkey')}
                   </AlertDialogTrigger>
