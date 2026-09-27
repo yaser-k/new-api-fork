@@ -72,6 +72,24 @@ export function getInterfaceLanguageDirection(
   return option && 'dir' in option ? option.dir : 'ltr'
 }
 
+/**
+ * Join a before and an after value with an arrow that reads in the direction
+ * of the interface language (an interface code or an Intl locale).
+ * Left-to-right languages get `from → to`, unchanged. Right-to-left languages
+ * wrap each value in FSI … PDI, so the bidi algorithm keeps it in one piece,
+ * and point the arrow left, so `from ← to` reads from right to left.
+ */
+export function formatValueChange(
+  from: string,
+  to: string,
+  language?: string | null
+): string {
+  if (getInterfaceLanguageDirection(language) === 'ltr') {
+    return `${from} → ${to}`
+  }
+  return `\u2068${from}\u2069 ← \u2068${to}\u2069`
+}
+
 export function normalizeInterfaceLanguage(value?: string | null): string {
   if (!value) return 'en'
 

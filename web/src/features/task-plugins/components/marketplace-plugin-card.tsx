@@ -28,7 +28,7 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getChannelTypeLabel } from '@/features/channels/lib'
-import { toIntlLocale } from '@/i18n/languages'
+import { formatValueChange, toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 import { resolveLocalizedText } from '@/lib/localized-text'
 
@@ -159,7 +159,7 @@ export function MarketplacePluginCard(props: MarketplacePluginCardProps) {
 }
 
 function InstallStateBadge({ state }: { state: InstallState }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   if (state.status === 'not_installed') {
     return <Badge variant='outline'>{t('Not installed')}</Badge>
   }
@@ -181,7 +181,11 @@ function InstallStateBadge({ state }: { state: InstallState }) {
       >
         <ArrowUpCircle aria-hidden='true' />
         <span className='font-mono'>
-          v{state.installedVersion} → v{state.latestVersion}
+          {formatValueChange(
+            `v${state.installedVersion}`,
+            `v${state.latestVersion}`,
+            i18n.resolvedLanguage || i18n.language
+          )}
         </span>
       </Badge>
     )
