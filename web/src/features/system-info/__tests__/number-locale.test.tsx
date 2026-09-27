@@ -26,6 +26,7 @@ import { api } from '@/lib/api'
 
 import { SystemInstancesPanel } from '../components/system-instances-panel'
 import { SystemTasksPanel } from '../components/system-tasks-panel'
+import { SystemTasksTable } from '../components/system-tasks-table'
 import type { SystemInstance } from '../types'
 
 const instance: SystemInstance = {
@@ -94,6 +95,30 @@ describe('system info numbers', () => {
 
     expect(await screen.findByText('۴۵٫۲%')).toBeInTheDocument()
     expect(screen.getByText(/every ۳۰s/)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['en', '75%'],
+    ['fa', '۷۵%'],
+  ])('in %s, writes the task progress as %s', async (language, expected) => {
+    await i18next.changeLanguage(language)
+    render(
+      <SystemTasksTable
+        tasks={[
+          {
+            id: 3,
+            task_id: 'b',
+            type: 'model_update',
+            status: 'running',
+            created_at: 100,
+            updated_at: 200,
+            state: { progress: 75 },
+          },
+        ]}
+      />
+    )
+
+    expect(screen.getByText(expected)).toBeInTheDocument()
   })
 
   it('in Persian, writes the task refresh interval with Persian digits', async () => {

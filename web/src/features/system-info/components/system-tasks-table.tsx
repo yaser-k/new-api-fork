@@ -33,7 +33,11 @@ import type {
   SystemTaskStatus,
 } from '@/features/system-settings/types'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatTimestampRelative, formatTimestampToDate } from '@/lib/format'
+import {
+  formatNumber,
+  formatTimestampRelative,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { SYSTEM_TASK_TYPE_LABEL } from '../constants'
@@ -146,7 +150,9 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
                     className={cn('w-24', PROGRESS_BAR_CLASS_NAME[task.status])}
                   />
                   <span className='text-muted-foreground w-10 text-end text-xs tabular-nums'>
-                    {progress === null ? '-' : `${progress}%`}
+                    {progress === null
+                      ? '-'
+                      : `${formatNumber(progress, locale)}%`}
                   </span>
                 </div>
               </TableCell>
