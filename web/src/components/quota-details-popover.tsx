@@ -48,7 +48,7 @@ export function QuotaDetailsPopover(props: QuotaDetailsPopoverProps) {
               variant='ghost'
               aria-label={props.triggerLabel}
               className={cn(
-                'h-auto w-full min-w-0 justify-start px-0 py-0.5 text-left font-normal hover:bg-transparent aria-expanded:bg-transparent',
+                'h-auto w-full min-w-0 justify-start px-0 py-0.5 text-start font-normal hover:bg-transparent aria-expanded:bg-transparent',
                 props.triggerClassName
               )}
             />
