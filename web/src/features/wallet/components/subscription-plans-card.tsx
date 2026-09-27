@@ -551,9 +551,9 @@ export function SubscriptionPlansCard({
               const reached = limit > 0 && count >= limit
 
               const benefits = [
-                `${t('Validity Period')}: ${formatDuration(plan, t)}`,
-                formatResetPeriod(plan, t) !== t('No Reset')
-                  ? `${t('Quota Reset')}: ${formatResetPeriod(plan, t)}`
+                `${t('Validity Period')}: ${formatDuration(plan, t, locale)}`,
+                formatResetPeriod(plan, t, locale) !== t('No Reset')
+                  ? `${t('Quota Reset')}: ${formatResetPeriod(plan, t, locale)}`
                   : null,
                 totalAmount > 0
                   ? `${t('Total Quota')}: ${formatQuota(totalAmount, locale)}`
