@@ -531,7 +531,7 @@ function RuleConditionRow({
         size='icon'
         onClick={onRemove}
         aria-label={t('Remove condition')}
-        className='ml-auto'
+        className='ms-auto'
       >
         <Trash2 className='text-destructive h-4 w-4' />
       </Button>
