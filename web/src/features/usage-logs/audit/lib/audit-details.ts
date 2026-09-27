@@ -43,6 +43,24 @@ function auditRoleName(role: number, t: TFunction, locale?: string): string {
   return AUDIT_ROLE_NAMES[role]
 }
 
+/**
+ * How the audit viewer shows a user or record with its ID: `name (ID: 1)`,
+ * as upstream shows it, in every language but Persian, where the ID label is
+ * translated and the name is isolated so a Latin name keeps its place.
+ */
+export function auditIdentity(
+  name: string,
+  id: string | number,
+  t: TFunction,
+  locale?: string
+): string {
+  if (!isPersianIntlLocale(locale)) {
+    return name ? `${name} (ID: ${id})` : `ID: ${id}`
+  }
+  if (!name) return `${t('ID')}: ${id}`
+  return `\u2068${name}\u2069 ${t('(ID: {{id}})', { id })}`
+}
+
 const TOKEN_AUDIT_OPERATIONS: Record<
   string,
   { labelKey: string; namedKey?: string }
@@ -413,7 +431,7 @@ export function buildAuditDetails(
       : entry.user_id
   let actor = actorName
   if (actorId) {
-    actor = actorName ? `${actorName} (ID: ${actorId})` : `ID: ${actorId}`
+    actor = auditIdentity(actorName, actorId, t, locale)
   }
   let actorRole = ''
   if ([1, 10, 100].includes(entry.actor_role)) {
@@ -436,7 +454,7 @@ export function buildAuditDetails(
       : undefined
   let target = targetName
   if (targetId !== undefined) {
-    target = targetName ? `${targetName} (ID: ${targetId})` : `ID: ${targetId}`
+    target = auditIdentity(targetName, targetId, t, locale)
   }
   if (target) {
     delete params.id

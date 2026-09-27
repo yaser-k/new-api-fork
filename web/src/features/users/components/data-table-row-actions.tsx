@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
@@ -56,7 +57,7 @@ import {
   ERROR_MESSAGES,
   isUserDeleted,
 } from '../constants'
-import { getUserActionMessage } from '../lib'
+import { getUserActionMessage, userActionName } from '../lib'
 import type { User, ManageUserAction } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
@@ -66,7 +67,8 @@ interface DataTableRowActionsProps {
 }
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
@@ -91,7 +93,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         toast.success(t(getUserActionMessage(action)))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to {{action}} user', { action }))
+        handleServerError(
+          result,
+          t('Failed to {{action}} user', {
+            action: userActionName(action, t, locale),
+          })
+        )
       }
     } catch (error) {
       handleServerError(error, t(ERROR_MESSAGES.UNEXPECTED))

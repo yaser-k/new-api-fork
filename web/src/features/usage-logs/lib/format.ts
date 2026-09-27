@@ -25,6 +25,7 @@ import {
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
 import { loginMethodLabel } from '@/features/security/components/login-session-utils'
+import { userActionName } from '@/features/users/lib/user-actions'
 import { isPersianIntlLocale } from '@/i18n/languages'
 import { ROLE, getRoleLabelKey } from '@/lib/roles'
 
@@ -616,6 +617,9 @@ export function renderAuditContent(
     Object.values<number>(ROLE).includes(params.role)
   ) {
     params.role = t(getRoleLabelKey(params.role))
+  }
+  if (op.action === 'user.manage' && typeof params.action === 'string') {
+    params.action = userActionName(params.action, t, locale)
   }
   // `generic` interpolates the HTTP method, which stays as recorded.
   if (op.action !== 'generic' && typeof params.method === 'string') {

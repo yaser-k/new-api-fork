@@ -73,6 +73,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
+import { auditIdentity } from '../../audit/lib/audit-details'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -561,9 +562,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
     const hasUsername = username != null && String(username).trim() !== ''
     const hasId = id != null && String(id).trim() !== ''
     if (!hasUsername && !hasId) return null
-    if (hasUsername && hasId) return `${username} (ID: ${id})`
-    if (hasUsername) return String(username)
-    return `ID: ${id}`
+    if (hasUsername && !hasId) return String(username)
+    return auditIdentity(
+      hasUsername ? String(username) : '',
+      String(id),
+      t,
+      locale
+    )
   })()
   const authMethodLabel = (() => {
     if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
