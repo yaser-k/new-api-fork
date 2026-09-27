@@ -57,7 +57,11 @@ import type {
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
 import { isPersianIntlLocale, toIntlLocale } from '@/i18n/languages'
-import { formatQuota, formatTimestampToDate } from '@/lib/format'
+import {
+  formatFixed,
+  formatQuota,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -544,7 +548,11 @@ export function SubscriptionPlansCard({
               const plan = p?.plan
               if (!plan) return null
               const totalAmount = Number(plan.total_amount || 0)
-              const price = Number(plan.price_amount || 0).toFixed(2)
+              const price = formatFixed(
+                Number(plan.price_amount || 0),
+                2,
+                locale
+              )
               const isPopular = index === 0 && plans.length > 1
               const limit = Number(plan.max_purchase_per_user || 0)
               const count = planPurchaseCountMap.get(plan.id) || 0
