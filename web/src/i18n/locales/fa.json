@@ -3515,6 +3515,7 @@
     "Pass-through requires native forwarding": "عبور مستقیم فقط با ارسال بدون تبدیل ممکن است",
     "Passkey": "کلید عبور",
     "Passkey Authentication": "احراز هویت با کلید عبور",
+    "Passkey authentication is disabled.": "ورود با کلید عبور غیرفعال است.",
     "Passkey display name": "نام نمایشی کلید عبور",
     "Passkey domain change blocked: {{domains}}; affected {{known}}; unknown {{unknown}}": "تغییر دامنه‌های کلید عبور مسدود شد: ⁨{{domains}}⁩؛ تحت تأثیر {{known}}؛ نامشخص {{unknown}}",
     "Passkey domain update failed": "به‌روزرسانی دامنه‌های کلید عبور ناموفق بود",
