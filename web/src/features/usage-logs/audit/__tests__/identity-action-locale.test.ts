@@ -100,6 +100,16 @@ describe('audit identity and action in Persian', () => {
   })
 })
 
+describe('audit action field in Persian', () => {
+  test('the action field shows the Persian action label', () => {
+    const detail = buildAuditDetails(userManage, faT, toIntlLocale('fa'))
+
+    expect(detail.fields).toContainEqual(
+      expect.objectContaining({ value: 'ارتقا به مدیر' })
+    )
+  })
+})
+
 // Other languages show what upstream shows.
 describe('audit identity and action in other languages matches upstream', () => {
   test('in English, keeps the ID label and the recorded action', () => {
@@ -108,6 +118,9 @@ describe('audit identity and action in other languages matches upstream', () => 
     expect(detail.actor).toBe('root-user (ID: 1)')
     expect(detail.target).toBe('alice (ID: 7)')
     expect(detail.summary).toBe('Performed promote on user alice (ID: 7)')
+    expect(detail.fields).toContainEqual(
+      expect.objectContaining({ value: 'promote' })
+    )
   })
 
   test('in Chinese, keeps the ID label and the recorded action', () => {

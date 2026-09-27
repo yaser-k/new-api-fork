@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 
 import { loginMethodLabel } from '@/features/security/components/login-session-utils'
+import { userActionName } from '@/features/users/lib/user-actions'
 import { isPersianIntlLocale } from '@/i18n/languages'
 import { ROLE, getRoleLabelKey } from '@/lib/roles'
 
@@ -489,6 +490,9 @@ export function buildAuditDetails(
     [0, 1, 10, 100].includes(params.role)
   ) {
     params.role = auditRoleName(params.role, t, locale)
+  }
+  if (action === 'user.manage' && typeof params.action === 'string') {
+    params.action = userActionName(params.action, t, locale)
   }
   if (typeof params.method === 'string') {
     params.method = loginMethodLabel(params.method, t)
