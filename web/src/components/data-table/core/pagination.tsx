@@ -34,6 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatFixed } from '@/lib/format'
 import { cn, getPageNumbers } from '@/lib/utils'
 
 type DataTablePaginationProps<TData> = {
@@ -51,7 +53,8 @@ export function DataTablePagination<TData>({
   table,
   compact = false,
 }: DataTablePaginationProps<TData>) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const pagination = table.getState().pagination
   const currentPage = pagination.pageIndex + 1
   const pageSize = pagination.pageSize
@@ -84,7 +87,8 @@ export function DataTablePagination<TData>({
             <ChevronLeftIcon className='rtl:rotate-180' />
           </Button>
           <span className='tabular-nums' aria-live='polite'>
-            {currentPage} / {Math.max(1, totalPages)}
+            {formatFixed(currentPage, 0, locale)} /{' '}
+            {formatFixed(Math.max(1, totalPages), 0, locale)}
           </span>
           <Button
             variant='outline'
