@@ -57,11 +57,7 @@ import type {
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
 import { isPersianIntlLocale, toIntlLocale } from '@/i18n/languages'
-import {
-  formatFixed,
-  formatQuota,
-  formatTimestampToDate,
-} from '@/lib/format'
+import { formatFixed, formatQuota, formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -403,7 +399,7 @@ export function SubscriptionPlansCard({
           {hasAny && (
             <>
               <Separator className='my-3' />
-              <div className='max-h-64 space-y-3 overflow-y-auto pr-1'>
+              <div className='max-h-64 space-y-3 overflow-y-auto pe-1'>
                 {allSubscriptions.map((sub) => {
                   const subscription = sub.subscription
                   const totalAmount = Number(subscription?.amount_total || 0)
@@ -519,7 +515,7 @@ export function SubscriptionPlansCard({
                           t('Unlimited')
                         )}
                         {totalAmount > 0 && (
-                          <span className='ml-2'>
+                          <span className='ms-2'>
                             {t('Used')} {usagePercent}%
                           </span>
                         )}
