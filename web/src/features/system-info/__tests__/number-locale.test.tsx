@@ -128,4 +128,13 @@ describe('system info numbers', () => {
 
     expect(await screen.findByText(/every ۸s/)).toBeInTheDocument()
   })
+
+  it('in Persian, writes the active task count with Persian digits', async () => {
+    await i18next.changeLanguage('fa')
+    mockApi()
+    renderWithClient(<SystemTasksPanel />)
+
+    await screen.findByText(/every ۸s/)
+    expect(screen.getByText('۱')).toBeInTheDocument()
+  })
 })

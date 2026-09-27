@@ -145,7 +145,9 @@ export function SystemTasksPanel() {
                     {t('Tasks currently pending or running.')}
                   </p>
                 </div>
-                <Badge variant='outline'>{activeTasks.length}</Badge>
+                <Badge variant='outline'>
+                  {formatNumber(activeTasks.length, locale)}
+                </Badge>
               </div>
               {activeTasks.length > 0 ? (
                 <SystemTasksTable tasks={activeTasks} />
