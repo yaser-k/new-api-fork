@@ -381,7 +381,7 @@ export function useCommonLogsColumns(
                 variant={config.color as StatusBadgeProps['variant']}
                 size='sm'
                 copyable={false}
-                className='-ml-1.5 !text-xs [&_span]:!text-xs'
+                className='-ms-1.5 !text-xs [&_span]:!text-xs'
               />
             </div>
           )
@@ -495,7 +495,7 @@ export function useCommonLogsColumns(
                       {affinity && (
                         <button
                           type='button'
-                          className='absolute -top-1 -right-1 leading-none text-amber-500'
+                          className='absolute -end-1 -top-1 leading-none text-amber-500'
                           onClick={(e) => {
                             e.stopPropagation()
                             setAffinityTarget({
@@ -575,7 +575,7 @@ export function useCommonLogsColumns(
             return (
               <button
                 type='button'
-                className='flex items-center gap-1.5 text-left'
+                className='flex items-center gap-1.5 text-start'
                 onClick={(e) => {
                   e.stopPropagation()
                   setSelectedUserId(log.user_id)

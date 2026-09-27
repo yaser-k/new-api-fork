@@ -781,7 +781,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
               <Button
                 variant='ghost'
                 size='sm'
-                className='absolute top-0 right-0 h-5 w-5 p-0'
+                className='absolute end-0 top-0 h-5 w-5 p-0'
                 onClick={() => copyToClipboard(conversionLabel)}
                 title={t('Copy to clipboard')}
                 aria-label={t('Copy to clipboard')}
@@ -792,7 +792,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   <Copy className='size-3' />
                 )}
               </Button>
-              <div className='min-w-0 space-y-1 pr-6'>
+              <div className='min-w-0 space-y-1 pe-6'>
                 {other?.request_path && (
                   <DetailRow
                     label={t('Path')}
@@ -1365,7 +1365,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
               <Button
                 variant='ghost'
                 size='sm'
-                className='absolute top-1.5 right-1.5 h-5 w-5 p-0'
+                className='absolute end-1.5 top-1.5 h-5 w-5 p-0'
                 onClick={() => copyToClipboard(details)}
                 title={t('Copy to clipboard')}
                 aria-label={t('Copy to clipboard')}
@@ -1376,7 +1376,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   <Copy className='size-3' />
                 )}
               </Button>
-              <p className='min-w-0 pr-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
+              <p className='min-w-0 pe-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
                 {details}
               </p>
             </div>
