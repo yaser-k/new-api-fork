@@ -155,7 +155,11 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
               </TableCell>
               <TableCell
                 className='text-muted-foreground py-3 align-middle text-xs whitespace-nowrap'
-                title={formatTimestampToDate(task.updated_at)}
+                title={formatTimestampToDate(
+                  task.updated_at,
+                  'seconds',
+                  locale
+                )}
               >
                 {formatTimestampRelative(task.updated_at, 'seconds', locale)}
               </TableCell>

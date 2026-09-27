@@ -456,7 +456,11 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
                 </TableCell>
                 <TableCell
                   className='text-muted-foreground py-2.5 align-middle text-xs whitespace-nowrap'
-                  title={formatTimestampToDate(instance.last_seen_at)}
+                  title={formatTimestampToDate(
+                    instance.last_seen_at,
+                    'seconds',
+                    locale
+                  )}
                 >
                   {formatTimestampRelative(
                     instance.last_seen_at,
