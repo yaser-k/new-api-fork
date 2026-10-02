@@ -42,19 +42,6 @@ export const PARTIAL_INTERFACE_LANGUAGES = ['fa'] as const
  */
 export const PERSIAN_INTL_LOCALE = 'fa'
 
-/**
- * Whether an Intl locale tag (the result of `toIntlLocale`) is Persian. Dates
- * shown in Persian use the Solar Hijri calendar; see `formatDisplayDate`.
- */
-export function isPersianIntlLocale(locale?: string | null): boolean {
-  if (!locale) return false
-  try {
-    return new Intl.Locale(locale).language === 'fa'
-  } catch {
-    return false
-  }
-}
-
 export type InterfaceLanguageCode =
   (typeof INTERFACE_LANGUAGE_OPTIONS)[number]['code']
 
@@ -68,39 +55,9 @@ export function getInterfaceLanguageDirection(
   value?: string | null
 ): TextDirection {
   const code = normalizeInterfaceLanguage(value)
-  const option = INTERFACE_LANGUAGE_OPTIONS.find((lang) => lang.code === code)
-  return option && 'dir' in option ? option.dir : 'ltr'
-}
-
-/**
- * Join a before and an after value with an arrow that reads in the direction
- * of the interface language (an interface code or an Intl locale).
- * Left-to-right languages get `from → to`, unchanged. Right-to-left languages
- * wrap each value in FSI … PDI, so the bidi algorithm keeps it in one piece,
- * and point the arrow left, so `from ← to` reads from right to left.
- */
-export function formatValueChange(
-  from: string,
-  to: string,
-  language?: string | null
-): string {
-  return formatValueChain([from, to], language)
-}
-
-/**
- * Join a sequence of values (a retry chain, for example) with arrows that
- * read in the direction of the interface language, the same way as
- * `formatValueChange`: `a → b → c` left to right, `a ← b ← c` with each value
- * isolated right to left.
- */
-export function formatValueChain(
-  values: readonly string[],
-  language?: string | null
-): string {
-  if (getInterfaceLanguageDirection(language) === 'ltr') {
-    return values.join(' → ')
-  }
-  return values.map((value) => `\u2068${value}\u2069`).join(' ← ')
+  const option: { code: string; dir?: TextDirection } | undefined =
+    INTERFACE_LANGUAGE_OPTIONS.find((lang) => lang.code === code)
+  return option?.dir ?? 'ltr'
 }
 
 export function normalizeInterfaceLanguage(value?: string | null): string {
@@ -154,6 +111,37 @@ export function convertDetectedLanguage(value: string): string {
 }
 
 /**
+ * Join a before and an after value with an arrow that reads in the direction
+ * of the interface language (an interface code or an Intl locale).
+ * Left-to-right languages get `from → to`, unchanged. Right-to-left languages
+ * wrap each value in FSI … PDI, so the bidi algorithm keeps it in one piece,
+ * and point the arrow left, so `from ← to` reads from right to left.
+ */
+export function formatValueChange(
+  from: string,
+  to: string,
+  language?: string | null
+): string {
+  return formatValueChain([from, to], language)
+}
+
+/**
+ * Join a sequence of values (a retry chain, for example) with arrows that
+ * read in the direction of the interface language, the same way as
+ * `formatValueChange`: `a → b → c` left to right, `a ← b ← c` with each value
+ * isolated right to left.
+ */
+export function formatValueChain(
+  values: readonly string[],
+  language?: string | null
+): string {
+  if (getInterfaceLanguageDirection(language) === 'ltr') {
+    return values.join(' → ')
+  }
+  return values.map((value) => `\u2068${value}\u2069`).join(' ← ')
+}
+
+/**
  * Convert an interface language code (the values i18next uses, such as `zhCN` /
  * `zhTW`) into a valid BCP-47 locale tag that the `Intl.*` APIs accept.
  *
@@ -178,5 +166,18 @@ export function toIntlLocale(value?: string | null): string | undefined {
     return Intl.getCanonicalLocales(value)[0]
   } catch {
     return undefined
+  }
+}
+
+/**
+ * Whether an Intl locale tag (the result of `toIntlLocale`) is Persian. Dates
+ * shown in Persian use the Solar Hijri calendar; see `formatDisplayDate`.
+ */
+export function isPersianIntlLocale(locale?: string | null): boolean {
+  if (!locale) return false
+  try {
+    return new Intl.Locale(locale).language === 'fa'
+  } catch {
+    return false
   }
 }

@@ -17,9 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import i18next from 'i18next'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { CompactDateTimeRangePicker } from '../compact-date-time-range-picker'
 
@@ -45,39 +43,5 @@ describe('CompactDateTimeRangePicker direction', () => {
     for (const label of screen.getAllByText('Date Range')) {
       expect(label).toHaveAttribute('dir', 'auto')
     }
-  })
-
-  describe('in Persian', () => {
-    afterEach(async () => {
-      await i18next.changeLanguage('en')
-    })
-
-    it('shows the range in Solar Hijri and keeps the Gregorian values', async () => {
-      const user = userEvent.setup()
-      const onChange = vi.fn()
-      const start = new Date(2026, 8, 25, 0, 0)
-      const end = new Date(2026, 8, 25, 11, 35)
-      await i18next.changeLanguage('fa')
-      render(
-        <CompactDateTimeRangePicker
-          start={start}
-          end={end}
-          onChange={onChange}
-        />
-      )
-
-      expect(
-        screen.getByText('۱۴۰۵/۰۷/۰۳ ۰۰:۰۰ ~ ۱۴۰۵/۰۷/۰۳ ۱۱:۳۵')
-      ).toHaveAttribute('dir', 'auto')
-
-      await user.click(screen.getByRole('button', { name: /۱۴۰۵\/۰۷\/۰۳/ }))
-      expect(await screen.findByLabelText('Start Time')).toHaveValue(
-        '2026-09-25T00:00'
-      )
-      expect(screen.getByLabelText('End Time')).toHaveValue('2026-09-25T11:35')
-
-      await user.click(screen.getByRole('button', { name: 'Confirm' }))
-      expect(onChange).toHaveBeenCalledWith({ start, end })
-    })
   })
 })

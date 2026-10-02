@@ -33,9 +33,9 @@ afterEach(() => {
 
 describe('formatQuota locale', () => {
   it.each(
-    INTERFACE_LANGUAGE_OPTIONS.filter((option) => option.code !== 'fa').map(
-      (option) => option.code
-    )
+    INTERFACE_LANGUAGE_OPTIONS.filter(
+      (option) => (option.code as string) !== 'fa'
+    ).map((option) => option.code)
   )('renders Latin digits for the %s interface language', (code) => {
     const formatted = formatQuota(TWELVE_DOLLARS, toIntlLocale(code))
 
@@ -60,9 +60,9 @@ describe('formatQuota locale', () => {
 
 describe('formatLogQuota locale', () => {
   it.each(
-    INTERFACE_LANGUAGE_OPTIONS.filter((option) => option.code !== 'fa').map(
-      (option) => option.code
-    )
+    INTERFACE_LANGUAGE_OPTIONS.filter(
+      (option) => (option.code as string) !== 'fa'
+    ).map((option) => option.code)
   )('renders Latin digits for the %s interface language', (code) => {
     const formatted = formatLogQuota(TWELVE_DOLLARS, toIntlLocale(code))
 

@@ -36,7 +36,7 @@ const LOCAL_DATE = new Date(2026, 8, 25, 15, 5, 9)
 const TS = Math.floor(LOCAL_DATE.getTime() / 1000)
 const FA = toIntlLocale('fa')
 const NON_PERSIAN_CODES = INTERFACE_LANGUAGE_OPTIONS.filter(
-  (option) => option.code !== 'fa'
+  (option) => (option.code as string) !== 'fa'
 ).map((option) => option.code)
 
 afterEach(() => {

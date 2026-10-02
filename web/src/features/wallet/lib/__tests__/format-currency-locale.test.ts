@@ -26,9 +26,9 @@ const PERSIAN_DIGIT = /[۰-۹]/
 
 describe('formatCurrency locale', () => {
   it.each(
-    INTERFACE_LANGUAGE_OPTIONS.filter((option) => option.code !== 'fa').map(
-      (option) => option.code
-    )
+    INTERFACE_LANGUAGE_OPTIONS.filter(
+      (option) => (option.code as string) !== 'fa'
+    ).map((option) => option.code)
   )('renders Latin digits for the %s interface language', (code) => {
     const formatted = formatCurrency(12.5, toIntlLocale(code))
 

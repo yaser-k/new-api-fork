@@ -29,9 +29,9 @@ const PDI = '⁩'
 
 describe('formatValueChange', () => {
   it.each(
-    INTERFACE_LANGUAGE_OPTIONS.filter((option) => option.code !== 'fa').map(
-      (option) => option.code
-    )
+    INTERFACE_LANGUAGE_OPTIONS.filter(
+      (option) => (option.code as string) !== 'fa'
+    ).map((option) => option.code)
   )('for %s, keeps the left-to-right arrow and the plain values', (code) => {
     expect(formatValueChange('v1.0.0', 'v1.2.0', code)).toBe('v1.0.0 → v1.2.0')
   })
@@ -56,9 +56,9 @@ describe('formatValueChange', () => {
 
 describe('formatValueChain', () => {
   it.each(
-    INTERFACE_LANGUAGE_OPTIONS.filter((option) => option.code !== 'fa').map(
-      (option) => option.code
-    )
+    INTERFACE_LANGUAGE_OPTIONS.filter(
+      (option) => (option.code as string) !== 'fa'
+    ).map((option) => option.code)
   )('for %s, joins the values with left-to-right arrows', (code) => {
     expect(formatValueChain(['3', '7', '12'], code)).toBe('3 → 7 → 12')
   })
