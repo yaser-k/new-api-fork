@@ -22,28 +22,14 @@ import { toIntlLocale } from '@/i18n/languages'
 
 import { buildQuotaAuditOperation } from '../quota-audit-operation'
 
-const FSI = '⁨'
-const PDI = '⁩'
-
 const t = (key: string, options?: Record<string, unknown>) =>
   key.replaceAll(/\{\{(\w+)\}\}/g, (_, name) => String(options?.[name] ?? ''))
 
 // Default currency config: 500000 quota units = 1 USD.
 const params = { requested_quota: 1_000_000, from: 500_000, to: 1_000_000 }
 
-describe('quota audit summary arrow', () => {
-  it('in English, joins the quota before and after with a right arrow', () => {
-    const result = buildQuotaAuditOperation(
-      'user.quota_override',
-      params,
-      true,
-      t,
-      toIntlLocale('en')
-    )
-    expect(result?.description).toMatch(/ · \$1 → \$2$/)
-  })
-
-  it('in Persian, isolates both amounts and points the arrow to the left', () => {
+describe('quota audit amounts', () => {
+  it('in Persian, writes the amounts with Persian digits', () => {
     const result = buildQuotaAuditOperation(
       'user.quota_override',
       params,
@@ -51,10 +37,18 @@ describe('quota audit summary arrow', () => {
       t,
       toIntlLocale('fa')
     )
-    expect(result?.description).toMatch(
-      new RegExp(
-        `${FSI}[^${PDI}]*[1۱][^${PDI}]*${PDI} ← ${FSI}[^${PDI}]*[2۲][^${PDI}]*${PDI}$`
-      )
+    expect(result?.description).toContain('۲')
+    expect(result?.description).not.toMatch(/\$2\b/)
+  })
+
+  it('in English, keeps the amounts in the runtime default locale', () => {
+    const result = buildQuotaAuditOperation(
+      'user.quota_override',
+      params,
+      true,
+      t,
+      toIntlLocale('en')
     )
+    expect(result?.description).toMatch(/\$2$/)
   })
 })

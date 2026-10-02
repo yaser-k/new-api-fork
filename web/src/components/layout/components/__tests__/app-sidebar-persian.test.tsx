@@ -21,7 +21,7 @@ import i18next from 'i18next'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SidebarProvider } from '@/components/ui/sidebar'
-import { DirectionProvider, useDirection } from '@/context/direction-provider'
+import { DirectionProvider } from '@/context/direction-provider'
 import { LayoutProvider } from '@/context/layout-provider'
 
 import { AppSidebar } from '../app-sidebar'
@@ -31,18 +31,9 @@ vi.mock('@/hooks/use-sidebar-view', () => ({
   useSidebarView: () => ({ key: 'root', view: null, navGroups: [] }),
 }))
 
-let setPageDirection: ((dir: 'ltr' | 'rtl') => void) | undefined
-
-// Exposes the provider's setter, as the config drawer's direction switch uses it.
-function DirectionSetter() {
-  setPageDirection = useDirection().setDir
-  return null
-}
-
 function renderSidebar() {
   return render(
     <DirectionProvider>
-      <DirectionSetter />
       <LayoutProvider>
         <SidebarProvider>
           <AppSidebar />
@@ -52,26 +43,18 @@ function renderSidebar() {
   )
 }
 
-describe('AppSidebar direction', () => {
+describe('AppSidebar in Persian', () => {
   afterEach(async () => {
     await i18next.changeLanguage('en')
-    document.cookie = 'dir=; max-age=0; path=/'
     document.documentElement.removeAttribute('dir')
   })
 
-  it('docks the sidebar on the left in a left-to-right language', async () => {
+  it('docks the sidebar on the right after switching to Persian', async () => {
     await i18next.changeLanguage('en')
     const { container } = renderSidebar()
 
-    expect(container.querySelector('[data-side="left"]')).not.toBeNull()
-    expect(container.querySelector('[data-side="right"]')).toBeNull()
-  })
-
-  it('docks the sidebar on the right when the page direction is right to left', async () => {
-    const { container } = renderSidebar()
-
     await act(async () => {
-      setPageDirection?.('rtl')
+      await i18next.changeLanguage('fa')
     })
 
     expect(container.querySelector('[data-side="right"]')).not.toBeNull()

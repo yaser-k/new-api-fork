@@ -108,13 +108,6 @@ describe('renderAuditContent in Persian', () => {
       'POST /api/x'
     )
   })
-
-  test('quota amounts use Persian digits', () => {
-    const persian = renderAuditContent(quotaAdd, faI18n.t, toIntlLocale('fa'))
-
-    expect(persian).toContain('۱')
-    expect(persian).not.toMatch(/\$1\b/)
-  })
 })
 
 // The expected strings are what upstream renders for the same records: the
