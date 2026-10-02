@@ -2,14 +2,14 @@
 
 Temporary review folder. Delete `.fa-review/` before any upstream PR.
 
-Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, based on `upstream/main` at `c2b7a9a` (upstream had not moved in session 12; no upstream merge). Upstream issue: QuantumNous/new-api#7198. This file is written so it can serve as the summary for the maintainers; the session details, verification and open items follow the summary.
+Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, merged with `upstream/main` at `1a4166d` in session 13 (merge `d95fb41`). Upstream issue: QuantumNous/new-api#7198. Session 13 also built the three upstream-ready branches `pr/fa-rtl-layout`, `pr/fa-locale` and `pr/fa-dates-numbers` (section 5); their draft PR texts are `pr-rtl-layout.md`, `pr-locale.md` and `pr-dates-numbers.md`, and the file-by-file coverage is `coverage.md`, all in this folder.
 
 ## 1. What the Persian locale covers
 
 | | |
 | --- | --- |
-| Keys | **5733** of the 6795 keys in `en.json` are translated in `fa.json`. `fa` is a partial locale: a key that is missing from `fa.json` shows its English text (per key, at run time). |
-| Keys still English | 1062: **161** that the code uses (brand and provider names, URLs, example values, identifiers, unit letters glued to numbers, fragments that cannot be ordered in Persian; full list with reasons in section 4) and **901** that no code in `web/src` uses (section 4) |
+| Keys | **5817** of the 6873 keys in `en.json` are translated in `fa.json`. `fa` is a partial locale: a key that is missing from `fa.json` shows its English text (per key, at run time). |
+| Keys still English | 1056 (session 12's lists in section 4 still apply; session 13 translated the 95 keys upstream added and `Logs` and `Failed to save`, which upstream's permission catalog now uses, and dropped 13 keys upstream removed): **161** that the code uses (brand and provider names, URLs, example values, identifiers, unit letters glued to numbers, fragments that cannot be ordered in Persian; full list with reasons in section 4) and **901** that no code in `web/src` uses (section 4) |
 | Pages | Every page and shared component under `web/src`: auth and sign-up, home, pricing and model details, rankings, dashboard (overview, models, flow, users), API keys, playground and chat, usage, task and drawing logs, audit log, wallet and subscriptions, profile and security, channels, models and deployments, users, redemption codes, subscriptions admin, system info, task plugins, the setup wizard, every system settings section, the legal pages, error pages and the about page |
 | Dates | Displayed dates are Solar Hijri in numeric year/month/day order with 24-hour time (`۱۴۰۵/۰۷/۰۳ ۱۵:۰۵:۰۹`); relative times are Persian («۳ دقیقه پیش»). Table and log cells carry the Gregorian date and time as their `title`. Values sent to the API, filters, inputs, exports and copied text stay Gregorian. Dashboard chart axes are Solar Hijri and stay in time order across Nowruz |
 | Date pickers | `calendar.tsx` (used by the date and date-time pickers) shows the Solar Hijri calendar through `@daypicker/persian`, loaded lazily only for Persian; the returned `Date` values are unchanged |
@@ -19,138 +19,60 @@ Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, based on `upstream/main` a
 ### Rules and tooling
 
 - `docs/i18n/fa.md` (new file): locale status, date rules, a glossary of 93 terms with reasons, the terms that stay English, eleven typography rules (ZWNJ, Persian ی and ک, digits, ۀ, punctuation, spacing around Latin words, FSI … PDI isolates around interpolated left-to-right values, RLI … PDI around Persian placeholders of left-to-right inputs), style and the automated check.
-- `bun run i18n:check-fa` (`web/scripts/check-fa.mjs`): exits 1 on any finding. It checks the typography rules, isolate pairing, empty values, stray whitespace, keys missing from `en.json`, and parses `web/src` with `@babel/parser` (now a declared dev dependency, 7.29.7, single copy in `bun.lock`) to check the placeholders of `dir='ltr'` inputs. Today: `check-fa: 5733 keys, no findings`.
+- `bun run i18n:check-fa` (`web/scripts/check-fa.mjs`): exits 1 on any finding. It checks the typography rules, isolate pairing, empty values, stray whitespace, keys missing from `en.json`, and parses `web/src` with `@babel/parser` (now a declared dev dependency, 7.29.7, single copy in `bun.lock`) to check the placeholders of `dir='ltr'` inputs. Today: `check-fa: 5817 keys, no findings`.
 - `bun run i18n:sync` reports Persian as partial and never fills it with English. The i18n skill, `AGENTS.md` and `web/AGENTS.md` describe `fa` as the optional partial eighth locale.
 
 ### What differs from upstream for other languages
 
 1. **Number formatting (split-plan PR 5).** Money, quotas and the numbers fixed so far follow the interface language instead of the browser language or a raw value. For English the output is identical (tested for each change). French, Russian and Vietnamese now show a decimal comma where the interface formats decimals (for example the response-time badge `1,23 s`, chart totals `$22,98`, the subscriptions list price and, since session 11, the plan price on the purchase dialog and wallet plan cards); Chinese and Japanese keep the decimal point. Grouping follows the interface language where it already applied (flow numbers, system info bytes). The compact table page counter and the percent sign (session 11) change only Persian: the counter has no grouping and the sign is `%` in every other language.
-2. **The 17 keys from the upstream fix branches** merged into `feat/fa-locale` (9 from `fix/legal-consent-sentence`, 8 from `fix/ui-label-strings`), present in all seven required locales.
-3. **Public Sans (branch `fix/public-sans-font`, merged in session 11).** `--font-sans` now names the face that `@fontsource-variable/public-sans` registers (`'Public Sans Variable', 'Public Sans', sans-serif`), so left-to-right languages render in Public Sans instead of the browser's generic sans-serif (Chromium: sample line 820.06 px → 854.92 px; one 26 832-byte Latin woff2 now downloaded). Persian is unchanged: `html:lang(fa)` still sets Vazirmatn, and no Public Sans face loads on a Persian page (checked on the running app).
+2. **The 9 legal-consent keys** (`fix/legal-consent-sentence`), present in all seven required locales. The other upstream fix branches are now upstream's own code (#7628, section 2).
+3. **Public Sans** (now upstream's own fix, #7628; our branch `fix/public-sans-font` is superseded). `--font-sans` now names the face that `@fontsource-variable/public-sans` registers (`'Public Sans Variable', 'Public Sans', sans-serif`), so left-to-right languages render in Public Sans instead of the browser's generic sans-serif (Chromium: sample line 820.06 px → 854.92 px; one 26 832-byte Latin woff2 now downloaded). Persian is unchanged: `html:lang(fa)` still sets Vazirmatn, and no Public Sans face loads on a Persian page (checked on the running app).
 
-Nothing else changes for left-to-right languages: every RTL fix uses logical classes or RTL-only rules, and every Persian-only label (audit roles, sign-in methods, the audit ID label and user action names) is guarded by the locale; tests pin the English (and where relevant Chinese) output. Among the locale files only `fa.json` differs from upstream apart from those 17 keys (checked: each of en, fr, ja, ru, vi, zh, zh-TW has 17 added, 0 removed, 0 changed keys).
+Nothing else changes for left-to-right languages: every RTL fix uses logical classes or RTL-only rules, and every Persian-only label (audit roles, sign-in methods, the audit ID label and user action names) is guarded by the locale; tests pin the English (and where relevant Chinese) output. Among the locale files only `fa.json` differs from upstream apart from those 9 keys.
 
-## 2. This session (session 12): right-to-left layout sweep
+## 2. This session (session 13): upstream merge and the three upstream branches
 
-Session 11's details (its decisions, the Public Sans branch, the leftovers C1 to C4) are in `git show 7f9b789:.fa-review/REPORT.md`, section 2. This session changes layout only: no locale file changes (all eight identical to `7f9b789`), no new upstream branch.
+Session 12's details (dashboard setup guide, the sweep of physical classes, the guard) are in `git show 16bfa21:.fa-review/REPORT.md`, section 2.
 
-### A. Dashboard overview: the setup guide (`6dafe80`)
+### A. Merge of `upstream/main` (`1a4166d`, 19 commits since `789c970`) into `feat/fa-locale`: `d95fb41`
 
-| Part | Before (RTL) | Fix | Measured in Persian, 1440 px (before → after) |
-| --- | --- | --- | --- |
-| Quick action cards («سکو را آماده نگه دارید») | `QuickActionItem` used `text-left`: title and description sat at the far (left) side, away from their icon | `text-start` | title text x 56–129 → 227–300, icon at 306–342 |
-| Setup steps | `StartStepItem` used `text-left` | `text-start` | text now starts next to the step icon |
-| Timeline line | `left-4`: ran under the arrows on the left | `start-4` | line x 794 → 1169; step circle 1154–1186 (centre 1170) |
-| Decorative backdrop | code texture at `right-0`/`right-3`, `text-right`: it ran behind the heading | mirrored (see decision) | texture 696–1203 → 405–912; heading at 813–1195 |
+| Conflict | Resolution |
+| --- | --- |
+| `dashboard/lib/charts.ts` | upstream's ordering code (#7628, chart order across a year boundary); our `locale` arguments kept on it. Our `chart-time-order` test dropped (upstream's `charts.test.ts` covers it) |
+| `pricing/model-details.tsx`, `usage-logs/.../common-logs-columns.tsx` | upstream's code (#7628 fixed the same labels; our comment dropped) |
+| `wallet/recharge-form-card.tsx` | upstream's `Pay … <savings>• Save …</savings>` sentence, with our `locale` on the amounts |
+| `security/access-token-card.tsx` (modify/delete) | upstream's deletion accepted; our work moved to the new access-token components (below) |
+| `usage-logs/audit/audit-log-details-dialog.tsx`, `audit/lib/audit-details.ts` | both sides: upstream's options object (`scopeResources`) gains `locale`; callers and tests pass `{ locale }` |
+| `users/data-table-row-actions.tsx` | both sides (upstream's step-up verification, our Persian action name) |
+| `i18n/static-keys.ts` | upstream's access-token keys + our legal-consent keys; our redemption key dropped (upstream's) |
+| seven locale files | upstream's files, then the 9 legal-consent keys re-added through the i18n skill's script, then `bun run i18n:sync` (no hand edits) |
 
-Decision on the backdrop: **mirror it.** It is composed around the heading: the code texture and the glow sit on the far side from the heading and fade in toward it. Left physical, in RTL the texture lies behind the heading and the description and the glow's bright side sits under the text. The texture wrapper and `pre` use `end-0`/`end-3`; the glow position, the sweep angle and the two fade directions are CSS variables with `rtl:` values (`--setup-glow-x` 78% / 22%, `--setup-sweep` 112deg / 248deg, `--setup-fade` 90deg / 270deg). The code lines keep their own left-to-right direction (the global `unicode-bidi: plaintext` rule for `pre`), so `text-end` alone would stay right-aligned in RTL; `rtl:text-left` keeps them flush with the card edge, as `text-right` does in LTR (checked in Chromium: `text-align` left in RTL, right in LTR). In LTR every computed value is the same as before (78%, 112deg, 90deg, right, right-aligned).
+Where #7628 fixed the same bug as our merged fix branches (2FA step label, delete-account label, chart order, the six hard-coded labels, Public Sans, billing status), upstream's code, keys and tests are kept, and our tests for them are dropped: `billing-status-label`, `chart-time-order`, `font-sans`, `price-unit-note`, `delete-invalid-sentence`, `plan-status-label`, `tokens-header`, `inviter-label`, `preset-labels`.
 
-Test: `dashboard/overview/setup-guide` + 3 cases (quick action `text-start`, step link `text-start` and connector `start-4`, backdrop `end-3`/`end-0`/`rtl:text-left` and the glow variables): 3 failed / 6 passed before, 9 passed after.
+**New access-token components** (upstream `caca52f`, `4924361`): `access-tokens-card.tsx` (`pe-20`, `end-3` in the access records sheet), `access-token-edit-dialog.tsx` (`sm:me-auto`); in Persian the token list shows numeric Solar Hijri dates through `formatTimestampToDate` (other languages keep upstream's `Intl` medium date) with the Gregorian date as `title`. The audit "Expiration" field uses the shared date helper instead of `dayjs().format`. Upstream's `permission-matrix.tsx`: logical classes and a collapsed-group chevron that points to the inline end in RTL (`rtl:rotate-90`, open state `rotate-0`; checked in the built CSS order). Tests: `access-token-dates` (2), `permission-matrix-direction` (2), `expiry-date-locale` (2).
 
-### B. Sweep of the physical direction classes
+**Keys**: upstream added 102 keys to `en.json` and removed 16. All 95 new keys without a Persian value are translated (none skipped), `Save {{amount}}` moved to the new savings sentence, 13 Persian keys of removed keys dropped by the sync; then `Logs` and `Failed to save` (older keys that upstream's permission catalog now uses) were translated after the screenshots showed «Logs» in English. Guard: the 4 physical classes upstream added (permission matrix) are converted; the allowlist is unchanged.
 
-Scanner: the guard's own scan (section C) over `web/src` without tests. At `7f9b789`: **476 physical classes in 162 files** (the estimate of about 420 in 147 files counted fewer families). Now: **414 converted, 62 kept in 22 files**, each kept class listed with its reason in `web/src/styles/__tests__/physical-direction-allowlist.json` (table below).
+### B. Preparing the split (commits on `feat/fa-locale`)
 
-| Folder | Before | Converted | Kept |
-| --- | ---: | ---: | ---: |
-| components/ui | 161 | 128 | 33 |
-| components (other) | 83 | 60 | 23 |
-| features/channels | 81 | 81 | 0 |
-| features/models | 31 | 31 | 0 |
-| features/pricing | 27 | 27 | 0 |
-| features/usage-logs | 22 | 22 | 0 |
-| features/dashboard | 15 | 15 | 0 |
-| features/home | 10 | 4 | 6 |
-| features/wallet | 8 | 8 | 0 |
-| features/security | 8 | 8 | 0 |
-| features/keys | 6 | 6 | 0 |
-| features/redemption-codes | 6 | 6 | 0 |
-| features/subscriptions | 6 | 6 | 0 |
-| features/profile | 5 | 5 | 0 |
-| features/users | 4 | 4 | 0 |
-| features/system-settings | 3 | 3 | 0 |
-| **Total** | **476** | **414** | **62** |
+- `89af00d`: `languages.ts` reordered so each upstream branch adds its own block (direction helper written to type-check with or without an RTL language; arrow helpers after `convertDetectedLanguage`; `isPersianIntlLocale` at the end); the Solar Hijri half of the date-range test in its own file; tests that skip Persian compare the code as a string.
+- `16360b5`: the sidebar docking test sets the direction through the provider (the Persian switch case in its own file); the quota-audit arrow test accepts either digit set; the Persian quota amounts get their own test.
+- `020b9fc`: the code-isolation CSS rule at the end of `index.css`.
+- `a589e09`: `Logs`, `Failed to save` in Persian.
 
-How it was done: every reported class was read in context first and classified; the rest were swapped by file, line and token with one mapping (`ml/mr/pl/pr` → `ms/me/ps/pe`, `left/right` → `start/end`, `text-left/right` → `text-start/end`, `border-l/r` → `border-s/e`, `rounded-l/r` → `rounded-s/e`, `rounded-tl/tr/bl/br` → `rounded-ss/se/es/ee`, keeping variants, `-` and `!`), then the diff was reviewed per folder and formatted with `oxfmt` (the class sort order changes with the names). One commit per group: shared ui, other shared components, then each feature folder.
+### C. How the branches were built
 
-Beyond a plain swap:
+Each is a new branch from `upstream/main` (`1a4166d`), with no merge commits, no `.fa-review/` and nothing upstream already fixed. The diff of `feat/fa-locale` against upstream was split by hunk: every changed line was attributed with `git blame` to the commit that wrote it and mapped to the split plan (section 5); the commits that mixed concerns (`c78c83f`, `f01c5af`, `aa699fc`, `b2720c9`) were split line by line (number formatting → dates/numbers, classes → RTL, the sidebar side → RTL, the rest of the foundation → locale); a dozen hunks were split by hand. Decisions:
 
-- **Response renderer tables** (`3b19d75`): the Markdown parser reports an unaligned column as `left`, so an explicit `:---` cannot be told apart from no alignment; alignment is taken relative to the reading direction (`text-start`, `text-end`). Test `ai-elements/response-table-direction` (2 failed → 2 passed).
-- **Home page arrows** (`3f8fd7d`): the forward arrows of the hero and closing call-to-action buttons now turn in RTL (`rtl:rotate-180`; the hover nudge moves toward the inline end with `rtl:group-hover:-translate-x-0.5`). Test `home/arrow-direction` (3 failed → 3 passed).
-- **Overrides that only worked in LTR**, found while converting: the channel card's `!ml-0` cancelled the columns' `-ms-1.5` badge offset only in LTR (now `!ms-0`, `87f8da9`); the API key group cell's `ml-0` cancelled `BadgeCell`'s `-ms-1.5` only in LTR (now `ms-0`, `3afbf83`). In RTL the negative margin used to leak.
-- **tailwind-merge** does not merge a logical class with a later axis shorthand (`cn('ps-2', 'px-3')` keeps both and `ps-2` wins, where `cn('pl-2', 'px-3')` dropped `pl-2`). Every caller that passes `px-`, `mx-`, `inset-x-` or `border-x` to a component whose base class was converted was checked (single-line and multi-line JSX): the only overlaps are variant-scoped base classes (`has-data-[icon=…]:pe-2` on Button, Toggle, Tabs; the alert action padding), which twMerge never merged anyway. The English pixel comparison (section 6) covers the rendered pages.
-- Existing components reused: every fix changes classes on the existing components; no new component.
+1. The JS-level direction features (`formatValueChange`/`formatValueChain`: before/after arrows, the retry chain; `5e64f68`, `0c605b3`) go with the locale branch: they need a registered right-to-left language, which the RTL branch does not add. The RTL branch is CSS and markup only and is inert in left-to-right languages.
+2. Shared code needed by two branches is added identically in both, at the same place, so git merges it cleanly: `TextDirection`/`getInterfaceLanguageDirection` and the sidebar docking (RTL and locale), `isPersianIntlLocale` and the audit `locale` option (locale and dates/numbers).
+3. `docs/i18n/fa.md` stays whole in the locale branch (its date rules take effect with the dates branch; said in that PR text).
+4. `quota-audit-operation.ts`: the arrow to the locale branch, the Persian amounts to the dates/numbers branch; `calendar.tsx`: the class swaps to RTL, the Solar Hijri rewrite (with upstream's physical classes) to dates/numbers.
+5. Dependencies: each branch's `bun.lock` is seeded from `feat/fa-locale`'s, so `@daypicker/persian` stays at 10.0.1 with a single `react-day-picker` (a fresh resolve picked 10.0.2 and a second copy, as `docs/i18n/fa.md` warns).
 
-**Lint cleanup first** (`fa1607a`): six touched files already had lint errors on upstream main (`prompt-input.tsx`, `risk-acknowledgement-dialog.tsx`, `tag-input.tsx`, `models-filter-dialog.tsx`, `deployment-access-guard.tsx`, `model-details-apps.tsx`: prefer-spread, prefer-at, optional catch binding, curly, useless spread, useless fragment, nested ternaries, index keys, catch-or-return). Equivalent forms, no behaviour change (the risk dialog computes the same keys in its memo; the prompt input's submit handler returns its promise chain; the speech results list is read by index because its DOM type is not iterable), as session 10 did in `5a2bd38`. **Not converted**: `web-preview.tsx` (1 × `text-left`): the component is unused, and its file's lint errors are the iframe sandbox (`allow-scripts` together with `allow-same-origin`) and an index key, a security decision rather than a layout change; it is in the allowlist with that reason and in section 7.
+**Left out on purpose**: `.fa-review/`; `fix/legal-consent-sentence` (overlaps open PR #5998): `legal-consent.tsx`/`terms-footer.tsx` sentences, their 4 tests, 9 keys in each locale, static keys (the RTL class on the consent label and its test are in the RTL branch); the move of the duplicated upstream license comment in `usage-logs/components/dialogs/details-dialog.tsx` (formatter noise).
 
-Kept on purpose (the allowlist, 62 classes in 22 files):
-
-| File (web/src/) | Count | Classes | Reason |
-| --- | ---: | --- | --- |
-| components/ai-elements/chain-of-thought.tsx | 1 | `left-1/2` | Centred connector line (left-1/2 with -mx-px); symmetric in both directions. |
-| components/ai-elements/code-block.tsx | 1 | `right-2` | Overlay on the dir='ltr' code body; it stays at the end of the left-to-right lines instead of covering their start. |
-| components/ai-elements/conversation.tsx | 1 | `left-[50%]` | Centred with translate-x-[-50%]; symmetric in both directions. |
-| components/ai-elements/web-preview.tsx | 1 | `text-left` | Not converted yet: the component is unused, and its file carries upstream lint errors (the iframe sandbox allows scripts together with same-origin; an index key) that need a security decision, not a layout change. Convert with that fix. |
-| components/config-drawer.tsx | 2 | `left-2.5`, `border-l-[1.5px]` | Radius preview that draws a top-left corner together with the inline borderTopLeftRadius style. |
-| components/data-table/toolbar/bulk-actions.tsx | 1 | `left-1/2` | Floating bar centred with -translate-x-1/2; symmetric in both directions. |
-| components/floating-window.tsx | 13 | `left-2` ×2, `right-2` ×2, `right-0` ×3, `left-0` ×3, `pr-9`, `pl-4`, `rounded-tl-md` | Window geometry is physical: the resize handles are named by compass side (n, e, se ...) and resized from pointer clientX, so the se grip stays bottom-right; the footer padding (pr-9) and the grip corner (rounded-tl-md) follow that grip. |
-| components/json-code-editor.tsx | 1 | `pl-2` | On the dir='ltr' editor element itself; code stays left to right. |
-| components/layout/components/glow.tsx | 2 | `left-1/2` ×2 | Centred glows (left-1/2 with -translate-x-1/2); symmetric in both directions. |
-| components/ui/alert-dialog.tsx | 1 | `left-1/2` | Dialog centred with -translate-x-1/2; symmetric in both directions. |
-| components/ui/carousel.tsx | 2 | `left-1/2` ×2 | Vertical carousel buttons centred with -translate-x-1/2; symmetric in both directions. |
-| components/ui/dialog.tsx | 1 | `left-1/2` | Dialog centred with -translate-x-1/2; symmetric in both directions. |
-| components/ui/drawer.tsx | 6 | `data-[vaul-drawer-direction=left]:left-0`, `data-[vaul-drawer-direction=left]:rounded-r-xl`, `data-[vaul-drawer-direction=left]:border-r`, `data-[vaul-drawer-direction=right]:right-0`, `data-[vaul-drawer-direction=right]:rounded-l-xl`, `data-[vaul-drawer-direction=right]:border-l` | Keyed to vaul's direction prop, which names a physical side (and drives vaul's physical drag gesture). |
-| components/ui/navigation-menu.tsx | 3 | `data-[side=bottom]:before:right-0`, `data-[side=bottom]:before:left-0`, `rounded-tl-sm` | The before: pair spans the full width (symmetric); rounded-tl-sm rounds the upward tip of the square rotated 45 degrees. |
-| components/ui/radio-group.tsx | 1 | `left-1/2` | Dot centred with -translate-x-1/2; symmetric in both directions. |
-| components/ui/resizable.tsx | 2 | `after:left-1/2`, `aria-[orientation=horizontal]:after:left-0` | Centred hit area (with after:-translate-x-1/2), and full-width hit area (with after:w-full); symmetric in both directions. |
-| components/ui/sheet.tsx | 4 | `right-0`, `border-l`, `left-0`, `border-r` | Keyed to the side prop, which names a physical side; callers choose the side (the mobile sidebar picks it from the page direction). |
-| components/ui/sidebar.tsx | 11 | `data-[side=left]:left-0`, `data-[side=left]:group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]`, `data-[side=right]:right-0`, `data-[side=right]:group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]`, `group-data-[side=left]:border-r`, `group-data-[side=right]:border-l`, `group-data-[side=left]:-right-4`, `group-data-[side=right]:left-0`, `group-data-[collapsible=offcanvas]:after:left-full`, `[[data-side=left][data-collapsible=offcanvas]_&]:-right-2`, `[[data-side=right][data-collapsible=offcanvas]_&]:-left-2` | Keyed to the side prop, which names a physical side; app-sidebar sets side from the page direction (right in RTL). |
-| components/ui/tooltip.tsx | 2 | `data-[side=left]:-right-1`, `data-[side=right]:-left-1` | Arrow for the physical left/right sides that Base UI reports; the inline-start/inline-end sides use logical classes. |
-| features/home/components/gateway-card.tsx | 2 | `left-[10%]`, `left-1/2` | Centred decorations (left-[10%] with w-[80%], left-1/2 with -translate-x-1/2); symmetric in both directions. |
-| features/home/components/hero-terminal-demo.tsx | 3 | `ml-auto`, `pr-2`, `sm:pr-3` | Inside the dir='ltr' terminal demo; a terminal stays left to right. |
-| features/home/components/icon-card.tsx | 1 | `left-1/2` | Centred glow with -translate-x-1/2; symmetric in both directions. |
-
-### C. Guard against new physical classes (`730d5b6`, split-plan PR 1)
-
-`web/src/styles/__tests__/physical-direction-classes.test.ts` scans `web/src` (`.ts`, `.tsx`, `.css`; not `__tests__`, not `*.test.*`, not locales) for physical direction classes: `ml/mr`, `pl/pr`, `left/right` (and negatives), `scroll-m/p l/r`, `text-left/right`, `float-left/right`, `border-l/r` (with width or colour), `rounded-l/r` and the four corners, with any variants and `!`. Classes behind `rtl:` or `ltr:` are direction-specific on purpose and are skipped; comment lines are skipped; spacing and inset values must look like values (number, fraction, `px`, `full`, `auto`, `[…]`, `(…)`), so prose such as "left-to-right" is not a class. Every other finding must be listed in `physical-direction-allowlist.json` (`file`, `classes`, `reason`); the list is counted per file and class, so a new occurrence of an allowed class fails too, and an entry that no longer matches fails as stale. Three cases: the scanner itself (physical, logical, `rtl:`/`ltr:`, comments, prose), no unlisted class, no stale entry and a reason on every entry.
-
-Shown to fail: putting `text-left` back on `QuickActionItem` (`overview-dashboard.tsx`) gives
-
-```
-× finds no physical class under src that the allowlist does not list
-- []
-+   "features/dashboard/components/overview/overview-dashboard.tsx:437 text-left",
-Tests  1 failed | 2 passed (3)
-```
-
-and with the class restored: `Tests  3 passed (3)`. The failure message names the logical classes to use or the allowlist to edit.
-
-Not covered by the guard (listed in section 7): `slide-in-from-left/right` animation classes (44 in 11 files, keyed to the physical side a popover opens on), `translate-x-*` (51 in 17 files, mostly centring and animations), `bg-gradient-to-r/l` (7 in 6 files, decorative).
-
-### Commits (from `7f9b789`)
-
-```
-fa1607a style(web): clear the upstream lint errors in files the RTL sweep touches
-2b6c5ae fix(web): logical direction classes in the shared ui components
-3b19d75 fix(web): logical direction classes in the shared components
-6dafe80 fix(web): mirror the dashboard setup guide in right-to-left languages
-621649f fix(web): logical direction classes in the dashboard
-3f8fd7d fix(web): logical classes and forward arrows on the home page
-87f8da9 fix(web): logical direction classes in channels
-56539fb fix(web): logical direction classes in models and deployments
-bdd80f4 fix(web): logical direction classes in pricing and model details
-992d825 fix(web): logical direction classes in usage, task and audit logs
-651322f fix(web): logical direction classes in wallet (billing history search, recharge options, plan list)
-03d29b6 fix(web): logical direction classes in security (access tokens, bindings, passkeys, two-factor)
-98caa63 fix(web): logical direction classes in subscriptions
-256f5f7 fix(web): logical direction classes in redemption codes
-3afbf83 fix(web): logical direction classes in API keys
-c547dbe fix(web): logical direction classes in system settings (model pricing editors)
-69c73c8 fix(web): logical direction classes in profile
-4a27447 fix(web): logical direction classes in users
-730d5b6 test(web): guard against new physical direction classes
-(this hand-off): .fa-review scripts, screenshots, report
-```
+**Merge order** (checked in a scratch branch): `pr/fa-rtl-layout` then `pr/fa-locale` merge cleanly; `pr/fa-dates-numbers` then conflicts in 9 files (`pagination.test.tsx`, `calendar.tsx`, `api-key-listing.test.tsx`, `system-tasks-table.tsx`, `marketplace-plugin-card.tsx`, `audit-details.ts`, `common-logs-columns.tsx`, `details-dialog.tsx`, `quota-audit-operation.ts`), all neighbouring-line edits (a class next to a locale argument, two names in one import). With feat's version of those 9 files the result equals `feat/fa-locale` except the left-out items. So the dates/numbers PR needs one rebase after the others land; `feat/fa-locale` is the reference resolution.
 
 ## 3. Hard-coded or unkeyed English (not fixed here; each needs a new key in every locale, or a code change)
 
@@ -467,96 +389,61 @@ Each key is listed once, under the first folder the scanner meets it in.
 | `Underground` | theme preset `name` field, not passed through t(); the UI shows t(`preset.underground`) instead | lib/theme-customization.ts:47 |
 
 
-## 5. Upstream split plan (proposal only; nothing built)
+## 5. Upstream branches (built in session 13)
 
-Commits that mix concerns (marked *) need their hunks split when the PR branch is built. Upstream-ready branches in the fork (each from `upstream/main`):
+The proposal from session 12 (six PRs) is built as three branches, as asked: plan PR 1 → `pr/fa-rtl-layout`; plan PRs 2, 6 and 4 → `pr/fa-locale`; plan PRs 3 and 5 → `pr/fa-dates-numbers`. The session 12 table is in `git show 16bfa21:.fa-review/REPORT.md`, section 5.
 
-| Branch | Head | State |
-| --- | --- | --- |
-| `fix/dashboard-chart-time-order` | `81b140e` | chart points ordered by timestamp; merged into `feat/fa-locale` (`bc388d4`) |
-| `fix/billing-status-label` | `6bf13ab` | not merged |
-| `fix/delete-account-confirm-label` | `747769c` | not merged |
-| `fix/2fa-setup-step-label` | `6d614c0` | not merged |
-| `fix/quota-insufficient-i18n` | `28b7893` | not merged |
-| `fix/legal-consent-sentence` | `6a660f7` | merged (`44610c0`, `6f7168b`); overlaps an older upstream PR by another contributor, so not offered as its own PR for now |
-| `fix/ui-label-strings` | `3b86126` | merged (`b2d14dc`) |
-| `fix/public-sans-font` | `4a9aaa9` | **new in session 11**; `--font-sans` names the loaded face; merged (`aa583a7`). Changes the font of every left-to-right language (to the intended Public Sans) |
+| Branch | Head | Commits (files) | Files | Draft text |
+| --- | --- | --- | ---: | --- |
+| `pr/fa-rtl-layout` | `7204ba0` | `e75239e` fix(web): logical direction classes in the shared components (95) · `4b7a931` fix(web): logical direction classes on the feature pages (244) · `7204ba0` test(web): guard against new physical direction classes (2) | 341 | `pr-rtl-layout.md` |
+| `pr/fa-locale` | `784f21d` | `2a0384d` feat(i18n): add Persian (fa) as a partial right-to-left locale (14) · `ffdb275` feat(web): reading-direction arrows and Persian audit labels (23) · `784f21d` feat(i18n): Persian typography check, translation guide and rules (10) | 44 | `pr-locale.md` |
+| `pr/fa-dates-numbers` | `7963a31` | `a6f5ca5` feat(web): Solar Hijri dates and date pickers in Persian (92) · `7963a31` fix(web): format money and numbers in the interface language (75) | 119 | `pr-dates-numbers.md` |
 
-| # | PR | Commits | Tests | Other languages |
+Order: 1, 2, 3 (3 needs one rebase, section 2C). Each merges alone on upstream main. Other languages: RTL none; locale «فارسی» in the language list; dates/numbers the decimal comma in French, Russian and Vietnamese. The older `fix/*` branches stay as they are; the ones #7628 fixed are superseded and not offered.
+
+## 6. Verification (session 13)
+
+Session 12's verification is in `git show 16bfa21:.fa-review/REPORT.md`, section 6. Bun install, then from `web/`; lint compared by file and rule with `upstream/main` (165 errors, 65 warnings, in its own worktree).
+
+| Check | `feat/fa-locale` (`a589e09`) | `pr/fa-rtl-layout` | `pr/fa-locale` | `pr/fa-dates-numbers` |
 | --- | --- | --- | --- | --- |
-| 1 | `fix(web): right-to-left layout in shared components` | `c78c83f`* (without the `formatQuota` locale hunks), `d8ee064`, `cb25020`, `8ccec81`, `936ab28`, `129d598`, the RTL half of `f01c5af`*, the sidebar side of `b2720c9`*, `666c43c` (where PR 1 touches the file), `0d40127`, `f40c978`, `10cd251` + `9f8f102` (squash), `53458ed`, `7b04478`, `6496416`, `cb80274`, `e6f7d76`, **and from this session `5e64f68`, `272cbf9`, `5a2bd38` (lint cleanup, first), `44e9c0b`, `ce52823`, the `bdi` hunk of `aa699fc`***, **and from session 11 `0c605b3` (retry chain), `d264460` (`mr-1`)**, **and from session 12 (A to C): `fa1607a` (lint cleanup, first), `2b6c5ae`, `3b19d75`, `6dafe80` (dashboard setup guide), `621649f`, `3f8fd7d`, `87f8da9`, `56539fb`, `bdd80f4`, `992d825`, `651322f`, `03d29b6`, `98caa63`, `256f5f7`, `3afbf83`, `c547dbe`, `69c73c8`, `4a27447`, and last `730d5b6` (the guard and its allowlist)** | the earlier direction tests, plus **value-change, quota-audit-direction, quota-preview-direction, change-arrow-direction, carousel-direction, api-tab-direction, preferences-direction, code-direction (pre)**, **value-change (chain cases), retry-chain-direction, adjust-quota-direction**, **setup-guide (3 direction cases), response-table-direction, arrow-direction, physical-direction-classes (the guard)** | No visible change in LTR. Layout only (decision 2 of session 11: the Persian-only audit labels moved to PR 4) |
-| 2 | `feat(i18n): Persian (fa) partial locale, tooling and docs` | `b2720c9`* (without the sidebar), `07e070d`, `759a31e`, `f5296da` + `776c03c`, `bfe01bb`, the script part of `fa96f8b`; AGENTS.md, web/AGENTS.md, the i18n skill; `docs/i18n/fa.md` (with the glossary rows from `4d901bd`, `d1e501d`, `305ee51`, **the fa.md part of `b1c4bad` and of `c7e15d1`**), `2242169`, **`0330995` (`@babel/parser` dev dependency)** | languages, direction-provider, check-fa, persian-monospace, intl-locale lint case | Language switcher lists «فارسی»; `docs/i18n/fa.md` is a new file under `docs/` (ask the maintainers) |
-| 3 | `feat(web): Solar Hijri dates, chart axes and date pickers in Persian` | `0ea975e`, `c2369c8` + `42a98a2`, `170ba72`, `9d22fac`, **`d14b92a`** | display-date-locale, activity-time-cell-dates, login-session-dates, date-picker-display, calendar-persian, chart-time-locale, **system-info title-dates** | None |
-| 4 | `feat(web): Persian labels in audit text` (roles, sign-in methods, ID label, user action names) | net of `f767402` + `9cd40a8`, **`0184320`, `768f817`** (moved from PR 1, decision 2 of session 11) | audit-content-locale, details-locale, **identity-action-locale, user-action-name, manage-operator-locale** | None: Persian only, English and Chinese pinned (could fold into 3) |
-| 5 | `fix(web): format money and numbers in the interface language` | locale half of `f01c5af`*, `formatQuota` hunks of `c78c83f`*, the `locale` argument in `recharge-form-card.tsx`, `31f68f8`, **`aae92d9`, `0153b2d`, `aa699fc`* (without the `bdi` hunk), `d623586`, `172c97e`, `eb96d86`, `089255f`, `5ab137d`**, **session 11: `8f0966d` (page counter), `7146052` (percent sign), `57a0080` (plan price)** | format-quota-locale, format-currency-locale, amount-locale, summary-cards-locale, profile-header-locale, response-time-format, **format-fixed-locale, message-duration-locale, system-info number-locale, flow-number-locale, chart-number-locale, total-direction (bdi half goes with PR 1), step-number-locale, count-locale, subscriptions format-locale and list-number-locale**, **pagination (counter), percent-sign-locale, purchase-price-locale, plan-price-locale** | **Yes**: numbers follow the interface language; French, Russian and Vietnamese show a decimal comma in the formatted decimals; English is unchanged (tested). Its own PR |
-| 6 | `feat(i18n): Persian translation batches` | `fa96f8b`, `551a8a3`, `795d296`, `4db67e2`, `3825299`, `aaba1b0`, `8a76a75`, `ada5af2`, `c6aaad5`, `4d901bd` (fa.json part), `17d9c1b`, `58de3e3`, `f7ad4f7`, `4ba8a4c`, `3b076b1`, `25399dc`, `86a8c7c`, `97b1b72`, `bcc8ea7`, `3ca2feb`, `d1e501d` (fa.json part), `0097c77`, `c2798f3`, `4c66300`, `67e72b5`, `39a571f`, `5cd6e90`, `b744e97`, `334c3d9`, `2adca66`, `0d1b17b`, `467f231`, `a14be44`, `bdf0202`, **`b1c4bad` (fa.json part), `4972f14`, `c7e15d1` (fa.json part)** | `bun run i18n:check-fa` | None: only `fa.json` |
+| `bun run typecheck` | exit 0 | exit 0 at each commit | exit 0 at each commit | exit 0 at each commit |
+| `bun run lint` errors (upstream 165) | 119; 0 pairs above upstream; 0 in changed files | 121; 0; 0 | 163; 0; 0 | 165; 0; 1 in a changed file, upstream's own, unchanged |
+| `bun run test` | 249 files, 2547 passed | 202 files, 2236 passed (commit 1: 2196, commit 2: 2233) | 188 files, 2284 passed (commit 1: 2197, commit 2: 2252) | 202 files, 2325 passed (commit 1: 2250) |
+| `bun run build` | exit 0, 67002.5 kB / 20638.3 kB gzip | exit 0, 66259.9 kB | exit 0, 66890.1 kB | exit 0, 66330.0 kB |
+| `bun run i18n:sync` | no changes; fa missing 1056, extras 0; others 0/0 | no changes | no changes | no changes |
+| `bun run i18n:check-fa` | `5817 keys, no findings` | (no fa.json) | `5808 keys, no findings` | (no fa.json) |
+| fail-before: branch tests with every other changed file reverted to upstream | | 34 files: 66 failed, 96 passed | 15 files: 30 failed, 33 passed; 14 of 15 files fail | 32 files: 89 failed, 117 passed |
 
-Leave out of every PR: `.fa-review/` and all hand-off and script commits, and the merge commits. The guard (`730d5b6`) goes in PR 1 after all its conversions: it fails until every folder is converted, and its allowlist must match the files PR 1 ships (if an upstream change adds a physical class before PR 1 lands, convert it or list it). Order: the upstream fix branches that are offered (`fix/public-sans-font` among them), then 1, 2, 3 (+4), 6; 5 when upstream agrees to the behaviour change. `67e72b5` (fa.json) must land together with or after `2242169`'s check, or the check-fa project-sources test fails; the PR 4 tests for the audit labels read `fa.json`, so PR 4 lands together with or after PR 6. PR 5 test `total-direction` checks the `bdi` from PR 1.
+Fail-before notes: the passing tests assert that left-to-right / English output stays as upstream renders it; the only locale-branch file that passes is `scripts/oxlint/__tests__/intl-locale.test.ts`, which adds `fa` cases to the existing lint rule; `check-fa.test.ts` is not collected before (its `vitest.config.ts` include belongs to the branch, and `check-fa.mjs` does not exist there). Intermediate commits were tested before two last-minute changes (the CSS rule position in RTL commit 1, two Persian keys in locale commit 1); the final heads were tested after them.
 
-## 6. Verification (session 12)
+### Running app and screenshots
 
-### `feat/fa-locale` (from `web/`, code at `730d5b6`)
+`go build` of `feat/fa-locale` (fresh `web/dist`), `pr/fa-rtl-layout` and `upstream/main` (each with its own `bun run build`), Go 1.25.1. `scripts/seed-s13.py` ran once against the feat binary on a fresh SQLite database in a scratch directory: `GET /api/setup` → `status false, database_type sqlite`; `POST /api/setup` → `系统初始化成功`, success; then three channels, an API key, a plan, a redemption code, a demo Epay configuration (top-up presets, 20% off the 100 preset), a second user, two scoped access tokens created through password verification (`POST /api/verify` → proof → `POST /api/user/access_tokens`), and three usage logs on 2026-09-25 UTC. `scripts/shots-s13.mjs` (Chromium 141, 1440×900, light, clock fixed at 2026-09-25 14:00 UTC, reduced motion) signs in and captures; no capture is blank (fewest colours 1834; blank threshold 16). Console errors: the 401 of the pre-login session probe and `ERR_CERT_AUTHORITY_INVALID` for an external resource.
 
-| Command | Result |
+| Files | Shows |
 | --- | --- |
-| `git remote -v`, `git push --dry-run origin HEAD`, `git push --dry-run origin HEAD:refs/heads/dryrun-rtl-check` | origin `https://github.com/yaser-k/new-api-fork`; `Everything up-to-date` and `* [new branch] HEAD -> dryrun-rtl-check` (dry run, nothing created). The local branch had an older, different history (`d263b5f`); reset to `origin/feat/fa-locale` = `7f9b789` first |
-| `git remote add upstream …`, `git fetch upstream main`, `git remote set-url --push upstream DISABLED` | `upstream/main` = `c2b7a9a` (unchanged, no merge); upstream push URL `DISABLED` |
-| `bun install` | 1206 packages |
-| `bun run typecheck` | `tsgo -b`, exit 0 |
-| `bun run lint` | exit 1: **120 errors, 65 warnings**; `upstream/main` (own worktree): **182 errors, 66 warnings**; error file+rule pairs above upstream: **0**; errors in the 452 files changed against upstream: **0** (session 11: 139 errors; the lint cleanup `fa1607a` removed 19) |
-| `bun run test` | `Test Files 244 passed (244)`, `Tests 2510 passed (2510)` (session start: 241 files, 2499 tests) |
-| `bun run build` | exit 0, total 66915.8 kB / 20616.7 kB gzip |
-| `bun run i18n:sync` | exit 0; fa partial, missing 1062, extras 0; the seven required locales missing 0, extras 0 |
-| `bun run i18n:check-fa` | `check-fa: 5733 keys, no findings` |
-| `git diff --quiet 7f9b789 -- web/src/i18n/locales` | exit 0: all eight locale files identical to `7f9b789` |
-| `bunx oxfmt --check` on every changed file | no findings |
-| Guard with `text-left` put back on `QuickActionItem` | `Tests 1 failed | 2 passed (3)`, names `overview-dashboard.tsx:437 text-left`; restored: `3 passed` |
-| `go build -o <scratch>/bin/fa .` (branch, fresh `web/dist`) and `go build -o <scratch>/bin/base .` (`7f9b789` worktree, its own `bun run build`) | exit 0 both (Go 1.25.1) |
+| `501-security-access-tokens-{rtl,en}.png` | new access tokens: «ساخته‌شده در ۱۴۰۵/۰۷/۰۲ ۱۲:۰۰:۰۰», «انقضا: ۱۴۰۵/۰۸/۰۳ ۱۲:۰۰:۰۰», «آخرین استفاده: ۱۴۰۵/۰۷/۰۳ ۱۳:۰۰:۰۰ · 203.0.113.7», «بدون انقضا»; English «Created Sep 24, 2026, …» |
+| `502-access-token-edit-{rtl,en}.png` | edit dialog with the permission matrix (chevrons, «گزارش‌ها») |
+| `503-usage-logs`, `504-audit-log`, `505-audit-access-token-details` | usage and audit logs; access token audit entry («توکن دسترسی ساخته شد», «مجوزها», «انقضا») |
+| `506-users`, `507-wallet-topup`, `508-model-details`, `509-dashboard-charts` | users; top-up presets «پرداخت ۵۸۴ • صرفه‌جویی ۱۴۶» / «Pay 584 • Save 146»; model details; dashboard charts |
+| `600`–`615-*-en-rtl-branch.png` | English main pages on `pr/fa-rtl-layout` |
+| `616-pricing-vendor-order-…png`, `617-audit-time-…png` | the two differences explained below (upstream left, RTL branch right) |
 
-### Running app, screenshots and the English pixel comparison
+**English pixel comparison, `pr/fa-rtl-layout` against `upstream/main`** (`scripts/compare-s12.mjs`; every run on a fresh copy of the seeded database, same port 3410, since each sign-in adds sessions and audit rows). Differing pixels against the first upstream run:
 
-One database for every instance, so both builds render the same data: `seed-s12.py` ran once against the branch binary (`GET /api/setup` → `status false, database_type sqlite`; `POST /api/setup` → `系统初始化成功`, success true; 3 channels, an API key, a plan, a redemption code, 3 usage logs with fixed timestamps on 2026-09-25 UTC); that instance was stopped and its SQLite file copied. Then `base` (`7f9b789`) on 3401 and `fa` (branch) on 3402, `TZ=UTC`, rate limits off. `shots-s12.mjs` signs in as admin, fixes the browser clock at 2026-09-25 14:00 UTC, sets reduced motion, expands the setup guide and captures full pages; `compare-s12.mjs` compares two sets pixel by pixel in Chromium (canvas `getImageData`, any RGBA difference counts). Chromium 141.0.7390.37 headless, 1440×900, light theme. None blank (fewest colours 1320; blank threshold 16). Console errors: the 401 of the pre-login session probe and `ERR_CERT_AUTHORITY_INVALID` for an external resource blocked by the sandbox proxy.
+| Page | upstream run 2 | upstream run 3 | RTL run 1 | RTL run 2 | RTL run 3 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 600 dashboard, 602 usage logs, 605 model details, 607 models, 608 keys, 609 profile, 611 wallet, 613 users, 614 redemption codes | 0 | 0 | 0 | 0 | 0 |
+| 601 dashboard models | 72 | 0 | 0 | 0 | 0 |
+| 603 audit log (sign-in time of the newest row, `617`) | 155 | 150 | 232 | 218 | 150 |
+| 604 pricing (vendor filter order varies between runs, `616`) | 0 | 2143 | 2143 | 0 | 0 |
+| 606 channels (anti-aliasing of the "Max Retries" badge) | 53 | 0 | 0 | 53 | 53 |
+| 610 security (session times) | 113 | 195 | 57 | 197 | 60 |
+| 612 subscriptions | 0 | 30 | 0 | 0 | 0 |
+| 615 system settings | 0 | 0 | 0 | 0 | 5 |
 
-```
-python3 seed-s12.py http://127.0.0.1:3400 <scratch>/run-seed/one-api.db      # SEED_DONE
-node shots-s12.mjs http://127.0.0.1:3402 <shots>/fa-after  fa rtl           # branch, Persian
-node shots-s12.mjs http://127.0.0.1:3401 <shots>/fa-before fa rtl-before    # 7f9b789, Persian
-node shots-s12.mjs http://127.0.0.1:3401 <shots>/en-base   en en-base       # 7f9b789, English
-node shots-s12.mjs http://127.0.0.1:3401 <shots>/en-base2  en en-base2      # 7f9b789 again (noise floor)
-node shots-s12.mjs http://127.0.0.1:3402 <shots>/en-after  en en            # branch, English
-# branch binary on port 3401 with a copy of the base database (same port, same affiliate code):
-node shots-s12.mjs http://127.0.0.1:3401 <shots>/en-after2 en en
-node compare-s12.mjs <shots>/en-base en-base <shots>/en-base2 en-base2
-node compare-s12.mjs <shots>/en-base en-base <shots>/en-after  en
-node compare-s12.mjs <shots>/en-base en-base <shots>/en-after2 en
-```
-
-English, `7f9b789` against the branch (differing pixels):
-
-| Page | base vs base (noise) | base vs branch, port 3402 | base vs branch, same port and database |
-| --- | ---: | ---: | ---: |
-| 410 dashboard, setup guide expanded | 0 | 38 (the port `3401`/`3402` in the curl example) | **0** |
-| 411 usage logs | 0 | 0 | **0** |
-| 412 pricing | 0 | 0 | **0** |
-| 413 model details (`/pricing/gpt-4o`) | 0 | 0 | **0** |
-| 414 channels | 0 | 0 | 53 (x 309–414, y 83–102) |
-| 415 models | 0 | 0 | **0** |
-| 416 profile | 0 | 0 | **0** |
-| 417 wallet | 0 | 360 (the random affiliate code in the invite link, created per database) | **0** |
-| 418 subscriptions | 0 | 0 | **0** |
-| 419 channels, row menu open | 53 (x 309–414, y 83–102) | 53 (same) | **0** |
-
-The only remaining difference is 53 pixels of anti-aliasing in the "Max Retries: 0" badge of the channels header, which also differs between two runs of the same `7f9b789` build (cropped and compared: same text, same position). **English renders the same on every captured page.** The dashboard layout probe gives identical English positions on both builds (code texture 528–1035, text-align right/end; step line x 270 at circle 254–286; quick action title 1140–1198 after its icon 1098–1134).
-
-Persian, `7f9b789` against the branch: every page changed except the profile (0 pixels: its converted classes do not move anything with this data); dashboard 268 343 pixels, row menu 14 785, models 6 973, pricing 4 947, channels 4 922, wallet 4 622 (includes the affiliate code), model details 3 031, usage logs 1 748, subscriptions 1 110.
-
-| File | Shows | Logged values |
-| --- | --- | --- |
-| `410-dashboard-setup-guide-rtl-before.png`, `410-dashboard-setup-guide-rtl.png` | Persian overview, setup guide expanded, `7f9b789` / branch | code texture x 696–1203 (behind the heading at 813–1195), `text-align: right` → x 405–912, `left`; step line x 794 → 1169 (circle 1154–1186); quick action title 56–129 → 227–300 (icon 306–342) |
-| `410-dashboard-setup-guide-en.png` | English overview, branch | same positions as `7f9b789` (above); 0 pixels different |
-| `411-usage-logs-rtl.png`, `412-pricing-rtl.png`, `413-model-details-rtl.png`, `414-channels-rtl.png`, `415-models-rtl.png`, `416-profile-rtl.png`, `417-wallet-rtl.png`, `418-subscriptions-rtl.png` | Persian pages whose classes changed | numeric pricing columns end on the left; channel card badges without the leaked `-ms-1.5` |
-| `419-channels-row-menu-rtl.png` | channel card menu (shared dropdown) | item icons at the inline end (left), as they sit on the right in English |
-| `411-usage-logs-en.png`, `412-pricing-en.png`, `414-channels-en.png`, `417-wallet-en.png` | English, branch | 0 pixels different from `7f9b789` |
+Every difference of the RTL branch also occurs between two upstream runs, in the same region. **English renders the same.**
 
 ## 7. Remaining issues
 
@@ -566,6 +453,8 @@ Persian, `7f9b789` against the branch: every page changed except the profile (0 
 4. **Still listed** (hard-coded table): the carousel's screen-reader labels (no key); and, found in session 11, the full pager's page buttons and `Total:`, the raw percentages (`toFixed` + `%`), the discount label's raw number, the request conversion chain ` -> `, and the raw response time and group ratio in the usage log details. Each needs a new key, a shared change or a decision beyond the four items fixed this session.
 5. `lib/theme-customization.ts` says in a comment that the `default` preset resolves to serif, while `PRESET_DEFAULT_FONT.default` is `sans` (upstream comment; not touched, the Public Sans branch stays minimal).
 6. **Session 12, left for later.** None of items 1 to 5 was about direction classes, so none is removed. New: (a) `components/ai-elements/web-preview.tsx` keeps one `text-left` until its iframe sandbox (`allow-scripts` with `allow-same-origin`) and index key are decided upstream; the component is unused. (b) Outside the guard: `slide-in-from-left/right` animation classes (44 in 11 files; popovers keyed to the physical side they open on), `translate-x-*` (51 in 17 files; mostly centring and motion), `bg-gradient-to-r/l` (7 in 6 files; decorative). (c) tailwind-merge treats `ps/pe`, `ms/me`, `start/end` and `border-s/e` as separate from `px`, `mx`, `inset-x` and `border-x`, unlike their physical forms; callers were checked (section 2), but a future caller that passes `px-*` to a component whose base has an unscoped `ps-*`/`pe-*` would not override it. Extending the tailwind-merge config is possible, but it would also change merges that upstream code already relies on, so it was not done.
+
+7. **Session 13.** (a) `pr/fa-dates-numbers` needs one rebase once the first two branches land (9 files, section 2C). (b) The audit "Expiration" field and the access token list now use Solar Hijri in Persian; the access token sessions list («آخرین فعالیت: ۷ روز دیگر» in the screenshots) only reflects the fixed browser clock. (c) Not offered upstream: `fix/legal-consent-sentence` (PR #5998 overlap) and `fix/quota-insufficient-i18n` (backend, separate). (d) PR template fields left for the submitter: tool version and model id.
 
 ## 8. Open questions
 
@@ -586,4 +475,5 @@ Taken from the titles of the earlier versions of this file (`git log -- .fa-revi
 - Session 9 (its report called itself session 10): placeholder isolates and their check, response-time milliseconds, batch 10 (every remaining page), RTL fixes.
 - Session 10: the four settled decisions, the final cleanup pass (digits, dates, arrows, lint-blocked RTL fixes, audit labels, `pre` blocks), this summary.
 - Session 11: download wording, audit labels to PR 4, the page counter, the upstream `fix/public-sans-font` branch (merged), percent sign, retry chain, plan prices, `mr-1`.
-- Session 12 (this one): the dashboard setup guide in RTL, the sweep of every physical direction class (414 converted, 62 kept with reasons), the guard test, the lint cleanup of the touched files.
+- Session 12: the dashboard setup guide in RTL, the sweep of every physical direction class (414 converted, 62 kept with reasons), the guard test, the lint cleanup of the touched files.
+- Session 13 (this one): merge of upstream `1a4166d` (#7628 replaces six of our fixes; access tokens rebuilt upstream), 97 new keys in Persian, and the three upstream branches `pr/fa-rtl-layout`, `pr/fa-locale`, `pr/fa-dates-numbers` with coverage, fail-before and the English pixel comparison.
