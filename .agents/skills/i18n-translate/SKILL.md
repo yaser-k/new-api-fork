@@ -50,7 +50,7 @@ Do not skip this workflow because the fix is "just one key".
 - `fa` is listed in `PARTIAL_INTERFACE_LANGUAGES` (`web/src/i18n/languages.ts`) and `PARTIAL_LOCALES` (`web/scripts/sync-i18n.mjs`). A key missing from `fa.json` falls back to English per key at runtime, and `bun run i18n:sync` reports it as missing without filling it with English. The seven required locales stay complete.
 - When adding a new key, fill the seven required locales. Adding `fa` is optional.
 - `fa.json` only holds keys that are actually translated. Do not add a `fa` value equal to the English value; leave the key out so it falls back.
-- Before writing Persian values, read `docs/i18n/fa.md` (glossary and typography rules) and follow it.
+- Before writing Persian values, read the glossary and typography rules in `fa.md` next to this file (`.agents/skills/i18n-translate/fa.md`) and follow them.
 - After writing Persian values, run `bun run i18n:check-fa` from `web/`. It must report no findings.
 
 ## Overview
@@ -153,7 +153,22 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 const LOCALES_DIR = path.resolve('src/i18n/locales')
-const en = JSON.parse(await fs.readFile(path.join(LOCALES_DIR, 'en.json'), 'utf8'))
+// Partial locales may start without a file and only carry translated keys.
+const PARTIAL_LOCALES = new Set(['fa'])
+
+async function readLocale(locale) {
+  const filePath = path.join(LOCALES_DIR, `${locale}.json`)
+  try {
+    return JSON.parse(await fs.readFile(filePath, 'utf8'))
+  } catch (err) {
+    if (err.code === 'ENOENT' && PARTIAL_LOCALES.has(locale)) {
+      return { translation: {} }
+    }
+    throw err
+  }
+}
+
+const en = await readLocale('en')
 const enTrans = en.translation
 
 // Brand names, URLs, technical terms — skip these
@@ -180,7 +195,7 @@ const brandNames = new Set([
 const locales = ['fr', 'ja', 'ru', 'zh', 'zh-TW', 'vi', 'fa']
 
 for (const locale of locales) {
-  const locFile = JSON.parse(await fs.readFile(path.join(LOCALES_DIR, `${locale}.json`), 'utf8'))
+  const locFile = await readLocale(locale)
   const locTrans = locFile.translation
   const untranslated = {}
 
@@ -228,7 +243,7 @@ const newKeys = {
   ja: { /* "key": "日本語翻訳" */ },
   ru: { /* "key": "Русский перевод" */ },
   vi: { /* "key": "Bản dịch tiếng Việt" */ },
-  fa: { /* optional: "key": "ترجمۀ فارسی" (see docs/i18n/fa.md) */ },
+  fa: { /* optional: "key": "ترجمۀ فارسی" (see .agents/skills/i18n-translate/fa.md) */ },
 }
 
 async function readLocale(locale) {
@@ -321,7 +336,7 @@ Delete temporary scripts after completion.
 | Japanese | ja | Use katakana for technical loanwords |
 | Russian | ru | Use formal register |
 | Vietnamese | vi | Use standard Vietnamese |
-| Persian | fa | Optional, partial, right-to-left. Follow `docs/i18n/fa.md` |
+| Persian | fa | Optional, partial, right-to-left. Follow `.agents/skills/i18n-translate/fa.md` |
 
 **Keep as English (do not translate):**
 - Brand/product names (OpenAI, Claude, Gemini, etc.)
