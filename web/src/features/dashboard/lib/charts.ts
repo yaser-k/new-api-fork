@@ -46,10 +46,8 @@ export function getDashboardChartColors(domainLength: number): string[] {
       (item) => !item.maxDomainLength || domainLength <= item.maxDomainLength
     ) ?? vchartDefaultDataScheme.at(-1)
 
-  return (
-    scheme?.scheme.filter(
-      (color): color is string => typeof color === 'string'
-    ) ?? []
+  return (scheme?.scheme ?? []).filter(
+    (color): color is string => typeof color === 'string'
   )
 }
 
@@ -64,11 +62,8 @@ function renderQuotaCompat(
   const rate = 'exchangeRate' in meta ? meta.exchangeRate : 1
   const symbol = 'symbol' in meta ? meta.symbol : '$'
   const value = usd * rate
-  if (
-    Number.parseFloat(value.toFixed(digits)) === 0 &&
-    rawQuota > 0 &&
-    value > 0
-  ) {
+  const fixed = value.toFixed(digits)
+  if (Number.parseFloat(fixed) === 0 && rawQuota > 0 && value > 0) {
     return symbol + formatFixed(Math.pow(10, -digits), digits, locale)
   }
   return symbol + formatFixed(value, digits, locale)
@@ -233,19 +228,18 @@ export function processChartData(
     string,
     Map<string, { quota: number; count: number; tokens: number }>
   >()
-  // Earliest timestamp of each time label, so labels sort by time, not text
-  const timeKeyStart = new Map<string, number>()
   const modelTotalsMap = new Map<
     string,
     { quota: number; count: number; tokens: number }
   >()
+  const timeTimestamps = new Map<string, number>()
 
   data.forEach((item) => {
     const timestamp = Number(item.created_at)
     const timeKey = formatChartTime(timestamp, timeGranularity, locale)
-    timeKeyStart.set(
+    timeTimestamps.set(
       timeKey,
-      Math.min(timeKeyStart.get(timeKey) ?? timestamp, timestamp)
+      Math.min(timeTimestamps.get(timeKey) ?? timestamp, timestamp)
     )
     const model = item.model_name || 'Unknown'
     const quota = Number(item.quota) || 0
@@ -279,9 +273,9 @@ export function processChartData(
   })
 
   const allModels = [...modelTotalsMap.keys()]
-  const sortedTimes = [...timeModelMap.keys()].sort(
-    (a, b) => (timeKeyStart.get(a) ?? 0) - (timeKeyStart.get(b) ?? 0)
-  )
+  const sortedTimes = [...timeTimestamps]
+    .sort((a, b) => a[1] - b[1])
+    .map(([time]) => time)
   const sortedModels = [...allModels].sort()
   const modelColorDomain = [...new Set([...sortedModels, otherLabel])]
   const modelColorRange = getDashboardChartColors(modelColorDomain.length)
@@ -301,9 +295,12 @@ export function processChartData(
     const lastTime = Math.max(
       ...data.map((item) => Number(item.created_at) || 0)
     )
-    const intervalSec = { week: 604800, day: 86400, hour: 3600 }[
-      timeGranularity
-    ]
+    let intervalSec = 3600
+    if (timeGranularity === 'week') {
+      intervalSec = 604800
+    } else if (timeGranularity === 'day') {
+      intervalSec = 86400
+    }
     const padded = Array.from({ length: MAX_TREND_POINTS }, (_, i) =>
       formatChartTime(
         lastTime - (MAX_TREND_POINTS - 1 - i) * intervalSec,
@@ -795,13 +792,12 @@ export function processUserChartData(
   )
 
   const timeUserMap = new Map<string, Map<string, number>>()
-  // Earliest timestamp of each time label, so labels sort by time, not text
-  const allTimePoints = new Map<string, number>()
+  const timeTimestamps = new Map<string, number>()
 
   data.forEach((item) => {
     const ts = Number(item.created_at)
     const timeKey = formatChartTime(ts, timeGranularity, locale)
-    allTimePoints.set(timeKey, Math.min(allTimePoints.get(timeKey) ?? ts, ts))
+    timeTimestamps.set(timeKey, Math.min(timeTimestamps.get(timeKey) ?? ts, ts))
     const user = item.username || 'unknown'
     if (!topUserSet.has(user)) return
     let map = timeUserMap.get(timeKey)
@@ -812,9 +808,9 @@ export function processUserChartData(
     map.set(user, (map.get(user) || 0) + (Number(item.quota) || 0))
   })
 
-  const sortedTimePoints = [...allTimePoints.keys()].sort(
-    (a, b) => (allTimePoints.get(a) ?? 0) - (allTimePoints.get(b) ?? 0)
-  )
+  const sortedTimePoints = [...timeTimestamps]
+    .sort((a, b) => a[1] - b[1])
+    .map(([time]) => time)
   const trendValues: Array<{
     Time: string
     User: string

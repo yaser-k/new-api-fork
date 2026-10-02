@@ -142,6 +142,7 @@ export function convertDetectedLanguage(value: string): string {
   if (lower === 'fa' || lower.startsWith('fa-')) return 'fa'
   if (!lower.startsWith('zh')) return value
   if (
+    lower === 'zhtw' ||
     lower === 'zh-tw' ||
     lower === 'zh-hk' ||
     lower === 'zh-mo' ||

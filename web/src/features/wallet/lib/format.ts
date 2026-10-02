@@ -69,7 +69,7 @@ export function formatCurrency(
 }
 
 /**
- * Get the translated discount label for display (e.g., "20% OFF")
+ * Get discount label for display (e.g., "20% OFF")
  */
 export function getDiscountLabel(discount: number, t: TFunction): string {
   if (discount >= DEFAULT_DISCOUNT_RATE) {

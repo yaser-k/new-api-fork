@@ -1333,9 +1333,7 @@ function ProviderGroupPricingSection(
               (tier) => 'unitPrices' in tier || tier.billingUnit === 'request'
             )
               ? t('Prices shown per usage unit')
-              : t('Prices shown per {{unit}} tokens', {
-                  unit: tokenUnitLabel,
-                })}
+              : t('Prices shown per {{unit}} tokens', { unit: tokenUnitLabel })}
           </p>
         </div>
       </section>

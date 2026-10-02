@@ -16,11 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
+import { getAccessTokenScopes } from '@/features/security/api'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatGregorianTitle, formatTimestampToDate } from '@/lib/format'
 
@@ -36,7 +39,20 @@ import { AuditDetailValue } from './audit-detail-value'
 export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  const detail = buildAuditDetails(props.entry, t, locale)
+  const [open, setOpen] = useState(false)
+  const scopes = useQuery({
+    queryKey: ['access-token-scopes'],
+    queryFn: getAccessTokenScopes,
+    enabled:
+      open &&
+      (props.entry.action === 'access_token.generate' ||
+        props.entry.action === 'access_token.update'),
+    staleTime: Infinity,
+  })
+  const detail = buildAuditDetails(props.entry, t, {
+    scopeResources: scopes.data?.resources,
+    locale,
+  })
   const identifiers = [
     { label: t('Route'), value: props.entry.route },
     { label: t('Request ID'), value: props.entry.request_id },
@@ -57,6 +73,8 @@ export function AuditLogDetailsDialog(props: { entry: AuditLog }) {
   )
   return (
     <Dialog
+      open={open}
+      onOpenChange={setOpen}
       title={t('Log Details')}
       description={t('View the complete details for this log entry')}
       descriptionClassName='sr-only'

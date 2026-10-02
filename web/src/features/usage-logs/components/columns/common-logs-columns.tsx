@@ -732,8 +732,6 @@ export function useCommonLogsColumns(
       },
       {
         accessorKey: 'prompt_tokens',
-        // Context keeps text tokens apart from the "Tokens" key, which some
-        // locales translate as API keys.
         header: t('Tokens', { context: 'usage' }),
         cell: ({ row }) => {
           const log = row.original

@@ -85,7 +85,9 @@ beforeAll(async () => {
 
 describe('buildAuditDetails in Persian', () => {
   test('the actor role and the role field show Persian role labels', () => {
-    const detail = buildAuditDetails(userCreate, faT, toIntlLocale('fa'))
+    const detail = buildAuditDetails(userCreate, faT, {
+      locale: toIntlLocale('fa'),
+    })
 
     expect(detail.actorRole).toBe('مدیر ارشد')
     expect(detail.summary).toBe(
@@ -95,7 +97,9 @@ describe('buildAuditDetails in Persian', () => {
   })
 
   test('a login shows the Persian sign-in method label', () => {
-    const detail = buildAuditDetails(passwordLogin, faT, toIntlLocale('fa'))
+    const detail = buildAuditDetails(passwordLogin, faT, {
+      locale: toIntlLocale('fa'),
+    })
 
     expect(detail.actorRole).toBe('کاربر')
     expect(detail.summary).toBe('ورود موفق با رمز عبور')
@@ -106,7 +110,9 @@ describe('buildAuditDetails in Persian', () => {
 // admin and user, and the sign-in method label it already translated.
 describe('buildAuditDetails in other languages matches upstream', () => {
   test('in English, roles keep the raw role names', () => {
-    const detail = buildAuditDetails(userCreate, enT, toIntlLocale('en'))
+    const detail = buildAuditDetails(userCreate, enT, {
+      locale: toIntlLocale('en'),
+    })
 
     expect(detail.actorRole).toBe('root')
     expect(detail.summary).toBe('Created user alice (role admin)')
@@ -114,7 +120,9 @@ describe('buildAuditDetails in other languages matches upstream', () => {
   })
 
   test('in Chinese, roles keep the raw role names', () => {
-    const detail = buildAuditDetails(userCreate, zhT, toIntlLocale('zhCN'))
+    const detail = buildAuditDetails(userCreate, zhT, {
+      locale: toIntlLocale('zhCN'),
+    })
 
     expect(detail.actorRole).toBe('root')
     expect(detail.summary).toBe('创建用户 alice（角色 admin）')
@@ -123,10 +131,12 @@ describe('buildAuditDetails in other languages matches upstream', () => {
 
   test('in English and Chinese, a login shows the sign-in method label', () => {
     expect(
-      buildAuditDetails(passwordLogin, enT, toIntlLocale('en')).summary
+      buildAuditDetails(passwordLogin, enT, { locale: toIntlLocale('en') })
+        .summary
     ).toBe('Logged in successfully via Password')
     expect(
-      buildAuditDetails(passwordLogin, zhT, toIntlLocale('zhCN')).summary
+      buildAuditDetails(passwordLogin, zhT, { locale: toIntlLocale('zhCN') })
+        .summary
     ).toBe('登录成功（通过 密码）')
   })
 })

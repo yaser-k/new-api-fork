@@ -79,7 +79,9 @@ beforeAll(async () => {
 
 describe('audit identity and action in Persian', () => {
   test('the actor and target show the Persian ID label with the name isolated', () => {
-    const detail = buildAuditDetails(userManage, faT, toIntlLocale('fa'))
+    const detail = buildAuditDetails(userManage, faT, {
+      locale: toIntlLocale('fa'),
+    })
 
     expect(detail.actor).toBe(`${FSI}root-user${PDI} (شناسه: 1)`)
     expect(detail.target).toBe(`${FSI}alice${PDI} (شناسه: 7)`)
@@ -87,13 +89,17 @@ describe('audit identity and action in Persian', () => {
 
   test('an actor without a name shows the Persian ID label', () => {
     const anonymous = { ...userManage, username: '' }
-    const detail = buildAuditDetails(anonymous, faT, toIntlLocale('fa'))
+    const detail = buildAuditDetails(anonymous, faT, {
+      locale: toIntlLocale('fa'),
+    })
 
     expect(detail.actor).toBe('شناسه: 1')
   })
 
   test('the summary names the action with its Persian label', () => {
-    const detail = buildAuditDetails(userManage, faT, toIntlLocale('fa'))
+    const detail = buildAuditDetails(userManage, faT, {
+      locale: toIntlLocale('fa'),
+    })
 
     expect(detail.summary).toContain(`${FSI}ارتقا به مدیر${PDI}`)
     expect(detail.summary).not.toContain('promote')
@@ -102,7 +108,9 @@ describe('audit identity and action in Persian', () => {
 
 describe('audit action field in Persian', () => {
   test('the action field shows the Persian action label', () => {
-    const detail = buildAuditDetails(userManage, faT, toIntlLocale('fa'))
+    const detail = buildAuditDetails(userManage, faT, {
+      locale: toIntlLocale('fa'),
+    })
 
     expect(detail.fields).toContainEqual(
       expect.objectContaining({ value: 'ارتقا به مدیر' })
@@ -113,7 +121,9 @@ describe('audit action field in Persian', () => {
 // Other languages show what upstream shows.
 describe('audit identity and action in other languages matches upstream', () => {
   test('in English, keeps the ID label and the recorded action', () => {
-    const detail = buildAuditDetails(userManage, enT, toIntlLocale('en'))
+    const detail = buildAuditDetails(userManage, enT, {
+      locale: toIntlLocale('en'),
+    })
 
     expect(detail.actor).toBe('root-user (ID: 1)')
     expect(detail.target).toBe('alice (ID: 7)')
@@ -124,7 +134,9 @@ describe('audit identity and action in other languages matches upstream', () => 
   })
 
   test('in Chinese, keeps the ID label and the recorded action', () => {
-    const detail = buildAuditDetails(userManage, zhT, toIntlLocale('zhCN'))
+    const detail = buildAuditDetails(userManage, zhT, {
+      locale: toIntlLocale('zhCN'),
+    })
 
     expect(detail.actor).toBe('root-user (ID: 1)')
     expect(detail.target).toBe('alice (ID: 7)')
