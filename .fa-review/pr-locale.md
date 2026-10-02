@@ -4,8 +4,8 @@ Branch: yaser-k/new-api-fork:pr/fa-locale (from upstream main 1a4166d)
 ## Agent
 
 - Tool: Claude Code
-- Tool version: (fill in)
-- Model (full id): (fill in when opening)
+- Tool version: Claude Code 2.1.288
+- Model (full id): (add when opening; not stored in the repository)
 - Host: Claude Code on the web
 - Date (UTC): 2026-10-02
 
