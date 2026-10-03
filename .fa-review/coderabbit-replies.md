@@ -1,4 +1,4 @@
-# Replies to CodeRabbit (session 14)
+# Replies to CodeRabbit (sessions 14 and 15)
 
 Draft replies for the CodeRabbit review comments, to post by hand after `pr/fa-locale` and `pr/fa-dates-numbers` are fast-forwarded to `review/fa-locale` and `review/fa-dates-numbers`. Commit ids are on those branches.
 
@@ -41,3 +41,23 @@ Fixed in 35562b8: the three `formatQuota` calls get the interface locale, with a
 ### 4. `web/src/features/wallet/components/subscription-plans-card.tsx`: Persian branching duplicates `formatDisplayDate` (nitpick)
 
 Left as is on purpose: for every language other than Persian this keeps upstream's exact `toLocaleString()` output, because this PR only changes dates shown in Persian. Moving all languages to `formatTimestampToDate` would change the English date format and belongs in its own change.
+
+## QuantumNous/new-api#7653, second review (session 15)
+
+CodeRabbit's second review of `pr/fa-dates-numbers` (on `3a23fa1`) raised two findings outside the diff. Commit ids are on `review/fa-dates-numbers`; post these after `pr/fa-dates-numbers` is fast-forwarded to it.
+
+### 5. `web/src/components/data-table/core/pagination.tsx`: page buttons and page size options render raw numbers (outside the diff, lines 189 and 141)
+
+Fixed in be09101: the page buttons, their screen-reader text, the page size options and the selected size now use `formatFixed(n, 0, locale)`, the helper of the compact counter, so English stays `247` and `100`. The table state, the select values and the React keys keep the numbers; tests cover English and Persian, and that choosing a Persian option still sets the numeric page size.
+
+Sweep, f48f88f: the billing history dialog's own pager (shown range and page counter) had the same raw numbers and now uses the interface locale too.
+
+### 6. `web/src/features/subscriptions/components/dialogs/user-subscriptions-dialog.tsx`: plan selector price uses `toFixed(2)` (outside the diff, line 264)
+
+Fixed in d8b7d81 with `formatFixed(price, 2, locale)`, as the purchase dialog formats plan prices; English stays `Pro ($9.90)` and the option value is still the plan id. The dialog's test, renamed to `user-subscriptions-number-locale`, adds the English and Persian labels and a Persian add-subscription request with the numeric id.
+
+Sweep, c59e20b: the usage logs had the same kind of raw numbers beside formatted prices and counts: the group ratio and search call counts in the details breakdown, the group ratio in the token and details cells, RPM and TPM, and the audit "Changed / Total". They now use `formatFixed` with the interface locale; English output is unchanged.
+
+Sweep, f48f88f: the same in the wallet and subscription screens: the purchase limit counts, the subscription counts, raw quota tooltip and used share, the invite count, the Creem price and the recharge minimums. `formatCreemPrice` now takes the locale and keeps `$9.90` without one, so the admin product editor is unchanged.
+
+Sweep, c64af49: also the check-in total, the server log file count and the channel affinity cache stats (TTL, hit rate, token counts).
