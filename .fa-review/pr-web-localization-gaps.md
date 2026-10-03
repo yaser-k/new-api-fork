@@ -74,7 +74,21 @@ Write a draft description following `.agents/github/PR.md`: short and factual; f
 
 </details>
 
-- Later corrections: none
+- Later corrections:
+
+<details>
+<summary>Verbatim follow-up</summary>
+
+````text
+Thanks. Two changes before I check the branch. Add them as new commits on `fix/web-localization-gaps` (no amend, no rebase, no force-push), then update the PR draft on `feat/fa-locale` with a new commit:
+
+1. Row 11: English must stay exactly `en-US`, as before. Give the recognizer a language-and-region tag: from the `toIntlLocale` tag, `new Intl.Locale(tag).maximize()` and use `${language}-${region}` (en → en-US, zhCN → zh-CN, zhTW → zh-TW, fr → fr-FR, ru → ru-RU, ja → ja-JP, vi → vi-VN); if there is no tag, no region, or the constructor throws, leave `lang` unset. Update the test so English expects `en-US`.
+2. `formatTimestampRelative()` in `web/src/lib/format.ts` picks the unit before rounding, so 59.5 minutes reads `60 minutes ago`, 23.5 hours `24 hours ago`, 29.5 days `30 days ago`, and 345–364 days `12 months ago`. Choose the unit after rounding (if the rounded value reaches the next unit, use the next unit), in one small commit with a test. Say which existing outputs change (they should change only at those edges), and check whether this file conflicts with `origin/pr/fa-dates-numbers`.
+
+Then run the verification again: typecheck; lint by file and rule against `upstream/main`; the full suite; build; `i18n:sync`; fail-before for these two commits; the new tests under `LANG=fr_FR.UTF-8 LC_ALL=fr_FR.UTF-8` and `TZ=Pacific/Kiritimati`; and the conflicts with `origin/pr/fa-dates-numbers`, file by file. Update the PR draft's English-changes, verification and conflicts sections. Push both branches to origin (my fork) only, and report the new heads and results in plain fragments. Nothing on GitHub.
+````
+
+</details>
 
 ## Out of scope — refuse
 
@@ -82,7 +96,7 @@ Write a draft description following `.agents/github/PR.md`: short and factual; f
 
 ## Open gate — do not open unless all are satisfied
 
-- Out of scope: no. Facts, verification, short body: yes. Open: yes (by the user)
+- Out of scope: no. Facts, verification, short: yes. Open: by the user
 
 ## Kind
 
@@ -90,21 +104,22 @@ Write a draft description following `.agents/github/PR.md`: short and factual; f
 
 ## Issue facts
 
-- #7654 rows 1, 2, 4, 10, 11; every render; frontend only.
+- #7654 rows 1, 2, 4, 10, 11; frontend only.
 
 ## Change
 
-- Row 2: calendar map keyed `zh`, codes are `zhCN`/`zhTW`, so Chinese calendars were English; maps the codes.
-- Row 1: Day.js `fromNow()` without a locale (`最后活跃于 2 hours ago`), hand-built `5m ago`, `{{count}}` keys (`2 часов назад`, `0 months ago` at 28–29 days). All four now use `formatTimestampRelative()` with `toIntlLocale(i18n.resolvedLanguage || i18n.language)`; the popover keeps `Just now` and its absolute dates.
+- Row 2: calendar map keyed `zh`, not `zhCN`/`zhTW`: English Chinese calendars; now mapped.
+- Row 1: `fromNow()` without a Day.js locale (`最后活跃于 2 hours ago`), hand-built `5m ago`, `{{count}}` keys (`2 часов назад`, `0 months ago` at 28–29 d). Now `formatTimestampRelative()` in the interface locale; popover keeps `Just now`, absolute dates.
 - Row 4: three `toLocaleString()` dates now use `formatTimestampToDate()`.
-- Row 10: carousel labels through `t()`, new keys `Previous slide`/`Next slide` (`Previous`/`Next` read as wizard steps in zh, ru); logo URL error `Must be a valid URL`, not zod's `Invalid URL` (line 53 is type-only).
-- Row 11: `SpeechRecognition.lang` from `toIntlLocale(...)`, not `en-US`; unset without a valid tag.
+- Row 10: carousel labels via `t()`, new keys `Previous slide`/`Next slide` (`Previous`/`Next` mean wizard steps in zh, ru); logo URL error `Must be a valid URL`, not `Invalid URL` (line 53 is type-only).
+- Row 11: `lang` was always `en-US`; now the maximized locale's language-region (`en-US`, `zh-CN`, `ru-RU`…), unset without one.
+- Helper: unit picked before rounding (`60 minutes ago`); now after.
 
 ## Research
 
 ### Duplicate / prior art
 
-- Read #7654; no search. #7653 is numbers only.
+- #7654 read; no search. #7653: numbers only.
 
 ### Docs and code
 
@@ -118,30 +133,31 @@ Write a draft description following `.agents/github/PR.md`: short and factual; f
 
 | Path | Why |
 | --- | --- |
-| 12 source files | one commit per row |
-| 10 tests (9 new) | fail-before |
+| 13 sources | per row + helper |
+| 11 tests (10 new) | fail-before |
 | 7 locales | 2 keys |
 
 ## Behavior
 
 - English, exactly:
-  - Sessions, passkey: `a few seconds ago` → `30 seconds ago`, `an hour ago` → `1 hour ago` (also minute, day, month, year); units change at 60 s/60 min/24 h/30 d/365 d, not 45 s/45 min/22 h/26 d/11 mo.
-  - Announcements: `5m ago` → `5 minutes ago`; months/years after 30 days; future `-120m ago` → `in 2 hours`.
-  - Popover: no weeks (`14 days ago`); `0 months ago` → `28 days ago`; rounds, not floors (90 s `2 minutes ago`, 345–364 d `12 months ago`, 548–729 d `2 years ago`).
-  - `11/1/2026, 9:30:00 AM` → `2026-11-01 09:30:00`; no end time → `-`; `Invalid URL` → `Must be a valid URL`; voice `en-US` → `en`.
-- Other languages: Intl grammar (`2 часа назад`), Chinese calendars, translated labels, voice.
-- Left out: row 3 (#7653); rows 5–6 (plural keys); rows 7–9 (#7651, #7652); `formatUseTime`/`formatTokens`; unused `formatRelativeTime` in `models/lib/model-utils.ts`; 11 popover keys now unused (sync keeps them).
+  - Sessions, passkey: `a few seconds ago` → `30 seconds ago`, `an hour ago` → `1 hour ago` (also minute, day, month, year); units change at 60 s/59.5 min/23.5 h/29.5 d/345 d (Day.js: 45 s/45 min/22 h/26 d/11 mo).
+  - Announcements: `5m ago` → `5 minutes ago`; months from 29.5 d, years from 345 d; future `-120m ago` → `in 2 hours`.
+  - Popover: no weeks (`14 days ago`); `0 months ago` → `28 days ago`; rounds, not floors (90 s `2 minutes ago`, 59.5 min `1 hour ago`, 345–359 d `1 year ago`, 548–729 d `2 years ago`).
+  - Other helper users (users, keys, system info): only `60 minutes ago` → `1 hour ago`, likewise 24 h, 30 d, 12 mo.
+  - `11/1/2026, 9:30:00 AM` → `2026-11-01 09:30:00`; no end time → `-`; `Invalid URL` → `Must be a valid URL`; voice stays `en-US`.
+- Other languages: Intl grammar, calendars, labels, voice.
+- Left out: rows 3 (#7653), 5–6 (plural keys), 7–9 (#7651, #7652); `formatUseTime`/`formatTokens`; unused `formatRelativeTime` (`model-utils.ts`); 11 now-unused popover keys (kept).
 
 ## Verification
 
-- `web/`: `typecheck` 0; `lint` 230 (165 errors) on base and branch, same per file and rule; `test` 2222/2222; `build` ok; `i18n:sync` no diff.
-- Fail-before (fix reverted): row 2 6/18, row 1 21/27, row 4 6/92, row 10 3/4, row 11 6/6.
-- New tests with `LANG=fr_FR.UTF-8` (Node `fr-FR`), `TZ=Pacific/Kiritimati`: 147/147.
+- `web/`: typecheck 0; lint 230 (165 errors) on base and branch, same per file and rule; test 2236/2236; build ok; `i18n:sync` clean.
+- Fail-before (fix reverted), rows 2/1/4/10/11: 6/18, 21/27, 6/92, 3/4, 6/6; region tag 7/10; unit choice 6/10 (per-second check over ±3 years: only those edges change).
+- New tests with `LANG=fr_FR.UTF-8` (Node `fr-FR`), `TZ=Pacific/Kiritimati`: 161/161.
 - Not verified: real browsers.
 
 ## Risks
 
-- Display only. #7653 conflicts: popover (4 hunks), passkey (3), subscription card (3), login session (2), channel drawer (1).
+- Display only. #7653 conflicts: popover 4 hunks, passkey 3, subscription card 3, login session 2, channel drawer 1; `lib/format.ts` clean.
 
 ## Scope check
 
