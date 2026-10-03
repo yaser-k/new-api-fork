@@ -2,7 +2,7 @@
 
 Temporary review folder. Delete `.fa-review/` before any upstream PR.
 
-Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, merged with `upstream/main` at `1a4166d` in session 13 (merge `d95fb41`). Upstream issue: QuantumNous/new-api#7198. Session 13 also built the three upstream-ready branches `pr/fa-rtl-layout`, `pr/fa-locale` and `pr/fa-dates-numbers` (section 5); their draft PR texts are `pr-rtl-layout.md`, `pr-locale.md` and `pr-dates-numbers.md`, and the file-by-file coverage is `coverage.md`, all in this folder.
+Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, merged with `upstream/main` at `1a4166d` in session 13 (merge `d95fb41`). Upstream issue: QuantumNous/new-api#7198. Session 13 also built the three upstream-ready branches `pr/fa-rtl-layout`, `pr/fa-locale` and `pr/fa-dates-numbers` (section 5); their draft PR texts are `pr-rtl-layout.md`, `pr-locale.md` and `pr-dates-numbers.md`, and the file-by-file coverage is `coverage.md`, all in this folder. They are open upstream as QuantumNous/new-api#7651, QuantumNous/new-api#7652 and QuantumNous/new-api#7653. Session 14 fixed CodeRabbit's findings on the last two on new branches `review/fa-locale` and `review/fa-dates-numbers` (section 2), each its PR branch plus new commits, and merged both into this branch; the PR branches are unchanged until they are fast-forwarded.
 
 ## 1. What the Persian locale covers
 
@@ -18,7 +18,7 @@ Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, merged with `upstream/main
 
 ### Rules and tooling
 
-- `docs/i18n/fa.md` (new file): locale status, date rules, a glossary of 93 terms with reasons, the terms that stay English, eleven typography rules (ZWNJ, Persian ی and ک, digits, ۀ, punctuation, spacing around Latin words, FSI … PDI isolates around interpolated left-to-right values, RLI … PDI around Persian placeholders of left-to-right inputs), style and the automated check.
+- `.agents/skills/i18n-translate/fa.md` (new file; `docs/i18n/fa.md` until session 14, moved next to the i18n skill because AGENTS.md does not allow new files under `docs/` without a request): locale status, date rules, a glossary of 93 terms with reasons, the terms that stay English, eleven typography rules (ZWNJ, Persian ی and ک, digits, ۀ, punctuation, spacing around Latin words, FSI … PDI isolates around interpolated left-to-right values, RLI … PDI around Persian placeholders of left-to-right inputs), style and the automated check.
 - `bun run i18n:check-fa` (`web/scripts/check-fa.mjs`): exits 1 on any finding. It checks the typography rules, isolate pairing, empty values, stray whitespace, keys missing from `en.json`, and parses `web/src` with `@babel/parser` (now a declared dev dependency, 7.29.7, single copy in `bun.lock`) to check the placeholders of `dir='ltr'` inputs. Today: `check-fa: 5817 keys, no findings`.
 - `bun run i18n:sync` reports Persian as partial and never fills it with English. The i18n skill, `AGENTS.md` and `web/AGENTS.md` describe `fa` as the optional partial eighth locale.
 
@@ -30,49 +30,59 @@ Fork `yaser-k/new-api-fork`, branch `feat/fa-locale`, merged with `upstream/main
 
 Nothing else changes for left-to-right languages: every RTL fix uses logical classes or RTL-only rules, and every Persian-only label (audit roles, sign-in methods, the audit ID label and user action names) is guarded by the locale; tests pin the English (and where relevant Chinese) output. Among the locale files only `fa.json` differs from upstream apart from those 9 keys.
 
-## 2. This session (session 13): upstream merge and the three upstream branches
+## 2. This session (session 14): CodeRabbit fixes on two review branches
 
-Session 12's details (dashboard setup guide, the sweep of physical classes, the guard) are in `git show 16bfa21:.fa-review/REPORT.md`, section 2.
+Session 13's details (upstream merge `d95fb41`, how the three branches were split, decisions 1 to 5, merge order) are in `git show 94dc580:.fa-review/REPORT.md`, section 2.
 
-### A. Merge of `upstream/main` (`1a4166d`, 19 commits since `789c970`) into `feat/fa-locale`: `d95fb41`
+The three PRs are open upstream: QuantumNous/new-api#7651 (`pr/fa-rtl-layout`, `7204ba0`), QuantumNous/new-api#7652 (`pr/fa-locale`, `784f21d`) and QuantumNous/new-api#7653 (`pr/fa-dates-numbers`, `7963a31`). CodeRabbit reviewed the last two (four inline comments and a nitpick on the locale PR; two inline, one outside the diff and a nitpick on the dates/numbers PR). Each finding was checked in the code and fixed, where it holds, on a new branch: the PR branch plus new commits on top, so the PR branch can be fast-forwarded to it (no rebase, amend, merge commit or `.fa-review/`). The PR branches themselves are unchanged. Draft replies, one per comment: `coderabbit-replies.md` in this folder.
 
-| Conflict | Resolution |
+### A. `review/fa-locale` (for QuantumNous/new-api#7652), head `4285a18`
+
+| Commit | Finding | Result |
+| --- | --- | --- |
+| `2255498` docs(i18n): move the Persian guide into the i18n skill | new file under `docs/` (inline) | holds (AGENTS.md forbids new `docs/` files without a request). `git mv docs/i18n/fa.md .agents/skills/i18n-translate/fa.md`; `AGENTS.md`, the skill (three places), the `check-fa.mjs` comment and the guide's own pointer to `SKILL.md` updated. Nothing under `docs/` differs from upstream. The last reference, a comment in `calendar.tsx`, is on the dates branch (B, `2f4df76`) |
+| `4d75b96` docs(i18n): let the skill's untranslated-entries sample skip a missing fa.json | Step 3 sample throws `ENOENT` (inline) | holds. Step 3 uses Step 4's `readLocale` guard. Extracted and run on the upstream tree (no `fa.json`): before, `Error: ENOENT … fa.json`, exit 1; after, exit 0 (`fa: all translated`); with `fr.json` missing it still throws |
+| `555f22a` test(web): pin the default number locale in the audit quota test | quota assertions depend on the runtime default (inline) | holds (under `fr`: `1 $ · 0 $ → 1 $`). The English/Chinese quota test sets an `en-US` default through the `Intl.NumberFormat` mock the German case already used (now one helper, `mockBrowserNumberLocale`); text checks unchanged |
+| `c22a2f4` build(web): declare @tailwindcss/node as a dev dependency | undeclared import (inline) | holds. `"@tailwindcss/node": "^4.3.3"` (the version `bun.lock` resolved through `@rsbuild/plugin-tailwindcss`). `bun install`: the only `bun.lock` change is that line in the workspace `devDependencies`; package entries 1378 before and after; one `@tailwindcss/node@4.3.3`, one `react-day-picker@10.0.1`; `bun install --frozen-lockfile` clean. Package check (web/AGENTS.md 3.15): MIT, Tailwind Labs, already installed at that version, dev only, not in the app bundle |
+| `2b2ed43` test(web): explicit return types on the new test helpers | nitpick | `renderUpgradeBadge`/`renderEnumCell`: `void`; `renderOverridePreview`: `Promise<HTMLElement>`; both `renderDialog`: `Promise<BoundFunctions<typeof queries>>` (inline `type` imports; a separate `import type` trips `no-duplicates`); `t`: `string` |
+| `4285a18` test(web): pin the default number locale in the quota arrow tests | sweep | see below |
+
+**Sweep (tests that assert a formatted amount, number or date without fixing the locale).** The branch's 16 test files were grepped, and the whole suite was run with `LANG`/`LC_ALL` set to `fr_FR`, `de_DE` and `ar_EG` (Node's default locale follows them; ar-EG also switches to Arabic-Indic digits). Of the branch's own tests, only two more depended on the default: `quota-audit-direction` (English under fr/de/ar; Persian under ar, whose pattern accepted Latin or Persian digits only) and `quota-preview-direction` (English: `\S+` does not match `1 $`). Both now pin `en-US` the same way. Everything else in those runs that failed is upstream's own tests (section 6).
+
+### B. `review/fa-dates-numbers` (for QuantumNous/new-api#7653), head `3a23fa1`
+
+| Commit | Finding | Result |
+| --- | --- | --- |
+| `35562b8` fix(web): format the purchase dialog quota amounts in the interface locale | `formatQuota` without locale at lines 279, 309, 313 (outside the diff) | holds: in Persian, plan quota `$10`, required `$9.9` and available `$5` were Latin next to `$۹٫۹۰`. All three get `locale`; `purchase-price-locale.test.tsx` gains English and Persian cases (`‎$۱۰`, `‎$۹٫۹`, `‎$۵`; Intl puts an LRM before a Persian currency amount) |
+| `c3d2e96` fix(web): pass the interface locale to the remaining quota and number formatters | sweep of the files the branch touches | see below |
+| `39bc56c` fix(web): use the resolved language for the usage log details cell | `i18n.language` to `buildDetailSegments` (inline) | holds: when Persian is requested but resolves to English (no Persian translations loaded), the details price was `‎$۰٫۲۵` next to a `$0.01` cost. Now `i18n.resolvedLanguage \|\| i18n.language`, like line 359; new `detail-segments-locale.test.tsx` (resolved and unresolved) |
+| `e0173e8` test(web): pin the default number locale in the quota audit amount test | `toMatch(/\$2$/)` depends on the runtime default (inline) | holds (fr: `2 $`; ar-EG: Arabic-Indic digits). The English test pins `en-US`; the `t` stub gets a return type |
+| `2f4df76` docs(web): point the calendar comment to the moved Persian guide | follows A1 | the `calendar.tsx` comment on the `@daypicker/persian` version lock named `docs/i18n/fa.md` |
+| `7afd1a7` test(web): pin the runtime default locale in the unknown-language tests | test sweep | see below |
+| `3a23fa1` test(web): pin the default number locale in the flow tooltip test | test sweep | see below |
+| — | nitpick on `wallet/components/subscription-plans-card.tsx` 475-494 | not changed: other languages keep upstream's exact `toLocaleString()` (upstream lines 475 and 480); the PR changes only dates shown in Persian, and the Gregorian `title` rule is for table, list and log cells (this is a card) |
+
+**Formatter sweep (`c3d2e96`).** A parser script listed every `formatQuota`, `formatLogQuota`, `formatNumber`, `formatCompactNumber`, `formatFixed`, `formatCurrencyFromUSD`, `formatQuotaWithCurrency`, `formatBillingCurrencyFromUSD`, `formatLocalCurrencyAmount`, `Intl.*`, `toLocale*String` and `toFixed` call in the 85 non-test source files the branch touches. Fixed, each with an English and a Persian test (the Persian one fails without the fix):
+
+| File | Call |
 | --- | --- |
-| `dashboard/lib/charts.ts` | upstream's ordering code (#7628, chart order across a year boundary); our `locale` arguments kept on it. Our `chart-time-order` test dropped (upstream's `charts.test.ts` covers it) |
-| `pricing/model-details.tsx`, `usage-logs/.../common-logs-columns.tsx` | upstream's code (#7628 fixed the same labels; our comment dropped) |
-| `wallet/recharge-form-card.tsx` | upstream's `Pay … <savings>• Save …</savings>` sentence, with our `locale` on the amounts |
-| `security/access-token-card.tsx` (modify/delete) | upstream's deletion accepted; our work moved to the new access-token components (below) |
-| `usage-logs/audit/audit-log-details-dialog.tsx`, `audit/lib/audit-details.ts` | both sides: upstream's options object (`scopeResources`) gains `locale`; callers and tests pass `{ locale }` |
-| `users/data-table-row-actions.tsx` | both sides (upstream's step-up verification, our Persian action name) |
-| `i18n/static-keys.ts` | upstream's access-token keys + our legal-consent keys; our redemption key dropped (upstream's) |
-| seven locale files | upstream's files, then the 9 legal-consent keys re-added through the i18n skill's script, then `bun run i18n:sync` (no hand edits) |
+| `components/data-table/core/pagination.tsx` | `Total:` (compact and full pager): `totalRows.toLocaleString()` → `formatNumber(totalRows, locale)` (section 3 listed it) |
+| `features/redemption-codes/components/redemptions-columns.tsx` | quota badge `formatQuota(quota)` |
+| `features/subscriptions/components/dialogs/user-subscriptions-dialog.tsx` | used/total quota |
+| `features/channels/components/channels-columns.tsx` | balance cell: the full used and remaining amounts (only the compact forms had `locale`) and the "Balance updated" notice |
+| `features/channels/components/dialogs/balance-query-dialog.tsx` | current balance |
 
-Where #7628 fixed the same bug as our merged fix branches (2FA step label, delete-account label, chart order, the six hard-coded labels, Public Sans, billing status), upstream's code, keys and tests are kept, and our tests for them are dropped: `billing-status-label`, `chart-time-order`, `font-sans`, `price-unit-note`, `delete-invalid-sentence`, `plan-status-label`, `tokens-header`, `inviter-label`, `preset-labels`.
+Not changed: `formatBalance` and `formatQuota` in `channels/lib/channel-utils.ts` (exported, no caller); the non-Persian `toLocaleString()` dates in `channel-mutate-drawer.tsx` and `subscription-plans-card.tsx` (upstream output kept, as for B4); `playground/…/message-metadata.tsx` message time `Intl.DateTimeFormat(undefined, …)` (a time of day, not a number formatter; in Persian it follows the browser); `formatTaskUsageUnitPrice` in the usage log details task prices (takes no locale; its file `pricing/lib/dynamic-price.ts` is not in this branch and has 13 callers); raw `toFixed` displays already listed in section 3 / 7.4 (ratios, percentages, the admin plan picker price `$${price.toFixed(2)}`); `formatCurrencyUSD` (a wrapper without a locale parameter).
 
-**New access-token components** (upstream `caca52f`, `4924361`): `access-tokens-card.tsx` (`pe-20`, `end-3` in the access records sheet), `access-token-edit-dialog.tsx` (`sm:me-auto`); in Persian the token list shows numeric Solar Hijri dates through `formatTimestampToDate` (other languages keep upstream's `Intl` medium date) with the Gregorian date as `title`. The audit "Expiration" field uses the shared date helper instead of `dayjs().format`. Upstream's `permission-matrix.tsx`: logical classes and a collapsed-group chevron that points to the inline end in RTL (`rtl:rotate-90`, open state `rotate-0`; checked in the built CSS order). Tests: `access-token-dates` (2), `permission-matrix-direction` (2), `expiry-date-locale` (2).
+**Test sweep.** The branch's 36 test files were grepped, and the whole suite was run with `LANG`/`LC_ALL` set to `fr_FR`, `de_DE` and `ar_EG`. Besides `quota-audit-number-locale` (B3), four of the branch's tests depended on the default: the unknown-language fallbacks of `formatFixed` (`1.20`), `appendPercentSign` (`%`) and `formatResponseTime` (`456ms`, `1.23s`) in `format-fixed-locale`, `percent-sign-locale` and `response-time-format` (fr and de: decimal comma; ar-EG also digits and the percent sign). `toIntlLocale('xx-invalid')` returns a well-formed tag that Intl does not support, so a `locales ?? 'en-US'` mock does not reach them; their mock lets en-US stand in for the runtime default when `supportedLocalesOf` finds none of the requested locales. The tests are now named after that fallback. The date tests build both the input and the expected text from local `Date` values, so they do not depend on the locale (and passed in all four runs). Compared with the same fr run on `upstream/main` (75 of its own tests fail under fr), one upstream test failed only on this branch: `dashboard/lib/flow.test.ts` › tooltips expects the share `100.0%`; upstream wrote `toFixed(1)` + `%` whatever the locale, the branch formats it in the given locale, and the test passes none, so under fr/de it became `100,0%`. That test now pins an `en-US` default (`3a23fa1`); its five other ar-EG failures are upstream's own (same on `upstream/main`).
 
-**Keys**: upstream added 102 keys to `en.json` and removed 16. All 95 new keys without a Persian value are translated (none skipped), `Save {{amount}}` moved to the new savings sentence, 13 Persian keys of removed keys dropped by the sync; then `Logs` and `Failed to save` (older keys that upstream's permission catalog now uses) were translated after the screenshots showed «Logs» in English. Guard: the 4 physical classes upstream added (permission matrix) are converted; the allowlist is unchanged.
+### C. Merge checks
 
-### B. Preparing the split (commits on `feat/fa-locale`)
+Each review branch merges alone on `upstream/main` (fast-forward). `pr/fa-rtl-layout` + `review/fa-locale`: clean. `review/fa-dates-numbers` on top of those two: 9 conflicted files, the same 9 as session 13 (5 against RTL: `pagination.test.tsx`, `calendar.tsx`, `api-key-listing.test.tsx`, `system-tasks-table.tsx`, `common-logs-columns.tsx`; 4 against locale: `marketplace-plugin-card.tsx`, `audit-details.ts`, `details-dialog.tsx`, `quota-audit-operation.ts`). The new commits add none.
 
-- `89af00d`: `languages.ts` reordered so each upstream branch adds its own block (direction helper written to type-check with or without an RTL language; arrow helpers after `convertDetectedLanguage`; `isPersianIntlLocale` at the end); the Solar Hijri half of the date-range test in its own file; tests that skip Persian compare the code as a string.
-- `16360b5`: the sidebar docking test sets the direction through the provider (the Persian switch case in its own file); the quota-audit arrow test accepts either digit set; the Persian quota amounts get their own test.
-- `020b9fc`: the code-isolation CSS rule at the end of `index.css`.
-- `a589e09`: `Logs`, `Failed to save` in Persian.
+### D. `feat/fa-locale`
 
-### C. How the branches were built
-
-Each is a new branch from `upstream/main` (`1a4166d`), with no merge commits, no `.fa-review/` and nothing upstream already fixed. The diff of `feat/fa-locale` against upstream was split by hunk: every changed line was attributed with `git blame` to the commit that wrote it and mapped to the split plan (section 5); the commits that mixed concerns (`c78c83f`, `f01c5af`, `aa699fc`, `b2720c9`) were split line by line (number formatting → dates/numbers, classes → RTL, the sidebar side → RTL, the rest of the foundation → locale); a dozen hunks were split by hand. Decisions:
-
-1. The JS-level direction features (`formatValueChange`/`formatValueChain`: before/after arrows, the retry chain; `5e64f68`, `0c605b3`) go with the locale branch: they need a registered right-to-left language, which the RTL branch does not add. The RTL branch is CSS and markup only and is inert in left-to-right languages.
-2. Shared code needed by two branches is added identically in both, at the same place, so git merges it cleanly: `TextDirection`/`getInterfaceLanguageDirection` and the sidebar docking (RTL and locale), `isPersianIntlLocale` and the audit `locale` option (locale and dates/numbers).
-3. `docs/i18n/fa.md` stays whole in the locale branch (its date rules take effect with the dates branch; said in that PR text).
-4. `quota-audit-operation.ts`: the arrow to the locale branch, the Persian amounts to the dates/numbers branch; `calendar.tsx`: the class swaps to RTL, the Solar Hijri rewrite (with upstream's physical classes) to dates/numbers.
-5. Dependencies: each branch's `bun.lock` is seeded from `feat/fa-locale`'s, so `@daypicker/persian` stays at 10.0.1 with a single `react-day-picker` (a fresh resolve picked 10.0.2 and a second copy, as `docs/i18n/fa.md` warns).
-
-**Left out on purpose**: `.fa-review/`; `fix/legal-consent-sentence` (overlaps open PR #5998): `legal-consent.tsx`/`terms-footer.tsx` sentences, their 4 tests, 9 keys in each locale, static keys (the RTL class on the consent label and its test are in the RTL branch); the move of the duplicated upstream license comment in `usage-logs/components/dialogs/details-dialog.tsx` (formatter noise).
-
-**Merge order** (checked in a scratch branch): `pr/fa-rtl-layout` then `pr/fa-locale` merge cleanly; `pr/fa-dates-numbers` then conflicts in 9 files (`pagination.test.tsx`, `calendar.tsx`, `api-key-listing.test.tsx`, `system-tasks-table.tsx`, `marketplace-plugin-card.tsx`, `audit-details.ts`, `common-logs-columns.tsx`, `details-dialog.tsx`, `quota-audit-operation.ts`), all neighbouring-line edits (a class next to a locale argument, two names in one import). With feat's version of those 9 files the result equals `feat/fa-locale` except the left-out items. So the dates/numbers PR needs one rebase after the others land; `feat/fa-locale` is the reference resolution.
+Both review branches merged here (`3d86cf0`, `3e2947f`, then `ebab12b` for `3a23fa1`, a clean merge). The PR branches were split from this branch and never merged back, so their own commits conflict (14 and 15 files); each merge was resolved to this branch's content plus only the review delta (`784f21d..4285a18`, `7963a31..7afd1a7`), built with `git apply --3way` and compared line by line with the delta before the merge commit; the merge results equal those trees.
 
 ## 3. Hard-coded or unkeyed English (not fixed here; each needs a new key in every locale, or a code change)
 
@@ -128,7 +138,7 @@ Unchanged in session 12 (layout only). Rows updated in session 11: the page coun
 | features/task-plugins/components/marketplace-install-dialog.tsx:110,155; marketplace-panel.tsx:79,157; plugin-sandbox.tsx:43 | English `Error` messages shown in the dialog; `t(source.name)` on an admin-entered name |
 | features/task-plugins (plugin cards) | plugin names and descriptions come from the plugin metadata (backend), English |
 | components/ui/carousel.tsx:229,263 | screen-reader labels `Previous slide` / `Next slide` are literals (no key) |
-| components/data-table/core/pagination.tsx (full pager) | page number buttons written raw, and `Total:` uses `toLocaleString()` (browser language, not the interface language); only the compact counter was in decision 3 |
+| components/data-table/core/pagination.tsx (full pager) | page number buttons written raw (`Total:` follows the interface locale since session 14, `c3d2e96`) |
 | channels/…/codex-usage-dialog.tsx:488; wallet/…/subscription-plans-card.tsx:519; system-settings/…/log-settings-section.tsx:417; …/cache-stats-dialog.tsx:33; dashboard/…/uptime-panel.tsx:166; rankings (market share, growth); pricing (uptime, success rate) | percentages from a raw number or `toFixed` + `%`: Latin digits and `%` in Persian (C1 covered only numbers already formatted in the interface language) |
 | wallet/lib/format.ts:79 | `{{percent}}% OFF`: a raw integer interpolated, so Persian shows Latin digits; the fa value keeps `%` to match them |
 | usage-logs/…/details-dialog.tsx:631 | request conversion chain joined with ` -> ` (ASCII arrow, not direction-aware) |
@@ -389,35 +399,57 @@ Each key is listed once, under the first folder the scanner meets it in.
 | `Underground` | theme preset `name` field, not passed through t(); the UI shows t(`preset.underground`) instead | lib/theme-customization.ts:47 |
 
 
-## 5. Upstream branches (built in session 13)
+## 5. Upstream branches (built in session 13, reviewed in session 14)
 
-The proposal from session 12 (six PRs) is built as three branches, as asked: plan PR 1 → `pr/fa-rtl-layout`; plan PRs 2, 6 and 4 → `pr/fa-locale`; plan PRs 3 and 5 → `pr/fa-dates-numbers`. The session 12 table is in `git show 16bfa21:.fa-review/REPORT.md`, section 5.
+The proposal from session 12 (six PRs) is built as three branches: plan PR 1 → `pr/fa-rtl-layout`; plan PRs 2, 6 and 4 → `pr/fa-locale`; plan PRs 3 and 5 → `pr/fa-dates-numbers`. The session 12 table is in `git show 16bfa21:.fa-review/REPORT.md`, section 5. The PR branches are unchanged in session 14; the review branches add the CodeRabbit fixes on top of them and are meant to be fast-forwarded into them once checked (`git push origin review/fa-locale:pr/fa-locale`, the same for dates/numbers, never forced).
 
-| Branch | Head | Commits (files) | Files | Draft text |
-| --- | --- | --- | ---: | --- |
-| `pr/fa-rtl-layout` | `7204ba0` | `e75239e` fix(web): logical direction classes in the shared components (95) · `4b7a931` fix(web): logical direction classes on the feature pages (244) · `7204ba0` test(web): guard against new physical direction classes (2) | 341 | `pr-rtl-layout.md` |
-| `pr/fa-locale` | `784f21d` | `2a0384d` feat(i18n): add Persian (fa) as a partial right-to-left locale (14) · `ffdb275` feat(web): reading-direction arrows and Persian audit labels (23) · `784f21d` feat(i18n): Persian typography check, translation guide and rules (10) | 44 | `pr-locale.md` |
-| `pr/fa-dates-numbers` | `7963a31` | `a6f5ca5` feat(web): Solar Hijri dates and date pickers in Persian (92) · `7963a31` fix(web): format money and numbers in the interface language (75) | 119 | `pr-dates-numbers.md` |
+| Branch | PR | Head | Commits since `upstream/main` | Files | Draft text |
+| --- | --- | --- | ---: | ---: | --- |
+| `pr/fa-rtl-layout` | QuantumNous/new-api#7651 | `7204ba0` | 3: `e75239e` shared components (95 files) · `4b7a931` feature pages (244) · `7204ba0` guard test (2) | 341 | `pr-rtl-layout.md` |
+| `pr/fa-locale` | QuantumNous/new-api#7652 | `784f21d` | 3: `2a0384d` (14) · `ffdb275` (23) · `784f21d` (10) | 44 | `pr-locale.md` |
+| `review/fa-locale` | for QuantumNous/new-api#7652 | `4285a18` | 9: the 3 above + `2255498` `4d75b96` `555f22a` `c22a2f4` `2b2ed43` `4285a18` (section 2A) | 44 | |
+| `pr/fa-dates-numbers` | QuantumNous/new-api#7653 | `7963a31` | 2: `a6f5ca5` (92) · `7963a31` (75) | 119 | `pr-dates-numbers.md` |
+| `review/fa-dates-numbers` | for QuantumNous/new-api#7653 | `3a23fa1` | 9: the 2 above + `35562b8` `c3d2e96` `39bc56c` `e0173e8` `2f4df76` `7afd1a7` `3a23fa1` (section 2B) | 124 | |
 
-Order: 1, 2, 3 (3 needs one rebase, section 2C). Each merges alone on upstream main. Other languages: RTL none; locale «فارسی» in the language list; dates/numbers the decimal comma in French, Russian and Vietnamese. The older `fix/*` branches stay as they are; the ones #7628 fixed are superseded and not offered.
+Order: 1, 2, 3 (3 conflicts in 9 files with the first two, section 2C; `feat/fa-locale` is the reference resolution). Each merges alone on upstream main. Other languages: RTL none; locale «فارسی» in the language list; dates/numbers the decimal comma in French, Russian and Vietnamese, and amounts that follow the interface language instead of the browser language (section 1). `coverage.md` and the three draft texts describe the session 13 heads: the locale text still names `docs/i18n/fa.md` (Change 3 and the Files table), and the dates/numbers text does not list the files the session 14 sweep added (section 7.8).
 
-## 6. Verification (session 13)
+## 6. Verification (session 14)
 
-Session 12's verification is in `git show 16bfa21:.fa-review/REPORT.md`, section 6. Bun install, then from `web/`; lint compared by file and rule with `upstream/main` (165 errors, 65 warnings, in its own worktree).
+Session 13's verification (all three PR heads, the app and the English pixel comparison) is in `git show 94dc580:.fa-review/REPORT.md`, section 6; its screenshots are listed below. Session 14 changed formatting, tests, the guide's location and one dev dependency, and did not run the app. Bun 1.3.14, Node 22.22.0, `bun install --frozen-lockfile`, then from `web/`; lint compared by file, rule and severity with `upstream/main` (`1a4166d`, 165 errors, 65 warnings, own worktree), from `oxlint -f json`.
 
-| Check | `feat/fa-locale` (`a589e09`) | `pr/fa-rtl-layout` | `pr/fa-locale` | `pr/fa-dates-numbers` |
-| --- | --- | --- | --- | --- |
-| `bun run typecheck` | exit 0 | exit 0 at each commit | exit 0 at each commit | exit 0 at each commit |
-| `bun run lint` errors (upstream 165) | 119; 0 pairs above upstream; 0 in changed files | 121; 0; 0 | 163; 0; 0 | 165; 0; 1 in a changed file, upstream's own, unchanged |
-| `bun run test` | 249 files, 2547 passed | 202 files, 2236 passed (commit 1: 2196, commit 2: 2233) | 188 files, 2284 passed (commit 1: 2197, commit 2: 2252) | 202 files, 2325 passed (commit 1: 2250) |
-| `bun run build` | exit 0, 67002.5 kB / 20638.3 kB gzip | exit 0, 66259.9 kB | exit 0, 66890.1 kB | exit 0, 66330.0 kB |
-| `bun run i18n:sync` | no changes; fa missing 1056, extras 0; others 0/0 | no changes | no changes | no changes |
-| `bun run i18n:check-fa` | `5817 keys, no findings` | (no fa.json) | `5808 keys, no findings` | (no fa.json) |
-| fail-before: branch tests with every other changed file reverted to upstream | | 34 files: 66 failed, 96 passed | 15 files: 30 failed, 33 passed; 14 of 15 files fail | 32 files: 89 failed, 117 passed |
+| Check | `review/fa-locale` (`4285a18`) | `review/fa-dates-numbers` (`3a23fa1`) | `feat/fa-locale` (`ebab12b`) |
+| --- | --- | --- | --- |
+| `bun run typecheck` | exit 0 | exit 0 | exit 0 |
+| `bun run lint` errors (upstream 165) | 163; 0 pairs above upstream; 0 in changed files | 165; 0; 1 in a changed file, upstream's own (`wallet/components/creem-products-section.tsx`, `no-array-index-key`), unchanged | 119; 0; 0 |
+| `bun run test` | 188 files, 2284 passed | 206 files, 2343 passed | 253 files, 2565 passed |
+| `bun run build` | exit 0, 66890.1 kB / 20610.3 kB gzip | exit 0, 66330.0 kB / 20385.8 kB gzip | exit 0, 67002.6 kB / 20638.3 kB gzip |
+| `bun run i18n:sync` | no changes; fa missing 1056, extras 0; others 0/0 | no changes | no changes; fa missing 1056, extras 0; others 0/0 |
+| `bun run i18n:check-fa` | `5808 keys, no findings` | (no `fa.json`) | `5817 keys, no findings` |
+| changed tests with a French default (`LANG=LC_ALL=fr_FR.UTF-8`) | 9 files, 56 passed | 11 files, 71 passed | 19 files, 128 passed |
+| whole suite with a French default, against `upstream/main` under fr (75 failures of its own) | 75 failed, the same 75 as upstream; none beyond them | 45 failed, all among upstream's 75; none beyond them (30 of upstream's pass: amounts now follow the interface language) | 45 failed, all among upstream's 75; none beyond them |
 
-Fail-before notes: the passing tests assert that left-to-right / English output stays as upstream renders it; the only locale-branch file that passes is `scripts/oxlint/__tests__/intl-locale.test.ts`, which adds `fa` cases to the existing lint rule; `check-fa.test.ts` is not collected before (its `vitest.config.ts` include belongs to the branch, and `check-fa.mjs` does not exist there). Intermediate commits were tested before two last-minute changes (the CSS rule position in RTL commit 1, two Persian keys in locale commit 1); the final heads were tested after them.
+How the French default was forced: `LANG` and `LC_ALL` set to `fr_FR.UTF-8` for `node` and `vitest`. `node -e "new Intl.NumberFormat().resolvedOptions().locale"` printed `fr-FR`, and a temporary probe test run in the same vitest invocation as the changed tests (not committed) printed `DEFAULT-LOCALE fr-FR` and asserted it. The same variables with `de_DE` and `ar_EG` were used in the sweep.
 
-### Running app and screenshots
+**Fail-before** (each new or changed test, run with its fix reverted):
+
+| Test | Without the fix | With the fix |
+| --- | --- | --- |
+| Step 3 sample of the skill (extracted, run on the upstream tree, which has no `fa.json`) | `Error: ENOENT … fa.json`, exit 1 | exit 0; a missing `fr.json` still throws |
+| `usage-logs/lib/__tests__/audit-content-locale` | fr: 1 failed (`1 $ · 0 $ → 1 $`) | passes with the default C, fr, de, fa_IR |
+| `usage-logs/lib/__tests__/quota-audit-direction`, `users/components/__tests__/quota-preview-direction` | fr: 2 failed; ar-EG: 3 failed | pass with C, fr, de, ar-EG |
+| `persian-monospace` (`@tailwindcss/node`) | passed before too (the package was hoisted from `@rsbuild/plugin-tailwindcss`); the finding is about the declaration | lockfile check above |
+| helper return types | type-only | `tsgo -b` exit 0 |
+| `subscriptions/.../purchase-price-locale` (quota amounts) | default: Persian case failed; fr: English and Persian failed | 4 passed with C, fr, ar-EG |
+| `data-table/core/__tests__/pagination` (row total) | default: 2 Persian cases failed; fr: 4 failed | 9 passed |
+| `redemption-codes/.../quota-locale` (new) | Persian case failed | 2 passed |
+| `subscriptions/.../user-subscriptions-quota-locale` (new) | Persian case failed | 2 passed |
+| `channels/.../balance-locale` (new) | 3 Persian cases failed (badges, notice, dialog); with only the notice's `locale` removed, the notice case fails alone | 6 passed |
+| `usage-logs/.../detail-segments-locale` (new) | "resolves to English" case failed (details `‎$۰٫۲۵` beside a `$0.01` cost) | 2 passed with C, fr, ar-EG |
+| `usage-logs/lib/__tests__/quota-audit-number-locale` | fr, ar-EG: English case failed | passes with C, fr, de, ar-EG |
+| `lib/__tests__/format-fixed-locale`, `lib/__tests__/percent-sign-locale`, `channels/lib/__tests__/response-time-format` (unknown language) | ar-EG: 4 failed (fr, de: 2) | 43 passed with C, fr, de, ar-EG |
+| `dashboard/lib/flow.test.ts` › tooltips | fr, de: failed (`100,0%`); passes on `upstream/main` under fr | passes with C, fr, de (ar-EG: 5 other cases fail, as on `upstream/main`) |
+
+### Running app and screenshots (session 13)
 
 `go build` of `feat/fa-locale` (fresh `web/dist`), `pr/fa-rtl-layout` and `upstream/main` (each with its own `bun run build`), Go 1.25.1. `scripts/seed-s13.py` ran once against the feat binary on a fresh SQLite database in a scratch directory: `GET /api/setup` → `status false, database_type sqlite`; `POST /api/setup` → `系统初始化成功`, success; then three channels, an API key, a plan, a redemption code, a demo Epay configuration (top-up presets, 20% off the 100 preset), a second user, two scoped access tokens created through password verification (`POST /api/verify` → proof → `POST /api/user/access_tokens`), and three usage logs on 2026-09-25 UTC. `scripts/shots-s13.mjs` (Chromium 141, 1440×900, light, clock fixed at 2026-09-25 14:00 UTC, reduced motion) signs in and captures; no capture is blank (fewest colours 1834; blank threshold 16). Console errors: the 401 of the pre-login session probe and `ERR_CERT_AUTHORITY_INVALID` for an external resource.
 
@@ -454,7 +486,9 @@ Every difference of the RTL branch also occurs between two upstream runs, in the
 5. `lib/theme-customization.ts` says in a comment that the `default` preset resolves to serif, while `PRESET_DEFAULT_FONT.default` is `sans` (upstream comment; not touched, the Public Sans branch stays minimal).
 6. **Session 12, left for later.** None of items 1 to 5 was about direction classes, so none is removed. New: (a) `components/ai-elements/web-preview.tsx` keeps one `text-left` until its iframe sandbox (`allow-scripts` with `allow-same-origin`) and index key are decided upstream; the component is unused. (b) Outside the guard: `slide-in-from-left/right` animation classes (44 in 11 files; popovers keyed to the physical side they open on), `translate-x-*` (51 in 17 files; mostly centring and motion), `bg-gradient-to-r/l` (7 in 6 files; decorative). (c) tailwind-merge treats `ps/pe`, `ms/me`, `start/end` and `border-s/e` as separate from `px`, `mx`, `inset-x` and `border-x`, unlike their physical forms; callers were checked (section 2), but a future caller that passes `px-*` to a component whose base has an unscoped `ps-*`/`pe-*` would not override it. Extending the tailwind-merge config is possible, but it would also change merges that upstream code already relies on, so it was not done.
 
-7. **Session 13.** (a) `pr/fa-dates-numbers` needs one rebase once the first two branches land (9 files, section 2C). (b) The audit "Expiration" field and the access token list now use Solar Hijri in Persian; the access token sessions list («آخرین فعالیت: ۷ روز دیگر» in the screenshots) only reflects the fixed browser clock. (c) Not offered upstream: `fix/legal-consent-sentence` (PR #5998 overlap) and `fix/quota-insufficient-i18n` (backend, separate). (d) PR template fields left for the submitter: tool version and model id.
+7. **Session 13.** (a) `pr/fa-dates-numbers` needs one rebase once the first two branches land (9 files; still the same 9 with the session 14 commits, section 2C). (b) The audit "Expiration" field and the access token list now use Solar Hijri in Persian; the access token sessions list («آخرین فعالیت: ۷ روز دیگر» in the screenshots) only reflects the fixed browser clock. (c) Not offered upstream: `fix/legal-consent-sentence` (PR #5998 overlap) and `fix/quota-insufficient-i18n` (backend, separate). (d) PR template fields left for the submitter: tool version and model id.
+
+8. **Session 14.** (a) The open PR descriptions (QuantumNous/new-api#7652 and QuantumNous/new-api#7653) and the drafts in this folder still describe the session 13 heads: the locale one names `docs/i18n/fa.md`, the dates/numbers one lacks the sweep files (`pagination.tsx`, `redemptions-columns.tsx`, `user-subscriptions-dialog.tsx`, `channels-columns.tsx`, `balance-query-dialog.tsx`, `flow.test.ts` and four new test files) and both quote session 13's test counts; update them when the PR branches are fast-forwarded. Replies to CodeRabbit are drafted in `coderabbit-replies.md`, not posted. (b) Formatters without the interface locale in files the dates/numbers branch does not touch, left for a follow-up: `formatQuota` in `redemption-codes/components/redemptions-mobile-list.tsx:167` (the mobile twin of the fixed column), `redemptions-mutate-drawer.tsx:233` (default name), `system-settings/general/quota-settings-section.tsx:79`, `users/components/user-quota-dialog.tsx:61-66` (preview), `users/components/users-columns.tsx:261`, `users/components/users-mutate-drawer.tsx:473`. (c) In files it touches, not changed: `formatTaskUsageUnitPrice` (`pricing/lib/dynamic-price.ts`, no locale parameter, 13 callers; the usage log details task prices follow the browser), the playground message time (`Intl.DateTimeFormat(undefined, …)`), the admin plan picker price (`toFixed(2)`), the non-Persian `toLocaleString()` dates kept as upstream, and the unused `formatBalance`/`formatQuota` exports in `channels/lib/channel-utils.ts`. (d) Upstream's own tests depend on the machine's locale: 75 fail on `upstream/main` with a French default; the branches leave those as they are.
 
 ## 8. Open questions
 
@@ -476,4 +510,5 @@ Taken from the titles of the earlier versions of this file (`git log -- .fa-revi
 - Session 10: the four settled decisions, the final cleanup pass (digits, dates, arrows, lint-blocked RTL fixes, audit labels, `pre` blocks), this summary.
 - Session 11: download wording, audit labels to PR 4, the page counter, the upstream `fix/public-sans-font` branch (merged), percent sign, retry chain, plan prices, `mr-1`.
 - Session 12: the dashboard setup guide in RTL, the sweep of every physical direction class (414 converted, 62 kept with reasons), the guard test, the lint cleanup of the touched files.
-- Session 13 (this one): merge of upstream `1a4166d` (#7628 replaces six of our fixes; access tokens rebuilt upstream), 97 new keys in Persian, and the three upstream branches `pr/fa-rtl-layout`, `pr/fa-locale`, `pr/fa-dates-numbers` with coverage, fail-before and the English pixel comparison.
+- Session 13: merge of upstream `1a4166d` (#7628 replaces six of our fixes; access tokens rebuilt upstream), 97 new keys in Persian, and the three upstream branches `pr/fa-rtl-layout`, `pr/fa-locale`, `pr/fa-dates-numbers` with coverage, fail-before and the English pixel comparison.
+- Session 14 (this one): CodeRabbit's findings on QuantumNous/new-api#7652 and QuantumNous/new-api#7653 fixed on `review/fa-locale` and `review/fa-dates-numbers` (guide moved out of `docs/`, skill Step 3 guard, `@tailwindcss/node`, return types, purchase dialog and swept formatters in the interface locale, resolved language in the details cell), tests made independent of the machine's locale (checked under fr, de, ar-EG), both merged here; replies drafted in `coderabbit-replies.md`.
