@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { isPersianIntlLocale } from '@/i18n/languages'
+import { formatValueChange, isPersianIntlLocale } from '@/i18n/languages'
 import { formatLogQuota } from '@/lib/format'
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string
@@ -106,7 +106,7 @@ export function buildQuotaAuditOperation(
       params.from !== '' &&
       params.from === params.to &&
       (typeof params.from === 'string' || typeof params.from === 'number')
-    let change = `${before} → ${after}`
+    let change = formatValueChange(before, after, locale)
     if (unchanged) change = `${t('Quota unchanged')} · ${change}`
     description = `${description} · ${change}`
     fields.push(
