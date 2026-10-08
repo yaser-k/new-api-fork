@@ -29,6 +29,10 @@ import type { AuditLog } from '../api'
 import { buildAuditDetails } from '../lib/audit-details'
 import { AuditLogDetailsDialog } from './audit-log-details-dialog'
 
+// Routes and user agents are left-to-right text. In a right-to-left page
+// the leading "/" of a route would otherwise move to the far end.
+const LTR_VALUE_IN_RTL = 'rtl:[direction:ltr] rtl:text-right'
+
 export function useAuditLogColumns(
   accessOnly?: boolean
 ): ColumnDef<AuditLog>[] {
@@ -125,7 +129,10 @@ export function useAuditLogColumns(
         header: t('Client'),
         size: 180,
         cell: ({ row }) => (
-          <TruncatedCell className='max-w-48'>
+          <TruncatedCell
+            className='max-w-48'
+            contentClassName={LTR_VALUE_IN_RTL}
+          >
             {row.original.user_agent || '—'}
           </TruncatedCell>
         ),
@@ -147,7 +154,10 @@ export function useAuditLogColumns(
         header: t('Route'),
         size: 220,
         cell: ({ row }) => (
-          <TruncatedCell className='max-w-60 font-mono'>
+          <TruncatedCell
+            className='max-w-60 font-mono'
+            contentClassName={LTR_VALUE_IN_RTL}
+          >
             {row.original.route || '—'}
           </TruncatedCell>
         ),

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronDownIcon } from 'lucide-react'
 import * as React from 'react'
-import { enUS, fr, ja, ru, vi, zhCN } from 'react-day-picker/locale'
+import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -35,11 +35,12 @@ import { cn } from '@/lib/utils'
 
 const calendarLocales = {
   en: enUS,
-  zh: zhCN,
+  zhCN,
   fr,
   ru,
   ja,
   vi,
+  zhTW,
 } as const
 
 interface DateTimePickerProps {
@@ -59,7 +60,9 @@ export function DateTimePicker({
   const placeholderText = placeholder ?? t('Select date')
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const calendarLocale =
-    calendarLocales[i18n.language as keyof typeof calendarLocales] ?? enUS
+    calendarLocales[
+      (i18n.resolvedLanguage || i18n.language) as keyof typeof calendarLocales
+    ] ?? enUS
   const currentYear = new Date().getFullYear()
   const [open, setOpen] = React.useState(false)
   const [date, setDate] = React.useState<Date | undefined>(value)

@@ -135,7 +135,7 @@ export function useDrawingLogsColumns(
             icon={getDrawingTypeIcon(action)}
             size='sm'
             copyable={false}
-            className='-ml-1.5'
+            className='-ms-1.5'
           />
         )
       },
@@ -187,7 +187,7 @@ export function useDrawingLogsColumns(
               variant={mjSubmitResultMapper.getVariant(String(code))}
               size='sm'
               copyable={false}
-              className='-ml-1.5'
+              className='-ms-1.5'
             />
           )
         },
@@ -212,7 +212,7 @@ export function useDrawingLogsColumns(
             <>
               <button
                 type='button'
-                className='group text-left text-xs'
+                className='group text-start text-xs'
                 onClick={() => setDialogOpen(true)}
                 title={t('Click to view image')}
               >
@@ -246,7 +246,7 @@ export function useDrawingLogsColumns(
             <>
               <button
                 type='button'
-                className='group flex max-w-[220px] items-center text-left text-xs'
+                className='group flex max-w-[220px] items-center text-start text-xs'
                 onClick={() => setDialogOpen(true)}
                 title={t('Click to view full prompt')}
               >

@@ -163,3 +163,22 @@ it('in Persian, sets the numeric page size when a Persian page size option is ch
   expect(screen.getByRole('combobox')).toHaveTextContent('۵۰')
   expect(screen.getByText('۵۰', { selector: 'button' })).toBeVisible()
 })
+it('mirrors the previous and next arrows so they point the reading direction in RTL', () => {
+  render(<Fixture compact />)
+  for (const name of ['Go to previous page', 'Go to next page']) {
+    const icon = screen.getByRole('button', { name }).querySelector('svg')
+    expect(icon).toHaveClass('rtl:rotate-180')
+  }
+})
+it('mirrors every page-step arrow in the full pagination bar in RTL', () => {
+  render(<Fixture />)
+  for (const name of [
+    'Go to first page',
+    'Go to previous page',
+    'Go to next page',
+    'Go to last page',
+  ]) {
+    const icon = screen.getByRole('button', { name }).querySelector('svg')
+    expect(icon).toHaveClass('rtl:rotate-180')
+  }
+})

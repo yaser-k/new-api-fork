@@ -56,7 +56,7 @@ import type {
   PlanRecord,
   UserSubscriptionRecord,
 } from '@/features/subscriptions/types'
-import { isPersianIntlLocale, toIntlLocale } from '@/i18n/languages'
+import { toIntlLocale } from '@/i18n/languages'
 import {
   appendPercentSign,
   formatFixed,
@@ -409,7 +409,7 @@ export function SubscriptionPlansCard({
           {hasAny && (
             <>
               <Separator className='my-3' />
-              <div className='max-h-64 space-y-3 overflow-y-auto pr-1'>
+              <div className='max-h-64 space-y-3 overflow-y-auto pe-1'>
                 {allSubscriptions.map((sub) => {
                   const subscription = sub.subscription
                   const totalAmount = Number(subscription?.amount_total || 0)
@@ -482,26 +482,12 @@ export function SubscriptionPlansCard({
                       </div>
                       <div className='text-muted-foreground mt-1.5'>
                         {endTimeLabel}{' '}
-                        {isPersianIntlLocale(locale)
-                          ? formatTimestampToDate(
-                              subscription?.end_time,
-                              'seconds',
-                              locale
-                            )
-                          : new Date(
-                              (subscription?.end_time || 0) * 1000
-                            ).toLocaleString()}
+                        {formatTimestampToDate(subscription?.end_time, 'seconds', locale)}
                       </div>
                       {isActive && nextResetTime > 0 && (
                         <div className='text-muted-foreground mt-1'>
                           {t('Next reset')}:{' '}
-                          {isPersianIntlLocale(locale)
-                            ? formatTimestampToDate(
-                                nextResetTime,
-                                'seconds',
-                                locale
-                              )
-                            : new Date(nextResetTime * 1000).toLocaleString()}
+                          {formatTimestampToDate(nextResetTime, 'seconds', locale)}
                         </div>
                       )}
                       <div className='text-muted-foreground mt-1'>
@@ -528,7 +514,7 @@ export function SubscriptionPlansCard({
                           t('Unlimited')
                         )}
                         {totalAmount > 0 && (
-                          <span className='ml-2'>
+                          <span className='ms-2'>
                             {t('Used')}{' '}
                             {appendPercentSign(
                               formatFixed(usagePercent, 0, locale),

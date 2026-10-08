@@ -109,7 +109,7 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
           <TableHead className='h-9 w-[190px] text-xs'>
             {t('Updated')}
           </TableHead>
-          <TableHead className='h-9 w-[220px] pr-4 text-xs'>
+          <TableHead className='h-9 w-[220px] pe-4 text-xs'>
             {t('Detail')}
           </TableHead>
         </TableRow>
@@ -150,7 +150,7 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
                     value={progress ?? 0}
                     className={cn('w-24', PROGRESS_BAR_CLASS_NAME[task.status])}
                   />
-                  <span className='text-muted-foreground w-10 text-right text-xs tabular-nums'>
+                  <span className='text-muted-foreground w-10 text-end text-xs tabular-nums'>
                     {progress === null
                       ? '-'
                       : appendPercentSign(formatNumber(progress, locale), locale)}
@@ -171,7 +171,7 @@ export function SystemTasksTable(props: SystemTasksTableProps) {
                 {formatTimestampRelative(task.updated_at, 'seconds', locale)}
               </TableCell>
               <TableCell
-                className='text-destructive max-w-[220px] truncate py-3 pr-4 align-middle text-xs'
+                className='text-destructive max-w-[220px] truncate py-3 pe-4 align-middle text-xs'
                 title={task.error || undefined}
               >
                 {task.error || '-'}

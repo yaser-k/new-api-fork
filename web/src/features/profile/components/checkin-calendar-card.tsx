@@ -292,7 +292,7 @@ export function CheckinCalendarCard({
           <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4'>
             <button
               type='button'
-              className='flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left whitespace-normal outline-none'
+              className='flex min-w-0 flex-1 items-start gap-3 rounded-lg text-start whitespace-normal outline-none'
               onClick={() => setCollapsed((v) => !v)}
             >
               <IconBadge tone='neutral' size='lg' className='sm:size-11'>
@@ -396,7 +396,7 @@ export function CheckinCalendarCard({
                       className='h-7 w-7 sm:h-8 sm:w-8'
                       onClick={handlePrevMonth}
                     >
-                      <ChevronLeft className='h-3.5 w-3.5 sm:h-4 sm:w-4' />
+                      <ChevronLeft className='h-3.5 w-3.5 sm:h-4 sm:w-4 rtl:rotate-180' />
                     </Button>
                     <Button
                       variant='ghost'
@@ -404,7 +404,7 @@ export function CheckinCalendarCard({
                       className='h-7 w-7 sm:h-8 sm:w-8'
                       onClick={handleNextMonth}
                     >
-                      <ChevronRight className='h-3.5 w-3.5 sm:h-4 sm:w-4' />
+                      <ChevronRight className='h-3.5 w-3.5 sm:h-4 sm:w-4 rtl:rotate-180' />
                     </Button>
                   </div>
                 </div>
@@ -483,7 +483,7 @@ export function CheckinCalendarCard({
                 </div>
 
                 <div className='bg-muted/30 text-muted-foreground rounded-lg border p-3 text-xs'>
-                  <ul className='list-disc space-y-1 pl-5'>
+                  <ul className='list-disc space-y-1 ps-5'>
                     <li>
                       {t('Check in daily to receive random quota rewards')}
                     </li>
