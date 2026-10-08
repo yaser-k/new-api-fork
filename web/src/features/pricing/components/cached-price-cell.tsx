@@ -29,7 +29,7 @@ import {
   isUnconfiguredTaskUsageModel,
 } from '../lib/dynamic-price'
 import { isTokenBasedModel } from '../lib/model-helpers'
-import { formatPrice, stripTrailingZeros } from '../lib/price'
+import { formatPrice } from '../lib/price'
 import type { PricingModel } from '../types'
 import type { ModelPriceCellOptions } from './model-price-cell'
 
@@ -106,8 +106,8 @@ export function CachedPriceCell(props: {
                   : t('Cache Read')}
               </span>
             )}
-            <span className='font-mono text-sm tabular-nums'>
-              {stripTrailingZeros(entry.formatted)}
+            <span className='font-mono text-sm whitespace-nowrap tabular-nums'>
+              {entry.formatted}
             </span>
           </div>
         ))}
@@ -128,21 +128,21 @@ export function CachedPriceCell(props: {
     return <span className='text-muted-foreground/30 text-xs'>—</span>
   }
 
-  const cachedPrice = stripTrailingZeros(
-    formatPrice(
-      model,
-      'cache',
-      tokenUnit,
-      showRechargePrice,
-      priceRate,
-      usdExchangeRate,
-      selectedGroup
-    )
+  const cachedPrice = formatPrice(
+    model,
+    'cache',
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    selectedGroup
   )
 
   return (
     <div className='max-w-full min-w-0'>
-      <span className='font-mono text-sm tabular-nums'>{cachedPrice}</span>
+      <span className='font-mono text-sm whitespace-nowrap tabular-nums'>
+        {cachedPrice}
+      </span>
       <div className='text-muted-foreground/50 text-[10px]'>
         / {tokenUnitLabel}
       </div>
