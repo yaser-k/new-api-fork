@@ -24,6 +24,7 @@ import useEmblaCarousel, {
   type UseEmblaCarouselType,
 } from 'embla-carousel-react'
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { useDirection } from '@/components/ui/direction'
@@ -203,6 +204,7 @@ function CarouselPrevious({
   size = 'icon-sm',
   ...props
 }: React.ComponentProps<typeof Button>) {
+  const { t } = useTranslation()
   const { orientation, scrollPrev, canScrollPrev } = useCarousel()
 
   return (
@@ -226,7 +228,7 @@ function CarouselPrevious({
         strokeWidth={2}
         className='rtl:-scale-x-100'
       />
-      <span className='sr-only'>Previous slide</span>
+      <span className='sr-only'>{t('Previous slide')}</span>
     </Button>
   )
 }
@@ -237,6 +239,7 @@ function CarouselNext({
   size = 'icon-sm',
   ...props
 }: React.ComponentProps<typeof Button>) {
+  const { t } = useTranslation()
   const { orientation, scrollNext, canScrollNext } = useCarousel()
 
   return (
@@ -260,7 +263,7 @@ function CarouselNext({
         strokeWidth={2}
         className='rtl:-scale-x-100'
       />
-      <span className='sr-only'>Next slide</span>
+      <span className='sr-only'>{t('Next slide')}</span>
     </Button>
   )
 }
