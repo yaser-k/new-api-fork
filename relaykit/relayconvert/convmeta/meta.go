@@ -71,7 +71,10 @@ type ClaudeConvertInfo struct {
 	Index            int
 	Usage            *dto.Usage
 	FinishReason     string
-	Done             bool
+	// MessageStarted records that message_start was sent, so it is sent
+	// exactly once whatever the number of upstream frames.
+	MessageStarted bool
+	Done           bool
 
 	ToolCallBaseIndex      int
 	ToolCallMaxIndexOffset int
