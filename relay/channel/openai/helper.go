@@ -204,10 +204,15 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		helper.Done(c)
 
 	case types.RelayFormatClaude:
+		info.ClaudeConvertInfo.MoreFramesPending = false
 		var streamResponse dto.ChatCompletionsStreamResponse
 		if err := common.Unmarshal(common.StringToByteSlice(lastStreamData), &streamResponse); err != nil {
 			common.SysLog("error unmarshalling stream response: " + err.Error())
-			return
+			if !info.ClaudeConvertInfo.MessageStarted {
+				return
+			}
+			// The started message may still wait for its message_delta.
+			streamResponse = dto.ChatCompletionsStreamResponse{}
 		}
 
 		info.ClaudeConvertInfo.Usage = usage

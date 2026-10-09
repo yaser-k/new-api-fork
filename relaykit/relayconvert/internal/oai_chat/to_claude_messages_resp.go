@@ -235,6 +235,13 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 	}
 
 	if len(openAIResponse.Choices) == 0 {
+		if state.MoreFramesPending {
+			// A later frame ends the message; keep this usage for its message_delta.
+			if openAIResponse.Usage != nil {
+				state.Usage = dto.MergeUsageNonZero(state.Usage, openAIResponse.Usage)
+			}
+			return claudeResponses
+		}
 		// Some OpenAI-compatible upstreams end with a usage-only SSE chunk.
 		oaiUsage := clientVisibleClaudeStreamUsage(state, openAIResponse.Usage)
 		if oaiUsage != nil {
@@ -382,7 +389,15 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 		}
 
-		if doneChunk || state.Done {
+		if state.FinishReason != "" {
+			if state.MoreFramesPending {
+				// Usage can still arrive after the finish_reason frame; the
+				// message_delta waits for the last frame so it carries it.
+				if openAIResponse.Usage != nil {
+					state.Usage = dto.MergeUsageNonZero(state.Usage, openAIResponse.Usage)
+				}
+				return claudeResponses
+			}
 			oaiUsage := clientVisibleClaudeStreamUsage(state, openAIResponse.Usage)
 			if oaiUsage == nil {
 				// Some upstreams emit finish_reason first, then send a final usage-only chunk.

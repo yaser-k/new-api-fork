@@ -371,6 +371,54 @@ func TestStreamResponseOpenAI2ClaudeUnnamedToolCallDoesNotSkipBlockIndex(t *test
 	}, blocks)
 }
 
+func TestStreamResponseOpenAI2ClaudeDefersMessageDeltaWhileMoreFramesPending(t *testing.T) {
+	info := &convmeta.Values{
+		ClaudeConvertInfo: &convmeta.ClaudeConvertInfo{
+			LastMessagesType:  convmeta.LastMessageTypeNone,
+			MoreFramesPending: true,
+		},
+	}
+	var eventTypes []string
+	convert := func(frame *dto.ChatCompletionsStreamResponse) []*dto.ClaudeResponse {
+		responses := StreamResponseOpenAI2Claude(frame, info)
+		for _, resp := range responses {
+			eventTypes = append(eventTypes, resp.Type)
+		}
+		return responses
+	}
+
+	convert(&dto.ChatCompletionsStreamResponse{
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{
+			Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hi")},
+		}},
+		Usage: &dto.Usage{PromptTokens: 100, TotalTokens: 100},
+	})
+	convert(&dto.ChatCompletionsStreamResponse{
+		Choices: []dto.ChatCompletionsStreamResponseChoice{{FinishReason: ptr("stop")}},
+		Usage:   &dto.Usage{PromptTokens: 100, CompletionTokens: 1, TotalTokens: 101},
+	})
+	require.Equal(t, []string{"message_start", "content_block_start", "content_block_delta"}, eventTypes)
+
+	info.ClaudeConvertInfo.MoreFramesPending = false
+	last := convert(&dto.ChatCompletionsStreamResponse{
+		Usage: &dto.Usage{
+			PromptTokens:        100,
+			CompletionTokens:    5,
+			TotalTokens:         105,
+			PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 80},
+		},
+	})
+	require.Len(t, last, 3)
+	assert.Equal(t, "content_block_stop", last[0].Type)
+	assert.Equal(t, "message_delta", last[1].Type)
+	assert.Equal(t, "end_turn", *last[1].Delta.StopReason)
+	require.NotNil(t, last[1].Usage)
+	assert.Equal(t, 80, last[1].Usage.CacheReadInputTokens)
+	assert.Equal(t, 5, last[1].Usage.OutputTokens)
+	assert.Equal(t, "message_stop", last[2].Type)
+	assert.True(t, info.ClaudeConvertInfo.Done)
+}
+
 func TestStreamResponseOpenAI2ClaudeFirstFrameUsesUpstreamUsageWhenPresent(t *testing.T) {
 	info := &convmeta.Values{
 		EstimatePromptTokens: 32,

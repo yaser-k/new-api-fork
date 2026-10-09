@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -96,6 +97,59 @@ func TestOaiStreamHandlerClaudeSendsOneMessageStart(t *testing.T) {
 				"content_block_start", "content_block_delta", "content_block_stop",
 				"message_delta", "message_stop",
 			}, events)
+		})
+	}
+}
+
+func TestOaiStreamHandlerClaudeUsesUsageAfterFinishReason(t *testing.T) {
+	tests := []struct {
+		name   string
+		frames []string
+	}{
+		{
+			name: "usage on first frame, finish without usage",
+			frames: []string{
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[{"index":0,"delta":{"content":"hi"}}],"usage":{"prompt_tokens":100,"completion_tokens":0,"total_tokens":100}}`,
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_tokens_details":{"cached_tokens":80}}}`,
+			},
+		},
+		{
+			name: "partial usage on finish frame",
+			frames: []string{
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[{"index":0,"delta":{"content":"hi"}}]}`,
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":1,"total_tokens":101}}`,
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_tokens_details":{"cached_tokens":80}}}`,
+			},
+		},
+		{
+			name: "malformed frame after finish",
+			frames: []string{
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[{"index":0,"delta":{"content":"hi"}}]}`,
+				`{"id":"chatcmpl_1","model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_tokens_details":{"cached_tokens":80}}}`,
+				`not-json`,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events, payloads := runChatToClaudeStream(t, tt.frames...)
+
+			assert.Equal(t, []string{
+				"message_start",
+				"content_block_start", "content_block_delta", "content_block_stop",
+				"message_delta", "message_stop",
+			}, events)
+			require.Len(t, payloads, len(events))
+			var delta dto.ClaudeResponse
+			require.NoError(t, common.UnmarshalJsonStr(payloads[4], &delta))
+			require.NotNil(t, delta.Usage)
+			assert.Equal(t, 80, delta.Usage.CacheReadInputTokens)
+			assert.Equal(t, 20, delta.Usage.InputTokens)
+			assert.Equal(t, 5, delta.Usage.OutputTokens)
+			require.NotNil(t, delta.Delta)
+			require.NotNil(t, delta.Delta.StopReason)
+			assert.Equal(t, "end_turn", *delta.Delta.StopReason)
 		})
 	}
 }
