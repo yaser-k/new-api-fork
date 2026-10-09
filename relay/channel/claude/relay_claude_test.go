@@ -429,3 +429,47 @@ func TestOpenAIChatRequestToClaudeMessages_ClaudeOpus48ThinkingUsesAdaptiveHighE
 	require.Nil(t, claudeRequest.TopP)
 	require.Nil(t, claudeRequest.TopK)
 }
+
+// An Anthropic-style thinking object in a Chat Completions body drives the
+// upstream thinking when neither reasoning_effort nor reasoning is set.
+func TestOpenAIChatRequestToClaudeMessages_ChatThinkingObject(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		model            string
+		thinking         string
+		reasoningEffort  string
+		wantThinking     string
+		wantOutputConfig string
+	}{
+		{name: "disabled", model: "claude-sonnet-5", thinking: `{"type":"disabled"}`, wantThinking: `{"type":"disabled"}`},
+		{name: "enabled with budget", model: "claude-sonnet-4-5", thinking: `{"type":"enabled","budget_tokens":4000}`, wantThinking: `{"type":"enabled","budget_tokens":4000}`},
+		{name: "adaptive", model: "claude-sonnet-5", thinking: `{"type":"adaptive"}`, wantThinking: `{"type":"adaptive"}`},
+		{name: "reasoning_effort wins", model: "claude-sonnet-5", thinking: `{"type":"disabled"}`, reasoningEffort: "high", wantThinking: `{"type":"adaptive"}`, wantOutputConfig: `{"effort":"high"}`},
+		{name: "other dialect type ignored", model: "claude-sonnet-5", thinking: `{"type":"auto"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := dto.GeneralOpenAIRequest{
+				Model:           tc.model,
+				MaxTokens:       commonPointer(uint(16000)),
+				Messages:        []dto.Message{{Role: "user", Content: "hello"}},
+				THINKING:        []byte(tc.thinking),
+				ReasoningEffort: tc.reasoningEffort,
+			}
+			outbound, info := applyOpenAIChatReasoningThroughHandlerOrder(t, original)
+			claudeRequest, err := relayconvert.OpenAIChatRequestToClaudeMessages(nil, info, *outbound)
+			require.NoError(t, err)
+			if tc.wantThinking == "" {
+				assert.Nil(t, claudeRequest.Thinking)
+			} else {
+				thinking, err := common.Marshal(claudeRequest.Thinking)
+				require.NoError(t, err)
+				assert.JSONEq(t, tc.wantThinking, string(thinking))
+			}
+			if tc.wantOutputConfig == "" {
+				assert.Empty(t, claudeRequest.OutputConfig)
+			} else {
+				assert.JSONEq(t, tc.wantOutputConfig, string(claudeRequest.OutputConfig))
+			}
+		})
+	}
+}
