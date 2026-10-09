@@ -67,10 +67,23 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if types.IsSkipRetryError(err) {
 		return false
 	}
+	// Match stable upstream codes before inspecting human-readable text. Codes
+	// new-api assigns itself, such as bad_response_status_code, never match.
+	// An empty list preserves existing installations' automatic-disable policy.
+	if err.HasUpstreamErrorCode() {
+		code := string(err.GetErrorCode())
+		for configured := range strings.SplitSeq(model.CurrentRequestPolicy().Options["monitor_setting.auto_disable_error_codes"], "\n") {
+			if strings.TrimSpace(configured) == code {
+				return true
+			}
+		}
+	}
 	if operation_setting.ShouldDisableByStatusCode(err.StatusCode) {
 		return true
 	}
 
+	// Keep custom keyword rules for older upstreams and providers with missing
+	// or unrecognized codes. Outgoing messages remain unchanged for old clients.
 	lowerMessage := strings.ToLower(err.Error())
 	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableKeywords, true)
 	return search
