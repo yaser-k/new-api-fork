@@ -182,6 +182,88 @@ func TestDoAwsClientRequest_AppliesRuntimeHeaderOverrideToAnthropicBeta(t *testi
 	require.Equal(t, []any{"computer-use-2025-01-24"}, values)
 }
 
+func TestDoAwsClientRequestAnthropicBetaBodyField(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	allowList := map[string]any{
+		"mode": "set_header",
+		"path": "anthropic-beta",
+		"value": map[string]any{
+			"computer-use-2025-01-24": "computer-use-2025-01-24",
+			"$keep_only_declared":     true,
+		},
+	}
+	tests := []struct {
+		name         string
+		clientBeta   string
+		operations   []any
+		expectedBeta []any
+	}{
+		{
+			name:         "client flags are trimmed",
+			clientBeta:   "computer-use-2025-01-24, context-1m-2025-08-07",
+			expectedBeta: []any{"computer-use-2025-01-24", "context-1m-2025-08-07"},
+		},
+		{
+			name:       "delete_header removes the field",
+			clientBeta: "computer-use-2025-01-24",
+			operations: []any{map[string]any{"mode": "delete_header", "path": "anthropic-beta"}},
+		},
+		{
+			name:       "mapping that filters out every flag removes the field",
+			clientBeta: "unknown-beta-2025-01-01, other-beta-2025-02-02",
+			operations: []any{allowList},
+		},
+		{
+			name:         "mapping that keeps some flags sends only those",
+			clientBeta:   "unknown-beta-2025-01-01, computer-use-2025-01-24",
+			operations:   []any{allowList},
+			expectedBeta: []any{"computer-use-2025-01-24"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			ctx.Request.Header.Set("anthropic-beta", tt.clientBeta)
+
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "claude-3-5-sonnet-20240620",
+				RequestHeaders:  map[string]string{"anthropic-beta": tt.clientBeta},
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ApiKey:            "access-key|secret-key|us-east-1",
+					UpstreamModelName: "claude-3-5-sonnet-20240620",
+				},
+			}
+			requestBody := []byte(`{"messages":[{"role":"user","content":"hello"}],"max_tokens":128}`)
+			if len(tt.operations) > 0 {
+				info.ParamOverride = map[string]any{"operations": tt.operations}
+				var err error
+				requestBody, err = relaycommon.ApplyParamOverrideWithRelayInfo(requestBody, info)
+				require.NoError(t, err)
+			}
+
+			adaptor := &Adaptor{}
+			_, err := doAwsClientRequest(ctx, info, adaptor, bytes.NewReader(requestBody))
+			require.NoError(t, err)
+
+			awsReq, ok := adaptor.AwsReq.(*bedrockruntime.InvokeModelInput)
+			require.True(t, ok)
+			var payload map[string]any
+			require.NoError(t, common.Unmarshal(awsReq.Body, &payload))
+
+			anthropicBeta, exists := payload["anthropic_beta"]
+			if tt.expectedBeta == nil {
+				assert.False(t, exists, "anthropic_beta = %v", anthropicBeta)
+				return
+			}
+			assert.Equal(t, tt.expectedBeta, anthropicBeta)
+		})
+	}
+}
+
 func TestNewAwsInvokeContextInheritsParent(t *testing.T) {
 	originalRelayTimeout := common.RelayTimeout
 	t.Cleanup(func() {
