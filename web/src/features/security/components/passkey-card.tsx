@@ -59,6 +59,7 @@ interface PasskeyCardProps {
 
 export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const {
     status,
@@ -137,11 +138,7 @@ export function PasskeyCard({ loading: pageLoading }: PasskeyCardProps) {
 
   const formattedLastUsed =
     lastUsed && !Number.isNaN(Date.parse(lastUsed))
-      ? formatTimestampRelative(
-          Date.parse(lastUsed),
-          'milliseconds',
-          toIntlLocale(i18n.resolvedLanguage || i18n.language)
-        )
+      ? formatTimestampRelative(Date.parse(lastUsed), 'milliseconds', locale)
       : t('Not used yet')
 
   const showUnsupportedNotice = !supported && !enabled
