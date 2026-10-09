@@ -215,6 +215,9 @@ func TestClaudeRefusalSettlement(t *testing.T) {
 					return
 				}
 				assert.Equal(t, scenario.wantReason, other["billing_exempt_reason"])
+				const exemptKey = "Upstream did not bill this request, so nothing was charged: {{reason}}"
+				assert.Equal(t, "Upstream did not bill this request, so nothing was charged: "+scenario.wantReason, log.Content)
+				assert.Contains(t, other["content_parts"], map[string]any{"key": exemptKey, "params": map[string]any{"reason": scenario.wantReason}})
 				assert.Equal(t, 1, user.RequestCount)
 			})
 		}

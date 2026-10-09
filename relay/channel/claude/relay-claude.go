@@ -57,7 +57,7 @@ func maybeMarkClaudeRefusal(c *gin.Context, info *relaycommon.RelayInfo, stopRea
 	}
 	reason := "claude_refusal_before_output category=" + category
 	common.SetContextKey(c, constant.ContextKeyBillingExemptReason, reason)
-	logger.LogInfo(c, "Claude refusal before any output settles at 0: "+reason)
+	logger.LogInfo(c, common.LogText("Claude refusal before any output settles at 0: %s", reason))
 }
 
 func StreamResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.ChatCompletionsStreamResponse {
