@@ -42,7 +42,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toIntlLocale } from '@/i18n/languages'
 import { getAnnouncementColorClass } from '@/lib/colors'
-import { formatTimestampRelative } from '@/lib/format'
+import { formatGregorianTitle, formatTimestampRelative } from '@/lib/format'
 import { formatDateTimeObject } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
@@ -86,13 +86,13 @@ function getRelativeTime(
   const diffMs = Date.now() - pubDate.getTime()
 
   // If future time, show specific date
-  if (diffMs < 0) return formatDateTimeObject(pubDate)
+  if (diffMs < 0) return formatDateTimeObject(pubDate, locale)
 
   if (diffMs < 60 * 1000) return t('Just now')
 
   // Two years or more, show specific date
   if (diffMs >= 2 * 365 * 24 * 60 * 60 * 1000) {
-    return formatDateTimeObject(pubDate)
+    return formatDateTimeObject(pubDate, locale)
   }
 
   return formatTimestampRelative(pubDate.getTime(), 'milliseconds', locale)
@@ -228,7 +228,7 @@ function AnnouncementsContent({
             ? getRelativeTime(publishDate, t, locale)
             : ''
           const absoluteTime = publishDate
-            ? formatDateTimeObject(publishDate)
+            ? formatDateTimeObject(publishDate, locale)
             : ''
 
           return (
@@ -248,7 +248,14 @@ function AnnouncementsContent({
                     ) : null}
 
                     {absoluteTime ? (
-                      <div className='text-muted-foreground text-xs'>
+                      <div
+                        className='text-muted-foreground text-xs'
+                        title={formatGregorianTitle(
+                          publishDate?.getTime(),
+                          locale,
+                          'milliseconds'
+                        )}
+                      >
                         {relativeTime ? `${relativeTime} • ` : null}
                         {absoluteTime}
                       </div>
