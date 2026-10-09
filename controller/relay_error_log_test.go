@@ -204,3 +204,59 @@ func TestRetriedAttemptErrorLogsAreHiddenFromTheUser(t *testing.T) {
 		})
 	}
 }
+
+// Usage-log content is stored as content_parts in the same other column as the
+// retried marker. The marker still hides a retried row that carries content
+// parts, and a content param whose text reads like the marker hides nothing.
+func TestRetriedMarkerBesideContentParts(t *testing.T) {
+	user, token := setupResponsesWSRequestTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}))
+	require.NoError(t, model.LOG_DB.AutoMigrate(&model.Log{}))
+	previousLogs := common.LogConsumeEnabled
+	common.LogConsumeEnabled = true
+	t.Cleanup(func() { common.LogConsumeEnabled = previousLogs })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	c.Set("username", user.Username)
+
+	parts := []*common.Message{common.NewMessage("Model {{model}}", map[string]any{"model": `"retried":true`})}
+	model.RecordConsumeLog(c, user.Id, model.RecordConsumeLogParams{ModelName: "answered", TokenName: token.Name, TokenId: token.Id, Content: parts, Other: model.NewLogOther()})
+	for _, retried := range []bool{true, false} {
+		other := model.NewLogOther()
+		require.True(t, other.SetPublic("content_parts", parts))
+		modelName := "final attempt"
+		if retried {
+			modelName = "retried attempt"
+		}
+		model.NewErrorLog(c, user.Id, 1, modelName, token.Name, "upstream error", token.Id, 0, false, "default", other).Record(c, retried)
+	}
+
+	var stored model.Log
+	require.NoError(t, model.LOG_DB.Where("model_name = ?", "retried attempt").Take(&stored).Error)
+	storedOther, err := common.StrToMap(stored.Other)
+	require.NoError(t, err)
+	assert.Contains(t, storedOther, "content_parts")
+	assert.Equal(t, map[string]any{"retried": true}, storedOther["admin_info"])
+
+	userLogs, _, err := model.GetUserLogs(user.Id, model.LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "")
+	require.NoError(t, err)
+	tokenLogs, err := model.GetLogByTokenId(token.Id)
+	require.NoError(t, err)
+	adminLogs, _, err := model.GetAllLogs(model.LogTypeUnknown, 0, 0, "", "", "", 0, 10, 0, "", "", "")
+	require.NoError(t, err)
+	for _, listing := range []struct {
+		name string
+		logs []*model.Log
+		want []string
+	}{
+		{"user", userLogs, []string{"answered", "final attempt"}},
+		{"token", tokenLogs, []string{"answered", "final attempt"}},
+		{"admin", adminLogs, []string{"answered", "retried attempt", "final attempt"}},
+	} {
+		names := make([]string, 0, len(listing.logs))
+		for _, log := range listing.logs {
+			names = append(names, log.ModelName)
+		}
+		assert.ElementsMatch(t, listing.want, names, listing.name)
+	}
+}
