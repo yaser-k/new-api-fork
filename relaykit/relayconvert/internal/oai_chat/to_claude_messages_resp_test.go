@@ -1,6 +1,7 @@
 package oaichat
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -316,6 +317,58 @@ func TestStreamResponseOpenAI2ClaudeClosesTextThinkingAndToolBlocks(t *testing.T
 	assert.Equal(t, 7, finishResponses[1].Usage.BillingUsage.OpenAIUsage.PromptTokens)
 	assert.Equal(t, 3, finishResponses[1].Usage.BillingUsage.OpenAIUsage.CompletionTokens)
 	assert.Equal(t, "message_stop", finishResponses[2].Type)
+}
+
+func TestStreamResponseOpenAI2ClaudeUnnamedToolCallDoesNotSkipBlockIndex(t *testing.T) {
+	info := &convmeta.Values{}
+	frames := []dto.ChatCompletionsStreamResponse{
+		{
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("hi")},
+			}},
+		},
+		{
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{
+					ToolCalls: []dto.ToolCallResponse{
+						{Index: ptr(0), ID: "call_unnamed", Type: "function"},
+						{
+							Index: ptr(1), ID: "call_1", Type: "function",
+							Function: dto.FunctionResponse{Name: "lookup", Arguments: `{}`},
+						},
+					},
+				},
+			}},
+		},
+		{
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{
+				Delta: dto.ChatCompletionsStreamResponseChoiceDelta{Content: ptr("done")},
+			}},
+		},
+		{
+			Choices: []dto.ChatCompletionsStreamResponseChoice{{FinishReason: ptr("stop")}},
+			Usage:   &dto.Usage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10},
+		},
+	}
+
+	var blocks []string
+	for i := range frames {
+		info.SendResponseCount = i + 1
+		for _, event := range StreamResponseOpenAI2Claude(&frames[i], info) {
+			switch event.Type {
+			case "content_block_start":
+				blocks = append(blocks, fmt.Sprintf("start %s %d", event.ContentBlock.Type, event.GetIndex()))
+			case "content_block_stop":
+				blocks = append(blocks, fmt.Sprintf("stop %d", event.GetIndex()))
+			}
+		}
+	}
+
+	assert.Equal(t, []string{
+		"start text 0", "stop 0",
+		"start tool_use 1", "stop 1",
+		"start text 2", "stop 2",
+	}, blocks)
 }
 
 func TestStreamResponseOpenAI2ClaudeFirstFrameUsesUpstreamUsageWhenPresent(t *testing.T) {

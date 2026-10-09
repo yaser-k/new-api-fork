@@ -57,30 +57,51 @@ func startPendingToolBlocks(state *convmeta.ClaudeConvertInfo) []*dto.ClaudeResp
 		if tool.ID == "" {
 			tool.ID = fmt.Sprintf("toolu_%s", kitutil.GetUUID())
 		}
-		idx := tool.BlockIndex
+		responses = append(responses, startToolBlock(state, tool)...)
+	}
+	return responses
+}
+
+func startedToolBlockCount(state *convmeta.ClaudeConvertInfo) int {
+	count := 0
+	for _, tool := range state.ToolCalls {
+		if tool != nil && tool.Started {
+			count++
+		}
+	}
+	return count
+}
+
+// startToolBlock opens the tool_use block of a named tool call. The block
+// takes the next content block index only now, so a tool call that never gets
+// a name leaves no gap in the indexes.
+func startToolBlock(state *convmeta.ClaudeConvertInfo, tool *convmeta.ClaudeStreamToolCall) []*dto.ClaudeResponse {
+	idx := state.ToolCallBaseIndex + startedToolBlockCount(state)
+	tool.BlockIndex = idx
+	tool.Started = true
+	state.Index = idx
+	state.ToolCallMaxIndexOffset = idx - state.ToolCallBaseIndex
+	responses := []*dto.ClaudeResponse{{
+		Index: kitutil.GetPointer(idx),
+		Type:  "content_block_start",
+		ContentBlock: &dto.ClaudeMediaMessage{
+			Id:    tool.ID,
+			Type:  "tool_use",
+			Name:  tool.Name,
+			Input: map[string]any{},
+		},
+	}}
+	if tool.PendingArguments != "" {
+		arguments := tool.PendingArguments
 		responses = append(responses, &dto.ClaudeResponse{
-			Index: &idx,
-			Type:  "content_block_start",
-			ContentBlock: &dto.ClaudeMediaMessage{
-				Id:    tool.ID,
-				Type:  "tool_use",
-				Name:  tool.Name,
-				Input: map[string]any{},
+			Index: kitutil.GetPointer(idx),
+			Type:  "content_block_delta",
+			Delta: &dto.ClaudeMediaMessage{
+				Type:        "input_json_delta",
+				PartialJson: &arguments,
 			},
 		})
-		tool.Started = true
-		if tool.PendingArguments != "" {
-			arguments := tool.PendingArguments
-			responses = append(responses, &dto.ClaudeResponse{
-				Index: &idx,
-				Type:  "content_block_delta",
-				Delta: &dto.ClaudeMediaMessage{
-					Type:        "input_json_delta",
-					PartialJson: &arguments,
-				},
-			})
-			tool.PendingArguments = ""
-		}
+		tool.PendingArguments = ""
 	}
 	return responses
 }
@@ -141,7 +162,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		appendStopOpenBlocks()
 		switch state.LastMessagesType {
 		case convmeta.LastMessageTypeTools:
-			state.Index = state.ToolCallBaseIndex + len(state.ToolCalls)
+			state.Index = state.ToolCallBaseIndex + startedToolBlockCount(state)
 			state.ToolCallBaseIndex = 0
 			state.ToolCallMaxIndexOffset = 0
 			state.ToolCalls = nil
@@ -327,9 +348,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					tool = nil
 				}
 				if tool == nil {
-					tool = &convmeta.ClaudeStreamToolCall{
-						BlockIndex: state.ToolCallBaseIndex + len(state.ToolCalls),
-					}
+					tool = &convmeta.ClaudeStreamToolCall{}
 					state.ToolCalls = append(state.ToolCalls, tool)
 				}
 				state.ToolCallByIndex[toolIndex] = tool
@@ -344,37 +363,14 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					tool.PendingArguments += toolCall.Function.Arguments
 				}
 
-				idx := tool.BlockIndex
 				if !tool.Started && tool.ID != "" && tool.Name != "" {
-					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-						Index: &idx,
-						Type:  "content_block_start",
-						ContentBlock: &dto.ClaudeMediaMessage{
-							Id:    tool.ID,
-							Type:  "tool_use",
-							Name:  tool.Name,
-							Input: map[string]any{},
-						},
-					})
-					tool.Started = true
-					if tool.PendingArguments != "" {
-						arguments := tool.PendingArguments
-						claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-							Index: &idx,
-							Type:  "content_block_delta",
-							Delta: &dto.ClaudeMediaMessage{
-								Type:        "input_json_delta",
-								PartialJson: &arguments,
-							},
-						})
-						tool.PendingArguments = ""
-					}
+					claudeResponses = append(claudeResponses, startToolBlock(state, tool)...)
 					continue
 				}
 
 				if tool.Started && toolCall.Function.Arguments != "" {
 					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-						Index: &idx,
+						Index: kitutil.GetPointer(tool.BlockIndex),
 						Type:  "content_block_delta",
 						Delta: &dto.ClaudeMediaMessage{
 							Type:        "input_json_delta",
@@ -382,10 +378,6 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 						},
 					})
 				}
-			}
-			state.ToolCallMaxIndexOffset = len(state.ToolCalls) - 1
-			if len(state.ToolCalls) > 0 {
-				state.Index = state.ToolCallBaseIndex + len(state.ToolCalls) - 1
 			}
 		}
 
