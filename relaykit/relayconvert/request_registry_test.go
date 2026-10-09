@@ -965,6 +965,52 @@ func TestConvertRequestToGeminiPairsFunctionResponsesWithCalls(t *testing.T) {
 	}
 }
 
+func TestConvertRequestToGeminiConvertsOrReportsToolSchemaKeywords(t *testing.T) {
+	var req dto.GeneralOpenAIRequest
+	require.NoError(t, kitutil.UnmarshalJsonStr(`{
+		"model": "gemini-test",
+		"messages": [{"role": "user", "content": "hi"}],
+		"tools": [{"type": "function", "function": {"name": "set", "parameters": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"unit": {"const": "celsius"},
+				"count": {"type": "integer", "const": 3},
+				"target": {"oneOf": [{"type": "string"}, {"type": "integer", "exclusiveMinimum": 0}]}
+			},
+			"required": ["unit"]
+		}}}]
+	}`, &req))
+
+	result, err := ConvertRequest(nil, nil, types.RelayFormatGemini, &req)
+
+	require.NoError(t, err)
+	geminiReq, ok := result.Value.(*dto.GeminiChatRequest)
+	require.True(t, ok)
+	tools := geminiReq.GetTools()
+	require.Len(t, tools, 1)
+	functions, err := kitutil.Any2Type[[]map[string]any](tools[0].FunctionDeclarations)
+	require.NoError(t, err)
+	require.Len(t, functions, 1)
+	assert.Equal(t, map[string]any{
+		"type": "OBJECT",
+		"properties": map[string]any{
+			"unit":   map[string]any{"type": "STRING", "enum": []any{"celsius"}},
+			"count":  map[string]any{"type": "INTEGER"},
+			"target": map[string]any{"anyOf": []any{map[string]any{"type": "STRING"}, map[string]any{"type": "INTEGER"}}},
+		},
+		"required": []any{"unit"},
+	}, functions[0]["parameters"])
+	assert.Equal(t, []types.ConversionDiagnostic{{
+		Code:     "json_schema_keyword_dropped",
+		Path:     "tools[0]",
+		Message:  "Gemini function schemas have no equivalent for JSON Schema keywords additionalProperties, const, exclusiveMinimum; they were dropped",
+		Severity: types.ConversionDiagnosticWarning,
+		From:     types.RelayFormatOpenAI,
+		To:       types.RelayFormatGemini,
+	}}, result.Diagnostics)
+}
+
 func mustRawMessage(t *testing.T, value any) []byte {
 	t.Helper()
 	raw, err := kitutil.Marshal(value)

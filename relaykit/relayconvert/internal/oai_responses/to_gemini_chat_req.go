@@ -92,7 +92,8 @@ func OpenAIResponsesRequestToGeminiChat(c context.Context, req *dto.OpenAIRespon
 				continue
 			}
 		}
-		functions[i].Parameters = sharedgemini.CleanFunctionParameters(functions[i].Parameters)
+		// toolconv reports dropped keywords for the tools it attaches.
+		functions[i].Parameters, _ = sharedgemini.CleanFunctionParameters(functions[i].Parameters)
 	}
 	if len(functions) > 0 {
 		geminiRequest.SetTools([]dto.GeminiChatTool{
