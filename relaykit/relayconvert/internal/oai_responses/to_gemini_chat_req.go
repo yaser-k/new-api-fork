@@ -92,7 +92,8 @@ func OpenAIResponsesRequestToGeminiChat(c context.Context, req *dto.OpenAIRespon
 				continue
 			}
 		}
-		functions[i].Parameters = sharedgemini.CleanFunctionParameters(functions[i].Parameters)
+		// toolconv reports dropped keywords for the tools it attaches.
+		functions[i].Parameters, _ = sharedgemini.CleanFunctionParameters(functions[i].Parameters)
 	}
 	if len(functions) > 0 {
 		geminiRequest.SetTools([]dto.GeminiChatTool{
@@ -141,13 +142,13 @@ func OpenAIResponsesRequestToGeminiChat(c context.Context, req *dto.OpenAIRespon
 			if callID != "" {
 				callNames[callID] = part.FunctionCall.FunctionName
 			}
-			appendGeminiContentPart(geminiRequest, "model", part)
+			sharedgemini.AppendContentPart(geminiRequest, "model", part)
 		case ResponsesInputTypeFunctionCallOutput, ResponsesInputTypeCustomToolOutput:
 			part, media, err := responsesFunctionOutputItemToGeminiPart(c, item, callNames, toolMediaInFunctionResponse)
 			if err != nil {
 				return nil, err
 			}
-			appendGeminiContentPart(geminiRequest, "user", part)
+			sharedgemini.AppendContentPart(geminiRequest, "user", part)
 			turn := &geminiRequest.Contents[len(geminiRequest.Contents)-1]
 			turn.Parts = append(turn.Parts, media...)
 		default:
@@ -394,35 +395,6 @@ func responsesToolOutputToGemini(c context.Context, value any, mediaInParts bool
 		// sending the payload as text.
 		return GeminiResponseMap(strings.Join(labels, " ")), nil
 	}
-}
-
-func appendGeminiContentPart(req *dto.GeminiChatRequest, role string, part dto.GeminiPart) {
-	if len(req.Contents) > 0 && req.Contents[len(req.Contents)-1].Role == role {
-		parts := req.Contents[len(req.Contents)-1].Parts
-		insertAt := len(parts)
-		switch {
-		case role == "model" && part.FunctionCall != nil:
-			insertAt = 0
-			for insertAt < len(parts) && parts[insertAt].FunctionCall != nil {
-				insertAt++
-			}
-		case part.FunctionResponse != nil:
-			// Tool media sent as separate parts stay after every function
-			// response of the turn, so a later response goes before them.
-			for i := len(parts) - 1; i >= 0; i-- {
-				if parts[i].FunctionResponse != nil {
-					insertAt = i + 1
-					break
-				}
-			}
-		}
-		req.Contents[len(req.Contents)-1].Parts = slices.Insert(parts, insertAt, part)
-		return
-	}
-	req.Contents = append(req.Contents, dto.GeminiChatContent{
-		Role:  role,
-		Parts: []dto.GeminiPart{part},
-	})
 }
 
 func responsesGeminiRole(item map[string]any) string {
