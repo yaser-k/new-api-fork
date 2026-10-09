@@ -238,3 +238,21 @@ func TestClaudeMessagesRequestToOpenAIChatCacheControlOnlyForOpenRouterClaude(t 
 		})
 	}
 }
+
+func TestClaudeMessagesRequestToOpenAIChatJoinsSystemBlocks(t *testing.T) {
+	request := dto.ClaudeRequest{
+		Model: "claude-test",
+		System: []dto.ClaudeMediaMessage{
+			{Type: "text", Text: lo.ToPtr("You are a CLI.")},
+			{Type: "text", Text: lo.ToPtr("")},
+			{Type: "text", Text: lo.ToPtr("Answer briefly.")},
+		},
+		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
+	}
+
+	openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(context.Background(), request, &convmeta.Values{})
+	require.NoError(t, err)
+	require.Len(t, openAIRequest.Messages, 2)
+	assert.Equal(t, "system", openAIRequest.Messages[0].Role)
+	assert.Equal(t, "You are a CLI.\n\nAnswer briefly.", openAIRequest.Messages[0].StringContent())
+}

@@ -142,13 +142,13 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 					}
 					openAIMessage.SetMediaContent(systemMediaMessages)
 				} else {
-					var systemStr strings.Builder
+					systemTexts := make([]string, 0, len(systems))
 					for _, system := range systems {
-						if system.Text != nil {
-							systemStr.WriteString(*system.Text)
+						if system.Text != nil && *system.Text != "" {
+							systemTexts = append(systemTexts, *system.Text)
 						}
 					}
-					openAIMessage.SetStringContent(systemStr.String())
+					openAIMessage.SetStringContent(strings.Join(systemTexts, "\n\n"))
 				}
 				openAIMessages = append(openAIMessages, openAIMessage)
 			}
