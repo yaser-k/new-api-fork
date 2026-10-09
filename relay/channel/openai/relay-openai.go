@@ -213,6 +213,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		info.CountBillableToolCall(dto.BuildInCallFunctionCall, name)
 	}
 
+	if helper.UpstreamStreamInterrupted(c, info) {
+		// Deliver the frame a Claude-format client still waits for. Keeping
+		// MoreFramesPending set stops the converter from ending the message.
+		if info.RelayFormat == types.RelayFormatClaude && lastStreamData != "" {
+			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				common.SysLog(common.LogText("error handling stream format: %s", err.Error()))
+			}
+		}
+		helper.SendStreamInterrupted(c, info)
+		return usage, nil
+	}
+
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
 	return usage, nil
