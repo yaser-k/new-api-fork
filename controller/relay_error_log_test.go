@@ -1,19 +1,26 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -95,5 +102,161 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	assert.NotContains(t, userOther, "admin_info")
 	for _, key := range []string{"channel_id", "channel_name", "channel_type"} {
 		assert.NotContains(t, userOther, key)
+	}
+}
+
+func TestRetriedAttemptErrorLogsAreHiddenFromTheUser(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		failures       int64
+		failureStatus  int
+		noChannelLeft  bool
+		userLogTypes   []int
+		adminLogTypes  []int
+		requestsInStat int
+	}{
+		{"retried twice then answered", 2, http.StatusInternalServerError, false, []int{model.LogTypeConsume}, []int{model.LogTypeError, model.LogTypeError, model.LogTypeConsume}, 1},
+		{"retried twice and still failing", 3, http.StatusInternalServerError, false, []int{model.LogTypeError}, []int{model.LogTypeError, model.LogTypeError, model.LogTypeError}, 0},
+		{"failed without retry", 1, http.StatusBadRequest, false, []int{model.LogTypeError}, []int{model.LogTypeError}, 0},
+		{"retry decided but no channel left", 1, http.StatusInternalServerError, true, []int{model.LogTypeError}, []int{model.LogTypeError}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Upstream translates the error of a request no channel is left for.
+			require.NoError(t, i18n.Init())
+			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(*websocket.Conn, *http.Request) {})
+			previousRetries, previousErrorLog := common.RetryTimes, constant.ErrorLogEnabled
+			common.RetryTimes, constant.ErrorLogEnabled = 2, true
+			t.Cleanup(func() { common.RetryTimes, constant.ErrorLogEnabled = previousRetries, previousErrorLog })
+			var attempts atomic.Int64
+			fixture.httpUpstream = func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if attempts.Add(1) <= tc.failures {
+					if tc.noChannelLeft {
+						require.NoError(t, model.DB.Model(&model.Ability{}).Where("channel_id = ?", fixture.channel.Id).Update("enabled", false).Error)
+					}
+					w.WriteHeader(tc.failureStatus)
+					_, _ = fmt.Fprint(w, `{"error":{"type":"server_error","code":"server_error","message":"upstream detail"}}`)
+					return
+				}
+				_, _ = fmt.Fprint(w, `{"id":"completed","status":"completed","usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}`)
+			}
+			request, err := http.NewRequest(http.MethodPost, fixture.gatewayURL+"/v1/responses", strings.NewReader(`{"model":"ws-billing","input":"hello"}`))
+			require.NoError(t, err)
+			request.Header.Set("Authorization", "Bearer sk-"+fixture.token.Key)
+			request.Header.Set("Content-Type", "application/json")
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			_, err = io.Copy(io.Discard, response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			select {
+			case <-fixture.httpDone:
+			case <-time.After(3 * time.Second):
+				t.Fatal("HTTP request did not finish")
+			}
+			require.Equal(t, int64(len(tc.adminLogTypes)), attempts.Load())
+
+			logTypes := func(handler gin.HandlerFunc, target string, configure func(*gin.Context)) []int {
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodGet, target, nil)
+				configure(c)
+				handler(c)
+				var body struct {
+					Success bool `json:"success"`
+					Data    json.RawMessage
+				}
+				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+				require.True(t, body.Success, recorder.Body.String())
+				var page struct {
+					Items []model.Log `json:"items"`
+					Total int         `json:"total"`
+				}
+				if err := common.Unmarshal(body.Data, &page); err != nil {
+					require.NoError(t, common.Unmarshal(body.Data, &page.Items))
+					page.Total = len(page.Items)
+				}
+				types := make([]int, 0, len(page.Items))
+				for i := len(page.Items) - 1; i >= 0; i-- {
+					types = append(types, page.Items[i].Type)
+				}
+				assert.Equal(t, len(page.Items), page.Total)
+				return types
+			}
+			asUser := func(c *gin.Context) {
+				c.Set("id", fixture.user.Id)
+				c.Set("username", fixture.user.Username)
+			}
+			assert.Equal(t, tc.userLogTypes, logTypes(GetUserLogs, "/api/log/self", asUser))
+			assert.Equal(t, tc.userLogTypes, logTypes(GetLogByKey, "/api/log/token", func(c *gin.Context) { c.Set("token_id", fixture.token.Id) }))
+			assert.Equal(t, tc.adminLogTypes, logTypes(GetAllLogs, "/api/log/", func(c *gin.Context) { c.Set("role", common.RoleAdminUser) }))
+
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/log/self/stat", nil)
+			asUser(c)
+			GetLogsSelfStat(c)
+			var stat struct {
+				Data model.Stat `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &stat))
+			assert.Equal(t, tc.requestsInStat, stat.Data.Rpm, "statistics count only consume rows")
+		})
+	}
+}
+
+// Usage-log content is stored as content_parts in the same other column as the
+// retried marker. The marker still hides a retried row that carries content
+// parts, and a content param whose text reads like the marker hides nothing.
+func TestRetriedMarkerBesideContentParts(t *testing.T) {
+	user, token := setupResponsesWSRequestTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}))
+	require.NoError(t, model.LOG_DB.AutoMigrate(&model.Log{}))
+	previousLogs := common.LogConsumeEnabled
+	common.LogConsumeEnabled = true
+	t.Cleanup(func() { common.LogConsumeEnabled = previousLogs })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	c.Set("username", user.Username)
+
+	parts := []*common.Message{common.NewMessage("Model {{model}}", map[string]any{"model": `"retried":true`})}
+	model.RecordConsumeLog(c, user.Id, model.RecordConsumeLogParams{ModelName: "answered", TokenName: token.Name, TokenId: token.Id, Content: parts, Other: model.NewLogOther()})
+	for _, retried := range []bool{true, false} {
+		other := model.NewLogOther()
+		require.True(t, other.SetPublic("content_parts", parts))
+		modelName := "final attempt"
+		if retried {
+			modelName = "retried attempt"
+		}
+		model.NewErrorLog(c, user.Id, 1, modelName, token.Name, "upstream error", token.Id, 0, false, "default", other).Record(c, retried)
+	}
+
+	var stored model.Log
+	require.NoError(t, model.LOG_DB.Where("model_name = ?", "retried attempt").Take(&stored).Error)
+	storedOther, err := common.StrToMap(stored.Other)
+	require.NoError(t, err)
+	assert.Contains(t, storedOther, "content_parts")
+	assert.Equal(t, map[string]any{"retried": true}, storedOther["admin_info"])
+
+	userLogs, _, err := model.GetUserLogs(user.Id, model.LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "")
+	require.NoError(t, err)
+	tokenLogs, err := model.GetLogByTokenId(token.Id)
+	require.NoError(t, err)
+	adminLogs, _, err := model.GetAllLogs(model.LogTypeUnknown, 0, 0, "", "", "", 0, 10, 0, "", "", "")
+	require.NoError(t, err)
+	for _, listing := range []struct {
+		name string
+		logs []*model.Log
+		want []string
+	}{
+		{"user", userLogs, []string{"answered", "final attempt"}},
+		{"token", tokenLogs, []string{"answered", "final attempt"}},
+		{"admin", adminLogs, []string{"answered", "retried attempt", "final attempt"}},
+	} {
+		names := make([]string, 0, len(listing.logs))
+		for _, log := range listing.logs {
+			names = append(names, log.ModelName)
+		}
+		assert.ElementsMatch(t, listing.want, names, listing.name)
 	}
 }
