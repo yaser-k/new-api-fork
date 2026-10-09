@@ -202,12 +202,6 @@ func OpenAIChatRequestToGeminiGenerateContent(c context.Context, textRequest dto
 			continue
 		}
 		if message.Role == "tool" || message.Role == "function" {
-			if len(geminiRequest.Contents) == 0 || geminiRequest.Contents[len(geminiRequest.Contents)-1].Role == "model" {
-				geminiRequest.Contents = append(geminiRequest.Contents, dto.GeminiChatContent{
-					Role: "user",
-				})
-			}
-			parts := &geminiRequest.Contents[len(geminiRequest.Contents)-1].Parts
 			name := ""
 			if message.Name != nil {
 				name = *message.Name
@@ -238,7 +232,7 @@ func OpenAIChatRequestToGeminiGenerateContent(c context.Context, textRequest dto
 				functionResp.ID = id
 			}
 
-			*parts = append(*parts, dto.GeminiPart{
+			sharedgemini.AppendContentPart(&geminiRequest, "user", dto.GeminiPart{
 				FunctionResponse: functionResp,
 			})
 			continue
@@ -356,10 +350,16 @@ func OpenAIChatRequestToGeminiGenerateContent(c context.Context, textRequest dto
 			sharedgemini.AttachFirstTextThoughtSignature(opts, parts)
 		}
 
-		content.Parts = parts
-		if content.Role == "assistant" {
-			content.Role = "model"
+		// Consecutive assistant messages form one model turn, so the calls
+		// they make are answered by the single function-response turn that
+		// follows.
+		if message.Role == "assistant" || message.Role == "model" {
+			for _, part := range parts {
+				sharedgemini.AppendContentPart(&geminiRequest, "model", part)
+			}
+			continue
 		}
+		content.Parts = parts
 		if len(content.Parts) > 0 {
 			geminiRequest.Contents = append(geminiRequest.Contents, content)
 		}
