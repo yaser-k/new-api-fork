@@ -83,6 +83,7 @@ func GetStatus(c *gin.Context) {
 		"interface_languages":           operation_setting.GetInterfaceSetting().Languages,
 		"default_interface_language":    operation_setting.GetInterfaceSetting().DefaultLanguage,
 		"custom_currency_symbols":       operation_setting.GetInterfaceSetting().CurrencySymbols,
+		"keep_header_ltr":               operation_setting.GetInterfaceSetting().KeepHeaderLTR,
 		"enable_batch_update":           common.BatchUpdateEnabled,
 		"enable_drawing":                common.DrawingEnabled,
 		"enable_task":                   common.TaskEnabled,
