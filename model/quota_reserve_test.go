@@ -131,7 +131,7 @@ func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	assert.False(t, reserved)
 	assert.Equal(t, 9, getTokenFromDB(t, token.Id).RemainQuota)
 
-	batchUpdate()
+	FlushBatchUpdates()
 	assert.Equal(t, 2, getUserQuotaFromDB(t, user.Id))
 	reloadedToken := getTokenFromDB(t, token.Id)
 	assert.Equal(t, 2, reloadedToken.RemainQuota)
@@ -147,7 +147,7 @@ func TestBatchUpdateAccumulatesTwoMaximumRequestCharges(t *testing.T) {
 	require.NoError(t, DecreaseUserQuota(user.Id, common.MaxQuota, false))
 	require.NoError(t, DecreaseUserQuota(user.Id, common.MaxQuota, false))
 
-	batchUpdate()
+	FlushBatchUpdates()
 	assert.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
 }
 
@@ -258,4 +258,64 @@ func TestTokenCacheInitPreservesLiveQuotaAndFenceBlocksStaleSnapshot(t *testing.
 	cached, err = cacheGetTokenByKey(token.Key)
 	require.NoError(t, err)
 	assert.Equal(t, 100, cached.RemainQuota)
+}
+
+func TestFlushBatchUpdatesWritesEveryStoreOnce(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	common.BatchUpdateEnabled = true
+
+	user := createReserveTestUser(t, 1000)
+	token := createReserveTestToken(t, 500)
+	channel := Channel{Name: "flush-channel", Key: "sk-flush", Status: common.ChannelStatusEnabled}
+	require.NoError(t, DB.Create(&channel).Error)
+
+	require.NoError(t, DecreaseUserQuota(user.Id, 100, false))
+	require.NoError(t, IncreaseUserQuota(user.Id, 30, false))
+	UpdateUserUsedQuotaAndRequestCount(user.Id, 70)
+	require.NoError(t, DecreaseTokenQuota(token.Id, token.Key, 40))
+	UpdateChannelUsedQuota(channel.Id, 70)
+	assert.Equal(t, 1000, getUserQuotaFromDB(t, user.Id), "batch deltas stay queued until flush")
+
+	assert.Equal(t, BatchFlushResult{Users: 1, Tokens: 1, Channels: 1}, FlushBatchUpdates())
+	assert.Equal(t, BatchFlushResult{}, FlushBatchUpdates(), "a second flush has nothing to write")
+
+	var gotUser User
+	require.NoError(t, DB.Select("quota", "used_quota", "request_count").First(&gotUser, user.Id).Error)
+	assert.Equal(t, 930, gotUser.Quota)
+	assert.Equal(t, 70, gotUser.UsedQuota)
+	assert.Equal(t, 1, gotUser.RequestCount)
+	gotToken := getTokenFromDB(t, token.Id)
+	assert.Equal(t, 460, gotToken.RemainQuota)
+	assert.Equal(t, 40, gotToken.UsedQuota)
+	var gotChannel Channel
+	require.NoError(t, DB.Select("used_quota").First(&gotChannel, channel.Id).Error)
+	assert.Equal(t, int64(70), gotChannel.UsedQuota)
+}
+
+func TestFlushBatchUpdatesKeepsDeltaAddedDuringFlush(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	common.BatchUpdateEnabled = true
+
+	user := createReserveTestUser(t, 1000)
+	require.NoError(t, DecreaseUserQuota(user.Id, 100, false))
+
+	// Charge the user again while the flush is writing the first delta.
+	const callbackName = "test:charge_during_flush"
+	added := false
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register(callbackName, func(*gorm.DB) {
+		if !added {
+			added = true
+			require.NoError(t, DecreaseUserQuota(user.Id, 5, false))
+		}
+	}))
+	t.Cleanup(func() { _ = DB.Callback().Update().Remove(callbackName) })
+
+	assert.Equal(t, BatchFlushResult{Users: 1}, FlushBatchUpdates())
+	require.True(t, added)
+	assert.Equal(t, 900, getUserQuotaFromDB(t, user.Id))
+
+	assert.Equal(t, BatchFlushResult{Users: 1}, FlushBatchUpdates())
+	assert.Equal(t, 895, getUserQuotaFromDB(t, user.Id))
 }
