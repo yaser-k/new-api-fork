@@ -6865,6 +6865,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Waive Refusals Before Output": "Không tính phí từ chối trước khi có đầu ra",
+    "Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.": "Lời từ chối của Claude đến trước khi có đầu ra được quyết toán bằng 0, giống cách Anthropic tính phí. Từ chối giữa luồng và các danh mục tính phí bên dưới vẫn bị tính phí.",
+    "Billed Refusal Categories": "Danh mục từ chối bị tính phí",
+    "stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.": "Các danh mục stop_details mà lời từ chối trước khi có đầu ra vẫn bị tính phí. Anthropic tính phí bio, frontier_llm và reasoning_extraction."
   }
 }

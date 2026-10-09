@@ -6865,6 +6865,10 @@
     "Zhipu": "智譜",
     "Zhipu GLM": "智譜GLM",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "Waive Refusals Before Output": "拒絕且未輸出時不計費",
+    "Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.": "Claude 在產生任何輸出前拒絕請求時按 0 結算，與 Anthropic 的計費方式一致。輸出中途的拒絕以及下方列出的計費類別仍會扣費。",
+    "Billed Refusal Categories": "計費的拒絕類別",
+    "stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.": "這些 stop_details 類別的拒絕即使發生在任何輸出之前也照常計費。Anthropic 對 bio、frontier_llm 和 reasoning_extraction 計費。"
   }
 }

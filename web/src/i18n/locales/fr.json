@@ -6865,6 +6865,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Waive Refusals Before Output": "Ne pas facturer les refus sans sortie",
+    "Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.": "Facture à zéro un refus de Claude survenu avant toute sortie, comme le fait Anthropic. Les refus en cours de flux et les catégories facturées ci-dessous restent facturés.",
+    "Billed Refusal Categories": "Catégories de refus facturées",
+    "stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.": "Catégories stop_details dont les refus avant toute sortie restent facturés. Anthropic facture bio, frontier_llm et reasoning_extraction."
   }
 }
