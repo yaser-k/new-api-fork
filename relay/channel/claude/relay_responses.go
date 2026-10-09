@@ -106,11 +106,12 @@ func ClaudeResponsesStreamHandler(c *gin.Context, resp *http.Response, info *rel
 			return
 		}
 
+		outputProduced := claudeInfo.ResponseText.Len() > 0 || claudeInfo.ToolUseCount > 0
 		if claudeResponse.StopReason != "" {
-			maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason)
+			maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason, claudeResponse.StopDetails, claudeResponse.Usage, outputProduced)
 		}
 		if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
-			maybeMarkClaudeRefusal(c, info, *claudeResponse.Delta.StopReason)
+			maybeMarkClaudeRefusal(c, info, *claudeResponse.Delta.StopReason, claudeResponse.Delta.StopDetails, claudeResponse.Usage, outputProduced)
 		}
 		if claudeResponse.Type == "message_stop" {
 			info.StreamStatus.MarkCompleted()

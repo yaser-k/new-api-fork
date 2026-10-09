@@ -6869,6 +6869,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Waive Refusals Before Output": "Не тарифицировать отказы без вывода",
+    "Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.": "Отказ Claude до какого-либо вывода списывается в ноль, как и у Anthropic. Отказы посреди потока и перечисленные ниже тарифицируемые категории по-прежнему оплачиваются.",
+    "Billed Refusal Categories": "Тарифицируемые категории отказов",
+    "stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.": "Категории stop_details, отказы в которых до какого-либо вывода по-прежнему оплачиваются. Anthropic тарифицирует bio, frontier_llm и reasoning_extraction."
   }
 }
