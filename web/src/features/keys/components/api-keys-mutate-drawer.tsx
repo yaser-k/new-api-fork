@@ -67,6 +67,7 @@ import { useStatus } from '@/hooks/use-status'
 import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
+import { resolveLocalizedTextString } from '@/lib/localized-text-string'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
@@ -103,7 +104,7 @@ export function ApiKeysMutateDrawer({
   onOpenChange,
   currentRow,
 }: ApiKeyMutateDrawerProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isUpdate = !!currentRow
   const currentRowId = currentRow?.id
   const { triggerRefresh } = useApiKeys()
@@ -164,10 +165,10 @@ export function ApiKeysMutateDrawer({
       Object.entries(groupsData?.data || {}).map(([key, info]) => ({
         value: key,
         label: key,
-        desc: info.desc || key,
+        desc: resolveLocalizedTextString(info.desc, i18n.language) || key,
         ratio: info.ratio,
       })),
-    [groupsData]
+    [groupsData, i18n.language]
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
   const availableAutoGroupNames = useMemo(
