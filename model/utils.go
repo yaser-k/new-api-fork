@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"math"
 	"sync"
@@ -31,13 +32,46 @@ func init() {
 	}
 }
 
+// batchFlushLock serializes flushes, so a flush returns only after every
+// delta taken out of the stores before it started has been written.
+var batchFlushLock sync.Mutex
+
+var batchUpdaterLock sync.Mutex
+var batchUpdaterCancel context.CancelFunc
+var batchUpdaterDone chan struct{}
+
 func InitBatchUpdater() {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	batchUpdaterLock.Lock()
+	batchUpdaterCancel = cancel
+	batchUpdaterDone = done
+	batchUpdaterLock.Unlock()
 	gopool.Go(func() {
+		defer close(done)
 		for {
-			time.Sleep(time.Duration(common.BatchUpdateInterval) * time.Second)
-			batchUpdate()
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(common.BatchUpdateInterval) * time.Second):
+				FlushBatchUpdates()
+			}
 		}
 	})
+}
+
+// StopBatchUpdater stops the periodic batch writer and waits for a flush it
+// is running, so that a final FlushBatchUpdates is the last writer.
+func StopBatchUpdater() {
+	batchUpdaterLock.Lock()
+	cancel, done := batchUpdaterCancel, batchUpdaterDone
+	batchUpdaterCancel, batchUpdaterDone = nil, nil
+	batchUpdaterLock.Unlock()
+	if cancel == nil {
+		return
+	}
+	cancel()
+	<-done
 }
 
 func addNewRecord(type_ int, id int, value int) {
@@ -61,7 +95,24 @@ func addNewRecord(type_ int, id int, value int) {
 	batchUpdateStores[type_][id] = sum
 }
 
-func batchUpdate() {
+// BatchFlushResult counts the user, token and channel updates one
+// FlushBatchUpdates call wrote, and the writes that failed (a failed delta is
+// logged and dropped, as before).
+type BatchFlushResult struct {
+	Users    int
+	Tokens   int
+	Channels int
+	Failed   int
+}
+
+// FlushBatchUpdates writes every delta pending in the batch stores to the
+// database once. Deltas added while it runs stay in the stores for the next
+// flush. Safe to call concurrently with the periodic updater.
+func FlushBatchUpdates() BatchFlushResult {
+	batchFlushLock.Lock()
+	defer batchFlushLock.Unlock()
+
+	var result BatchFlushResult
 	// check if there's any data to update
 	hasData := false
 	for i := range BatchUpdateTypeCount {
@@ -75,7 +126,7 @@ func batchUpdate() {
 	}
 
 	if !hasData {
-		return
+		return result
 	}
 
 	common.SysLog(common.LogText("batch update started"))
@@ -97,9 +148,16 @@ func batchUpdate() {
 				err := increaseTokenQuota(key, value)
 				if err != nil {
 					common.SysLog(common.LogText("failed to batch update token quota: %s", err.Error()))
+					result.Failed++
+				} else {
+					result.Tokens++
 				}
 			case BatchUpdateTypeChannelUsedQuota:
-				updateChannelUsedQuota(key, value)
+				if updateChannelUsedQuota(key, value) != nil {
+					result.Failed++
+				} else {
+					result.Channels++
+				}
 			}
 		}
 	}
@@ -119,9 +177,17 @@ func batchUpdate() {
 		userIDs[key] = struct{}{}
 	}
 	for key := range userIDs {
-		updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key])
+		if userQuotaStore[key] == 0 && usedQuotaStore[key] == 0 && requestCountStore[key] == 0 {
+			continue
+		}
+		if updateUserQuotaUsedQuotaAndRequestCount(key, userQuotaStore[key], usedQuotaStore[key], requestCountStore[key]) != nil {
+			result.Failed++
+		} else {
+			result.Users++
+		}
 	}
 	common.SysLog(common.LogText("batch update finished"))
+	return result
 }
 
 func RecordExist(err error) (bool, error) {
