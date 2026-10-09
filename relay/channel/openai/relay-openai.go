@@ -132,6 +132,12 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// the unsent terminal frame for their closing events.
 	directForward := info.RelayFormat == types.RelayFormatOpenAI
 
+	if info.RelayFormat == types.RelayFormatClaude {
+		// Frames are converted one behind, so every frame converted in the
+		// loop has a successor; HandleFinalResponse clears this for the last.
+		info.EnsureClaudeConvertInfo().MoreFramesPending = true
+	}
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if !directForward && lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
@@ -195,7 +201,8 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
-	if !containStreamUsage {
+	// Without any upstream data frame nothing was generated, so the usage stays zero.
+	if !containStreamUsage && lastStreamData != "" {
 		usage = service.ResponseText2Usage(c, responseTextBuilder.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		usage.CompletionTokens += toolCount * 7
 	}
@@ -207,11 +214,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	if helper.UpstreamStreamInterrupted(c, info) {
-		// Deliver the frame a Claude-format client still waits for, but not a
-		// frame without choices: the converter would end the message with it.
-		var held dto.ChatCompletionsStreamResponse
-		if info.RelayFormat == types.RelayFormatClaude &&
-			common.UnmarshalJsonStr(lastStreamData, &held) == nil && len(held.Choices) > 0 {
+		// Deliver the frame a Claude-format client still waits for. Keeping
+		// MoreFramesPending set stops the converter from ending the message.
+		if info.RelayFormat == types.RelayFormatClaude && lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 			}
