@@ -14,6 +14,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -120,6 +121,8 @@ func TestRetriedAttemptErrorLogsAreHiddenFromTheUser(t *testing.T) {
 		{"retry decided but no channel left", 1, http.StatusInternalServerError, true, []int{model.LogTypeError}, []int{model.LogTypeError}, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Upstream translates the error of a request no channel is left for.
+			require.NoError(t, i18n.Init())
 			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(*websocket.Conn, *http.Request) {})
 			previousRetries, previousErrorLog := common.RetryTimes, constant.ErrorLogEnabled
 			common.RetryTimes, constant.ErrorLogEnabled = 2, true
