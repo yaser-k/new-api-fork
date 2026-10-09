@@ -198,67 +198,82 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
 }
 
 func TestStreamScannerHandler_RelaysUpstreamCommentAfterData(t *testing.T) {
-	pr, pw := io.Pipe()
-	t.Cleanup(func() {
-		_ = pr.Close()
-		_ = pw.Close()
-	})
-
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-
-	resp := &http.Response{Body: pr}
-	info := &relaycommon.RelayInfo{
-		DisablePing: true,
-		ChannelMeta: &relaycommon.ChannelMeta{},
+	tests := []struct {
+		name        string
+		disablePing bool
+		wantPing    bool
+	}{
+		{name: "relayed as a ping", wantPing: true},
+		// Formats that disable pings (native Gemini streaming) must not
+		// receive comment lines.
+		{name: "dropped when pings are disabled", disablePing: true},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr, pw := io.Pipe()
+			t.Cleanup(func() {
+				_ = pr.Close()
+				_ = pw.Close()
+			})
 
-	firstHandled := make(chan struct{})
-	done := make(chan struct{})
-	var writeErr error
-	go func() {
-		StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
-			writeErr = StringData(c, data)
-			if data == "first" {
-				close(firstHandled)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+			resp := &http.Response{Body: pr}
+			info := &relaycommon.RelayInfo{
+				DisablePing: tt.disablePing,
+				ChannelMeta: &relaycommon.ChannelMeta{},
 			}
+
+			firstHandled := make(chan struct{})
+			done := make(chan struct{})
+			var writeErr error
+			go func() {
+				StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+					writeErr = StringData(c, data)
+					if data == "first" {
+						close(firstHandled)
+					}
+				})
+				close(done)
+			}()
+
+			_, err := fmt.Fprint(pw, "data: first\n")
+			require.NoError(t, err)
+
+			select {
+			case <-firstHandled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for first data frame")
+			}
+
+			_, err = fmt.Fprint(pw, ": upstream-private-heartbeat\n\ndata: [DONE]\n")
+			require.NoError(t, err)
+			require.NoError(t, pw.Close())
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for stream to finish")
+			}
+
+			require.NoError(t, writeErr)
+			want := "data: first\n\n"
+			if tt.wantPing {
+				want += ": PING\n\n"
+			}
+			assert.Equal(t, want, recorder.Body.String())
+			assert.Equal(t, 1, info.ReceivedResponseCount)
+			require.NotNil(t, info.StreamStatus)
+			assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
 		})
-		close(done)
-	}()
-
-	_, err := fmt.Fprint(pw, "data: first\n")
-	require.NoError(t, err)
-
-	select {
-	case <-firstHandled:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for first data frame")
 	}
-
-	_, err = fmt.Fprint(pw, ": upstream-private-heartbeat\n\ndata: [DONE]\n")
-	require.NoError(t, err)
-	require.NoError(t, pw.Close())
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for stream to finish")
-	}
-
-	require.NoError(t, writeErr)
-	assert.Contains(t, recorder.Body.String(), "data: first")
-	assert.Contains(t, recorder.Body.String(), ": PING\n\n")
-	assert.NotContains(t, recorder.Body.String(), "upstream-private-heartbeat")
-	assert.Equal(t, 1, info.ReceivedResponseCount)
-	require.NotNil(t, info.StreamStatus)
-	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
 }
 
 func TestStreamScannerHandler_SkipsUpstreamCommentBeforeData(t *testing.T) {
 	body := ": upstream-private-heartbeat\n\ndata: [DONE]\n"
 	c, resp, info := setupStreamTest(t, strings.NewReader(body))
-	info.DisablePing = true
 
 	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
 		_ = StringData(c, data)
@@ -280,7 +295,6 @@ func TestStreamScannerHandler_PriorPingDoesNotUnlockUpstreamComment(t *testing.T
 	body := ": upstream-private-heartbeat\n\ndata: [DONE]\n"
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
 	info := &relaycommon.RelayInfo{
-		DisablePing: true,
 		ChannelMeta: &relaycommon.ChannelMeta{},
 	}
 
@@ -304,7 +318,6 @@ func TestStreamScannerHandler_HeaderOnlyFlushDoesNotUnlockUpstreamComment(t *tes
 	body := "data: first\n\n: upstream-private-heartbeat\n\ndata: [DONE]\n"
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
 	info := &relaycommon.RelayInfo{
-		DisablePing: true,
 		ChannelMeta: &relaycommon.ChannelMeta{},
 	}
 

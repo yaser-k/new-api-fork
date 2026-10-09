@@ -292,6 +292,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			logger.LogDebug(c, "stream scanner data: %s", data)
 
 			if strings.HasPrefix(data, ":") {
+				// Formats that disable pings must not receive comment lines either.
+				if info.DisablePing {
+					continue
+				}
 				select {
 				case streamChan <- streamEvent{heartbeat: true}:
 				case <-ctx.Done():
