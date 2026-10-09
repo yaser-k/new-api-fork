@@ -283,6 +283,10 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	}
 	relayconvert.FinalizeClaudeStreamBillingUsage(claudeInfo)
 
+	if helper.UpstreamStreamInterrupted(c, info) {
+		helper.SendStreamInterrupted(c, info)
+		return
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		//
 	} else if info.RelayFormat == types.RelayFormatOpenAI {

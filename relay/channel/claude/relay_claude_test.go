@@ -1,11 +1,14 @@
 package claude
 
 import (
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -428,4 +431,77 @@ func TestOpenAIChatRequestToClaudeMessages_ClaudeOpus48ThinkingUsesAdaptiveHighE
 	require.Nil(t, claudeRequest.Temperature)
 	require.Nil(t, claudeRequest.TopP)
 	require.Nil(t, claudeRequest.TopK)
+}
+
+// A Claude upstream that closes before message_stop was cut short: the client
+// gets everything received, then one error event in its own format instead of
+// a usage chunk and [DONE]. Billing still covers what was delivered.
+func TestClaudeStreamHandlerUpstreamInterruption(t *testing.T) {
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	started := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-test\",\"content\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial answer\"}}\n\n"
+	finished := started +
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+	tests := []struct {
+		name         string
+		format       types.RelayFormat
+		body         string
+		wantContains []string
+		wantMissing  []string
+	}{
+		{
+			name:         "openai client: cut ends with an error, not [DONE]",
+			format:       types.RelayFormatOpenAI,
+			body:         started,
+			wantContains: []string{"partial answer", `"code":"stream_interrupted"`},
+			wantMissing:  []string{"[DONE]", `"prompt_tokens"`},
+		},
+		{
+			name:         "claude client: cut ends with an error event",
+			format:       types.RelayFormatClaude,
+			body:         started,
+			wantContains: []string{"partial answer", "event: error\n", `"type":"api_error"`},
+			wantMissing:  []string{"message_stop"},
+		},
+		{
+			name:         "openai client: message_stop without [DONE] is complete",
+			format:       types.RelayFormatOpenAI,
+			body:         finished,
+			wantContains: []string{"partial answer", "data: [DONE]"},
+			wantMissing:  []string{"stream_interrupted"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				RelayFormat:        tt.format,
+				ShouldIncludeUsage: true,
+				ChannelMeta:        &relaycommon.ChannelMeta{UpstreamModelName: "claude-test"},
+			}
+
+			usage, apiErr := ClaudeStreamHandler(c, &http.Response{Body: io.NopCloser(strings.NewReader(tt.body))}, info)
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, 10, usage.PromptTokens)
+			assert.Positive(t, usage.CompletionTokens)
+
+			got := recorder.Body.String()
+			for _, want := range tt.wantContains {
+				assert.Contains(t, got, want)
+			}
+			for _, missing := range tt.wantMissing {
+				assert.NotContains(t, got, missing)
+			}
+		})
+	}
 }
