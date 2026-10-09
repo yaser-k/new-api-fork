@@ -1,6 +1,7 @@
 package relayconvert
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -13,6 +14,85 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestClaudeMessagesToOpenAIChatPreservesAssistantTextWithToolCalls(t *testing.T) {
+	text := "I will look that up."
+	request := dto.ClaudeRequest{
+		Model: "claude-test",
+		Messages: []dto.ClaudeMessage{
+			{
+				Role: "assistant",
+				Content: []dto.ClaudeMediaMessage{
+					{Type: "text", Text: &text},
+					{
+						Type:  "tool_use",
+						Id:    "call_1",
+						Name:  "lookup",
+						Input: map[string]any{"query": "weather"},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := ConvertRequest(
+		context.Background(),
+		&convmeta.Values{},
+		types.RelayFormatOpenAI,
+		&request,
+	)
+	require.NoError(t, err)
+
+	converted, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.Len(t, converted.Messages, 1)
+
+	assistant := converted.Messages[0]
+	assert.Equal(t, "assistant", assistant.Role)
+	toolCalls := assistant.ParseToolCalls()
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "call_1", toolCalls[0].ID)
+	require.Len(t, assistant.ParseContent(), 1)
+	assert.Equal(t, "text", assistant.ParseContent()[0].Type)
+	assert.Equal(t, text, assistant.ParseContent()[0].Text)
+}
+
+func TestClaudeMessagesToOpenAIChatKeepsToolOnlyContentEmpty(t *testing.T) {
+	request := dto.ClaudeRequest{
+		Model: "claude-test",
+		Messages: []dto.ClaudeMessage{
+			{
+				Role: "assistant",
+				Content: []dto.ClaudeMediaMessage{
+					{
+						Type:  "tool_use",
+						Id:    "call_1",
+						Name:  "lookup",
+						Input: map[string]any{"query": "weather"},
+					},
+				},
+			},
+		},
+	}
+
+	result, err := ConvertRequest(
+		context.Background(),
+		&convmeta.Values{},
+		types.RelayFormatOpenAI,
+		&request,
+	)
+	require.NoError(t, err)
+
+	converted, ok := result.Value.(*dto.GeneralOpenAIRequest)
+	require.True(t, ok)
+	require.Len(t, converted.Messages, 1)
+
+	assistant := converted.Messages[0]
+	assert.Empty(t, assistant.ParseContent())
+	toolCalls := assistant.ParseToolCalls()
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "call_1", toolCalls[0].ID)
+}
 
 func TestRequestConverterRegistryListsSupportedTextConverters(t *testing.T) {
 	tests := []struct {
@@ -206,6 +286,39 @@ func TestConvertRequestClaudeToChatResolvesToolResultNames(t *testing.T) {
 	}
 	assert.Equal(t, "assistant", chatReq.Messages[1].Role)
 	assert.Equal(t, "assistant", chatReq.Messages[5].Role)
+}
+
+func TestConvertRequestClaudeToChatKeepsCustomTypedTool(t *testing.T) {
+	for _, toolType := range []string{"", "custom"} {
+		t.Run("type "+toolType, func(t *testing.T) {
+			tool := map[string]any{
+				"name":         "lookup",
+				"description":  "Look up a term",
+				"input_schema": map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}},
+			}
+			if toolType != "" {
+				tool["type"] = toolType
+			}
+			request := &dto.ClaudeRequest{
+				Model:      "claude-test",
+				Messages:   []dto.ClaudeMessage{{Role: "user", Content: "define relay"}},
+				Tools:      []any{tool, map[string]any{"type": "bash_20250124", "name": "bash"}},
+				ToolChoice: map[string]any{"type": "tool", "name": "lookup"},
+			}
+
+			result, err := ConvertRequest(context.Background(), &convmeta.Values{}, types.RelayFormatOpenAI, request)
+			require.NoError(t, err)
+
+			converted, ok := result.Value.(*dto.GeneralOpenAIRequest)
+			require.True(t, ok)
+			require.Len(t, converted.Tools, 1)
+			assert.Equal(t, "function", converted.Tools[0].Type)
+			assert.Equal(t, "lookup", converted.Tools[0].Function.Name)
+			assert.Equal(t, "Look up a term", converted.Tools[0].Function.Description)
+			assert.NotNil(t, converted.Tools[0].Function.Parameters)
+			assert.Equal(t, map[string]any{"type": "function", "function": map[string]any{"name": "lookup"}}, converted.ToolChoice)
+		})
+	}
 }
 
 func TestConvertRequestClaudeToResponsesPreservesMixedBlockOrder(t *testing.T) {
