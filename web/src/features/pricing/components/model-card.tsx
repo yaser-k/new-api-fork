@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
+import { stripCurrencyIsolates } from '@/lib/currency'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -40,7 +41,7 @@ import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import { formatPrice, formatRequestPrice } from '../lib/price'
 import { taskPriceLabel, taskUsageUnitLabel } from '../lib/task-price-display'
-import type { PricingModel, PriceType, TokenUnit } from '../types'
+import type { PricingModel, TokenUnit } from '../types'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPerfBadge, type ModelPerfBadgeData } from './model-perf-badge'
 
@@ -106,6 +107,39 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.model, dynamicPriceOptions, currency]
   )
+  const tokenPrices = isTokenBased
+    ? [
+        { type: 'input' as const, label: t('Input') },
+        { type: 'output' as const, label: t('Output') },
+        ...(props.model.cache_ratio != null
+          ? [{ type: 'cache' as const, label: t('Cached') }]
+          : []),
+      ].map((price) => ({
+        ...price,
+        amount: formatPrice(
+          props.model,
+          price.type,
+          tokenUnit,
+          showRechargePrice,
+          priceRate,
+          usdExchangeRate,
+          props.selectedGroup
+        ),
+      }))
+    : []
+  // Prices share a row only while each fits the narrowest column (88px, about
+  // ten monospace characters). Longer ones get a line each, label beside price.
+  const stackPrices = (
+    dynamicSummary
+      ? dynamicSummary.primaryEntries.map(
+          (entry) => entry.formattedRange ?? entry.formatted
+        )
+      : tokenPrices.map((price) => price.amount)
+  ).some((amount) => stripCurrencyIsolates(amount).length > 10)
+  const priceItemClassName = cn(
+    'flex min-w-0 gap-1',
+    stackPrices ? 'items-baseline justify-between gap-x-3' : 'flex-col'
+  )
   let priceSummary: ReactNode
   if (dynamicSummary) {
     if (dynamicSummary.isSpecialExpression) {
@@ -145,7 +179,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 <div
                   key={entry.key}
                   className={cn(
-                    'flex min-w-0 flex-col gap-1',
+                    priceItemClassName,
                     dynamicSummary.isTaskUsage && 'col-span-full'
                   )}
                 >
@@ -155,7 +189,9 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                     </span>
                   )}
                   <span className='flex flex-wrap items-baseline gap-x-1 font-mono text-sm font-semibold tabular-nums'>
-                    <span>{entry.formattedRange ?? entry.formatted}</span>
+                    <span className='whitespace-nowrap'>
+                      {entry.formattedRange ?? entry.formatted}
+                    </span>
                     <span className='text-muted-foreground text-xs font-normal whitespace-nowrap'>
                       {' '}
                       / {unitLabel}
@@ -206,26 +242,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
       </span>
     )
   } else if (isTokenBased) {
-    const prices: { type: PriceType; label: string }[] = [
-      { type: 'input', label: t('Input') },
-      { type: 'output', label: t('Output') },
-      ...(props.model.cache_ratio != null
-        ? [{ type: 'cache' as const, label: t('Cached') }]
-        : []),
-    ]
-    priceSummary = prices.map((price) => (
-      <div key={price.type} className='flex min-w-0 flex-col gap-1'>
+    priceSummary = tokenPrices.map((price) => (
+      <div key={price.type} className={priceItemClassName}>
         <span className='text-muted-foreground text-xs'>{price.label}</span>
         <span className='font-mono text-sm font-semibold tabular-nums'>
-          {formatPrice(
-            props.model,
-            price.type,
-            tokenUnit,
-            showRechargePrice,
-            priceRate,
-            usdExchangeRate,
-            props.selectedGroup
-          )}
+          <span className='whitespace-nowrap'>{price.amount}</span>
           <span className='text-muted-foreground text-xs font-normal'>
             {' '}
             / {tokenUnitLabel}
@@ -327,7 +348,14 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
                 ` · ${t('Not configured for some providers')}`}
             </span>
           )}
-          <div className='grid grid-cols-[repeat(auto-fit,minmax(88px,1fr))] gap-x-3 gap-y-2'>
+          <div
+            className={cn(
+              'grid gap-x-3 gap-y-2',
+              stackPrices
+                ? 'grid-cols-1'
+                : 'grid-cols-[repeat(auto-fit,minmax(88px,1fr))]'
+            )}
+          >
             {priceSummary}
           </div>
         </div>
