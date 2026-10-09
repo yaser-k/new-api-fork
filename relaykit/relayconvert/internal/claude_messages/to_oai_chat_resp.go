@@ -23,6 +23,9 @@ type ClaudeResponseInfo struct {
 	ToolUseCount int
 	Usage        *dto.Usage
 	Done         bool
+	// MessageStarted records that the upstream sent message_start, so the
+	// stream reached the upstream model even if it was cut before any output.
+	MessageStarted bool
 
 	// Only snapshots synthesized from partial display usage may be refreshed by
 	// later display deltas. Serialized BillingUsage always remains authoritative.
@@ -502,6 +505,7 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 		claudeInfo.Usage = &dto.Usage{}
 	}
 	if claudeResponse.Type == "message_start" {
+		claudeInfo.MessageStarted = true
 		if claudeResponse.Message != nil {
 			claudeInfo.ResponseId = claudeResponse.Message.Id
 			claudeInfo.Model = claudeResponse.Message.Model
