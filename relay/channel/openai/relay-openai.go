@@ -122,38 +122,59 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 
+	// OpenAI format forwards every frame the moment it is read. The one
+	// exception is a usage-only chunk (usage present, choices empty) when the
+	// client's own stream_options did not ask for usage: the gateway requested
+	// that chunk itself (ForceStreamOption), so it is billed but not delivered.
+	// Frames that carry choices are always delivered, including a terminal
+	// finish_reason/tool_calls frame with piggybacked usage. Claude/Gemini
+	// conversions keep the lag-by-one path because HandleFinalResponse needs
+	// the unsent terminal frame for their closing events.
+	directForward := info.RelayFormat == types.RelayFormatOpenAI
+
 	if info.RelayFormat == types.RelayFormatClaude {
 		// Frames are converted one behind, so every frame converted in the
 		// loop has a successor; HandleFinalResponse clears this for the last.
 		info.EnsureClaudeConvertInfo().MoreFramesPending = true
 	}
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if lastStreamData != "" {
+		if !directForward && lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 				sr.Error(err)
 			}
 		}
-		if len(data) > 0 {
-			if lastStreamData != "" {
-				secondLastStreamData = lastStreamData
-			}
+		if lastStreamData != "" {
+			secondLastStreamData = lastStreamData
+		}
 
-			lastStreamData = data
-			observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
-			if err := processTokenData(info, data, &responseTextBuilder, &toolCount); err != nil {
-				logger.LogError(c, "error processing stream token data: "+err.Error())
-				sr.Error(err)
+		lastStreamData = data
+		observeStreamChoices(info, data, seenStreamToolCalls, &streamFunctionCallNames)
+		if err := processTokenData(info, data, &responseTextBuilder, &toolCount); err != nil {
+			logger.LogError(c, "error processing stream token data: "+err.Error())
+			sr.Error(err)
+		}
+		if !directForward {
+			return
+		}
+		if !info.ShouldIncludeUsage {
+			var frame dto.ChatCompletionsStreamResponse
+			if err := common.UnmarshalJsonStr(data, &frame); err == nil && frame.Usage != nil && len(frame.Choices) == 0 {
+				return
 			}
+		}
+		if err := HandleStreamFormat(c, info, data, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			common.SysLog("error handling stream format: " + err.Error())
+			sr.Error(err)
 		}
 	})
 
 	info.StreamStatus.RequireTerminal()
 
 	// 处理最后的响应
-	shouldSendLastResp := true
 	if err := handleLastResponse(lastStreamData, &responseId, &createAt, &systemFingerprint, &model, &usage,
-		&containStreamUsage, info, &shouldSendLastResp); err != nil {
+		&containStreamUsage); err != nil {
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
 	}
 
@@ -177,12 +198,6 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 					usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens,
 					usage.InputTokens, usage.OutputTokens)
 			}
-		}
-	}
-
-	if info.RelayFormat == types.RelayFormatOpenAI {
-		if shouldSendLastResp {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
 		}
 	}
 
