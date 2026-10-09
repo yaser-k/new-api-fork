@@ -132,6 +132,12 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	// the unsent terminal frame for their closing events.
 	directForward := info.RelayFormat == types.RelayFormatOpenAI
 
+	if info.RelayFormat == types.RelayFormatClaude {
+		// Frames are converted one behind, so every frame converted in the
+		// loop has a successor; HandleFinalResponse clears this for the last.
+		info.EnsureClaudeConvertInfo().MoreFramesPending = true
+	}
+
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if !directForward && lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
