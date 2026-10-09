@@ -58,7 +58,7 @@ func GetPerfMetrics(c *gin.Context) {
 		Model:         modelName,
 		Group:         c.Query("group"),
 		Hours:         hours,
-		AllowedGroups: append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto"),
+		AllowedGroups: lo.Keys(getPerfMetricsUsableGroups(c)),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -68,18 +68,15 @@ func GetPerfMetrics(c *gin.Context) {
 		return
 	}
 
-	usableGroups := getPerfMetricsUsableGroups(c)
-	result.Groups = lo.Filter(result.Groups, func(g perfmetrics.GroupResult, _ int) bool {
-		_, ok := usableGroups[g.Group]
-		return ok
-	})
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    result,
 	})
 }
 
+// getPerfMetricsUsableGroups returns the groups whose traffic the viewer may
+// see: the groups the viewer can use, as on the pricing page, that still have
+// a ratio. Both queries filter by them, so hidden groups count nowhere.
 func getPerfMetricsUsableGroups(c *gin.Context) map[string]string {
 	var userGroup string
 	if userID, exists := c.Get("id"); exists {
