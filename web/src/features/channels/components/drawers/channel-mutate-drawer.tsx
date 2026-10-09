@@ -108,6 +108,7 @@ import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import { toIntlLocale } from '@/i18n/languages'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -333,10 +334,10 @@ function parseSettingsRecord(
   return {}
 }
 
-function formatUnixTime(timestamp: unknown): string {
+function formatUnixTime(timestamp: unknown, locale?: string): string {
   const seconds = Number(timestamp)
   if (!Number.isFinite(seconds) || seconds <= 0) return '-'
-  return formatTimestampToDate(seconds)
+  return formatTimestampToDate(seconds, 'seconds', locale)
 }
 
 function channelConfigurationBlockClassName(
@@ -405,7 +406,8 @@ export function ChannelMutateDrawer({
   onOpenChange,
   currentRow,
 }: ChannelMutateDrawerProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const queryClient = useQueryClient()
   const { setOpen } = useChannels()
   const currentUser = useAuthStore((s) => s.auth.user)
@@ -2360,7 +2362,7 @@ export function ChannelMutateDrawer({
             <span className='text-foreground font-medium'>
               {t('Last check time')}:
             </span>{' '}
-            {formatUnixTime(upstreamUpdateMeta.lastCheckTime)}
+            {formatUnixTime(upstreamUpdateMeta.lastCheckTime, locale)}
           </div>
           <div>
             <span className='text-foreground font-medium'>
