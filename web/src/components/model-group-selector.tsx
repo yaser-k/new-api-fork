@@ -60,6 +60,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { resolveLocalizedTextString } from '@/lib/localized-text-string'
 import { cn } from '@/lib/utils'
 
 import {
@@ -370,10 +371,30 @@ ModelSelector.displayName = 'ModelSelector'
  * Styled following Scira's form-component design patterns
  */
 export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
-  ({ selectedGroup, groups, onGroupChange, className, disabled = false }) => {
-    const { t } = useTranslation()
+  ({
+    selectedGroup,
+    groups: rawGroups,
+    onGroupChange,
+    className,
+    disabled = false,
+  }) => {
+    const { t, i18n } = useTranslation()
     const [open, setOpen] = useState(false)
     const isMobile = useIsMobile()
+
+    // Group descriptions may hold one text per interface language.
+    const groups = useMemo(
+      () =>
+        rawGroups.map((group) => ({
+          ...group,
+          desc:
+            group.desc && resolveLocalizedTextString(group.desc, i18n.language),
+          description:
+            group.description &&
+            resolveLocalizedTextString(group.description, i18n.language),
+        })),
+      [rawGroups, i18n.language]
+    )
 
     const currentGroup = useMemo(
       () => groups.find((g) => g.value === selectedGroup),
