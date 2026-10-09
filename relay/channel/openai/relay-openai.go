@@ -122,6 +122,11 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	seenStreamToolCalls := make(map[string]struct{})
 	var streamFunctionCallNames []string
 
+	if info.RelayFormat == types.RelayFormatClaude {
+		// Frames are converted one behind, so every frame converted in the
+		// loop has a successor; HandleFinalResponse clears this for the last.
+		info.EnsureClaudeConvertInfo().MoreFramesPending = true
+	}
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
