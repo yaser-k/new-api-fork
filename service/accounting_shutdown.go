@@ -55,18 +55,18 @@ func ShutdownAccounting(waitTimeout time.Duration) error {
 	waiting, idle := pendingAccounting.count, pendingAccounting.idle
 	pendingAccounting.mu.Unlock()
 	if waiting == 0 {
-		common.SysLog("shutdown: no async billing work pending")
+		common.SysLog(common.LogText("shutdown: no async billing work pending"))
 	} else {
 		timer := time.NewTimer(waitTimeout)
 		select {
 		case <-idle:
-			common.SysLog(fmt.Sprintf("shutdown: waited for %d async billing jobs in %s", waiting, time.Since(start)))
+			common.SysLog(common.LogText("shutdown: waited for %d async billing jobs in %s", waiting, time.Since(start)))
 		case <-timer.C:
 			pendingAccounting.mu.Lock()
 			left := pendingAccounting.count
 			pendingAccounting.mu.Unlock()
 			err := fmt.Errorf("gave up waiting for async billing jobs after %s: %d still running, their writes after the final flush are lost", waitTimeout, left)
-			common.SysError("shutdown: " + err.Error())
+			common.SysError(common.LogText("shutdown: %v", err))
 			errs = append(errs, err)
 		}
 		timer.Stop()
@@ -78,15 +78,15 @@ func ShutdownAccounting(waitTimeout time.Duration) error {
 
 	start = time.Now()
 	model.StopBatchUpdater()
-	common.SysLog(fmt.Sprintf("shutdown: batch updater stopped in %s", time.Since(start)))
+	common.SysLog(common.LogText("shutdown: batch updater stopped in %s", time.Since(start)))
 
 	start = time.Now()
 	result := model.FlushBatchUpdates()
-	common.SysLog(fmt.Sprintf("shutdown: flushed batch updates in %s: users=%d tokens=%d channels=%d failed=%d",
+	common.SysLog(common.LogText("shutdown: flushed batch updates in %s: users=%d tokens=%d channels=%d failed=%d",
 		time.Since(start), result.Users, result.Tokens, result.Channels, result.Failed))
 	if result.Failed > 0 {
 		err := fmt.Errorf("%d batch update writes failed during the final flush", result.Failed)
-		common.SysError("shutdown: " + err.Error())
+		common.SysError(common.LogText("shutdown: %v", err))
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)

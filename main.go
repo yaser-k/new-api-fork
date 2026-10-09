@@ -246,7 +246,7 @@ func main() {
 	if common.DataExportEnabled {
 		dashboardStart := time.Now()
 		model.SaveQuotaDataCache()
-		common.SysLog(fmt.Sprintf("shutdown: saved dashboard data in %s", time.Since(dashboardStart)))
+		common.SysLog(common.LogText("shutdown: saved dashboard data in %s", time.Since(dashboardStart)))
 	}
 	common.SysLog(common.LogText("server exited"))
 }
