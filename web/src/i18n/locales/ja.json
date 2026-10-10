@@ -6674,6 +6674,7 @@
     "Update selected fields": "選択した項目を更新",
     "Upstream returned no usage": "上流から使用量が返されませんでした",
     "Upstream returned no usage, so nothing was charged (possibly an upstream timeout)": "上流から使用量が返されなかったため課金されていません（上流のタイムアウトの可能性があります）",
+    "Upstream did not bill this request, so nothing was charged: {{reason}}": "上流がこのリクエストを課金しなかったため、課金されていません：{{reason}}",
     "Update succeeded": "更新に成功しました",
     "Update the API key by providing necessary info.": "必要な情報を提供して API キーを更新してください。",
     "Upstream task not found": "上流でタスクが見つかりません",
@@ -7254,6 +7255,10 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Waive Refusals Before Output": "出力前の拒否を課金しない",
+    "Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.": "出力前に返された Claude の拒否は、Anthropic の課金と同じく 0 で精算します。出力途中の拒否と下記の課金カテゴリは引き続き課金されます。",
+    "Billed Refusal Categories": "課金対象の拒否カテゴリ",
+    "stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.": "出力前の拒否でも課金される stop_details カテゴリです。Anthropic は bio、frontier_llm、reasoning_extraction を課金します。"
   }
 }
