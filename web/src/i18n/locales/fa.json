@@ -5706,6 +5706,7 @@
     "Update selected fields": "به‌روزرسانی فیلدهای انتخاب‌شده",
     "Upstream returned no usage": "بالادستی مصرفی برنگرداند",
     "Upstream returned no usage, so nothing was charged (possibly an upstream timeout)": "بالادستی مصرفی برنگرداند، پس هزینه‌ای کسر نشد (احتمالاً مهلت بالادستی تمام شده است)",
+    "Upstream did not bill this request, so nothing was charged: {{reason}}": "بالادستی این درخواست را مشمول هزینه نکرد، پس هزینه‌ای کسر نشد: ⁨{{reason}}⁩",
     "Update succeeded": "به‌روزرسانی شد",
     "Update the API key by providing necessary info.": "با وارد کردن اطلاعات لازم، کلید API را ویرایش کنید.",
     "Upstream task not found": "وظیفۀ بالادستی پیدا نشد",
@@ -6194,6 +6195,10 @@
     "Your transaction history will appear here": "تاریخچۀ تراکنش‌های شما اینجا نمایش داده می‌شود",
     "Your Turnstile secret key": "کلید مخفی Turnstile شما",
     "Your Turnstile site key": "⁧کلید سایت Turnstile شما⁩",
-    "Zoom": "زوم"
+    "Zoom": "زوم",
+    "Waive Refusals Before Output": "معافیت امتناع پیش از خروجی",
+    "Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.": "امتناع Claude که پیش از هر خروجی برسد، همان‌طور که Anthropic حساب می‌کند، با هزینۀ صفر تسویه می‌شود. امتناع در حین پاسخ و دسته‌های مشمول هزینۀ زیر همچنان هزینه دارند.",
+    "Billed Refusal Categories": "دسته‌های امتناع مشمول هزینه",
+    "stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.": "دسته‌هایی از stop_details که امتناع پیش از هر خروجی در آن‌ها همچنان مشمول هزینه است. Anthropic برای bio، frontier_llm و reasoning_extraction هزینه حساب می‌کند."
   }
 }
