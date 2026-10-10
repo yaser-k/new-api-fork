@@ -81,3 +81,63 @@ describe('DateTimePicker in Persian', () => {
     expect(onChange).toHaveBeenCalledWith(new Date(2026, 8, 26, 14, 30))
   })
 })
+
+describe('DateTimePicker time field', () => {
+  it('in English, shows a 24-hour time and applies a typed one on the chosen day', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <DateTimePicker
+        value={new Date(2026, 8, 25, 14, 30)}
+        onChange={onChange}
+      />
+    )
+
+    const time = screen.getByLabelText('Time')
+    expect(time).toHaveValue('14:30')
+    await user.clear(time)
+    await user.type(time, '7:45')
+    await user.tab()
+
+    expect(onChange).toHaveBeenLastCalledWith(new Date(2026, 8, 25, 7, 45))
+    expect(time).toHaveValue('07:45')
+  })
+
+  it('in Persian, shows the time in Persian digits and reads typed Persian digits', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    await i18next.changeLanguage('fa')
+    render(
+      <DateTimePicker
+        value={new Date(2026, 8, 25, 14, 30)}
+        onChange={onChange}
+      />
+    )
+
+    const time = screen.getByLabelText('Time')
+    expect(time).toHaveValue('۱۴:۳۰')
+    await user.clear(time)
+    await user.type(time, '۰۹:۰۵')
+
+    expect(onChange).toHaveBeenLastCalledWith(new Date(2026, 8, 25, 9, 5))
+  })
+
+  it('marks a time outside 00:00-23:59 invalid and does not apply it', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <DateTimePicker
+        value={new Date(2026, 8, 25, 14, 30)}
+        onChange={onChange}
+      />
+    )
+
+    const time = screen.getByLabelText('Time')
+    await user.clear(time)
+    await user.type(time, '25:00')
+
+    expect(time).toHaveAttribute('aria-invalid', 'true')
+    expect(onChange).not.toHaveBeenCalledWith(new Date(2026, 8, 26, 1, 0))
+    expect(onChange).not.toHaveBeenCalledWith(new Date(2026, 8, 25, 25, 0))
+  })
+})

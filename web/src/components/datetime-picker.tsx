@@ -21,16 +21,18 @@ import * as React from 'react'
 import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'
 import { useTranslation } from 'react-i18next'
 
+import { TimeOfDayInput } from '@/components/time-of-day-input'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
-import { Input } from '@/components/ui/input'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { toIntlLocale } from '@/i18n/languages'
+import dayjs from '@/lib/dayjs'
 import { formatDisplayDate } from '@/lib/format'
+import { parseTimeOfDay } from '@/lib/time-of-day'
 import { cn } from '@/lib/utils'
 
 const calendarLocales = {
@@ -67,21 +69,25 @@ export function DateTimePicker({
   const [open, setOpen] = React.useState(false)
   const [date, setDate] = React.useState<Date | undefined>(value)
   const [month, setMonth] = React.useState<Date | undefined>(value)
-  const [time, setTime] = React.useState<string>('00:00')
+  // The time is the text of a 24-hour field in the interface's digits.
+  const [time, setTime] = React.useState<string>(() =>
+    formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm', locale)
+  )
 
   React.useEffect(() => {
     setDate(value)
     setMonth(value)
     if (value) {
-      const hours = value.getHours().toString().padStart(2, '0')
-      const minutes = value.getMinutes().toString().padStart(2, '0')
-      setTime(`${hours}:${minutes}`)
+      setTime(formatDisplayDate(value, 'HH:mm', locale))
     }
-  }, [value])
+  }, [value, locale])
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
     if (selectedDate) {
-      const [hours, minutes] = time.split(':').map(Number)
+      const { hours, minutes } = parseTimeOfDay(time) ?? {
+        hours: 0,
+        minutes: 0,
+      }
       const newDate = new Date(selectedDate)
       newDate.setHours(hours, minutes, 0, 0)
       setDate(newDate)
@@ -95,23 +101,27 @@ export function DateTimePicker({
     }
   }
 
-  const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTime = e.target.value
+  const handleTimeChange = (newTime: string) => {
     setTime(newTime)
 
-    if (date) {
-      const [hours, minutes] = newTime.split(':').map(Number)
-      const newDate = new Date(date)
-      newDate.setHours(hours, minutes, 0, 0)
-      setDate(newDate)
-      onChange?.(newDate)
+    const parsed = parseTimeOfDay(newTime)
+    if (!date || !parsed) return
+    if (
+      date.getHours() === parsed.hours &&
+      date.getMinutes() === parsed.minutes
+    ) {
+      return
     }
+    const newDate = new Date(date)
+    newDate.setHours(parsed.hours, parsed.minutes, 0, 0)
+    setDate(newDate)
+    onChange?.(newDate)
   }
 
   const handleClear = () => {
     setDate(undefined)
     setMonth(undefined)
-    setTime('00:00')
+    setTime(formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm', locale))
     onChange?.(undefined)
   }
 
@@ -148,11 +158,11 @@ export function DateTimePicker({
           />
         </PopoverContent>
       </Popover>
-      <Input
-        type='time'
+      <TimeOfDayInput
         value={time}
-        onChange={handleTimeChange}
-        className='w-32 appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none'
+        onValueChange={handleTimeChange}
+        aria-label={t('Time')}
+        className='w-20'
         disabled={!date}
       />
       {date && (
