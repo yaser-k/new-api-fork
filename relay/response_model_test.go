@@ -158,6 +158,36 @@ func TestResponseModelExpectedProviderPath(t *testing.T) {
 	}
 }
 
+func TestResponseModelUpstreamProfilePrefix(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		upstream string
+		returned string
+		mismatch bool
+	}{
+		{name: "inference profile prefix", upstream: "global.vendor.model-v1:0", returned: "vendor.model-v1:0"},
+		{name: "regional profile prefix", upstream: "eu.vendor.model-v1:0", returned: "vendor.model-v1:0"},
+		{name: "profile prefix case differs", upstream: "GLOBAL.Vendor.Model-v1:0", returned: "vendor.model-v1:0"},
+		{name: "dated name behind profile prefix", upstream: "us.vendor.model", returned: "vendor.model-2026-09-01"},
+		{name: "other model behind profile prefix still warns", upstream: "global.vendor.model-v1:0", returned: "vendor.other-v1:0", mismatch: true},
+		{name: "two stripped segments still warn", upstream: "global.vendor.model-v1:0", returned: "model-v1:0", mismatch: true},
+		{name: "shorter name behind profile prefix still warns", upstream: "global.vendor.model-v1:0", returned: "vendor.model", mismatch: true},
+		{name: "prefix holding a provider path still warns", upstream: "vendor/global.model", returned: "model", mismatch: true},
+		{name: "empty name after the prefix still warns", upstream: "global.", returned: "other", mismatch: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "requested",
+				ChannelMeta:     &relaycommon.ChannelMeta{UpstreamModelName: tc.upstream, IsModelMapped: true},
+			}
+			info.ObserveResponseModel(tc.returned)
+			require.NotNil(t, info.ResponseModel)
+			assert.Equal(t, tc.returned, info.ResponseModel.ReturnedModel)
+			assert.Equal(t, tc.mismatch, info.ResponseModel.Mismatch())
+		})
+	}
+}
+
 func TestResponseModelRetryResetsObservation(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	common.SetContextKey(c, constant.ContextKeyOriginalModel, "requested")
