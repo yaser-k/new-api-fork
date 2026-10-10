@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,58 +36,84 @@ var geminiOpenAPISchemaAllowedFields = map[string]struct{}{
 
 const geminiFunctionSchemaMaxDepth = 64
 
-func CleanFunctionParameters(params interface{}) interface{} {
-	return cleanGeminiFunctionParametersWithDepth(params, 0)
+// CleanFunctionParameters rewrites a JSON Schema as the OpenAPI subset that
+// Gemini function declarations accept. A string const becomes a one-value
+// enum (Gemini takes enum on STRING only) and oneOf becomes anyOf, which only
+// loses exclusivity. It also returns the keywords dropped because Gemini has
+// no equivalent for them.
+func CleanFunctionParameters(params any) (any, []string) {
+	dropped := make(map[string]struct{})
+	cleaned := cleanGeminiFunctionParametersWithDepth(params, 0, dropped)
+	return cleaned, slices.Sorted(maps.Keys(dropped))
 }
 
-func cleanGeminiFunctionParametersWithDepth(params interface{}, depth int) interface{} {
+func cleanGeminiFunctionParametersWithDepth(params any, depth int, dropped map[string]struct{}) any {
 	if params == nil {
 		return nil
 	}
 
 	if depth >= geminiFunctionSchemaMaxDepth {
-		return cleanGeminiFunctionParametersShallow(params)
+		return cleanGeminiFunctionParametersShallow(params, dropped)
 	}
 
 	switch v := params.(type) {
-	case map[string]interface{}:
-		cleanedMap := make(map[string]interface{}, len(v))
+	case map[string]any:
+		cleanedMap := make(map[string]any, len(v))
 		for key, val := range v {
 			if _, ok := geminiOpenAPISchemaAllowedFields[key]; ok {
 				cleanedMap[key] = val
+			} else if key != "const" && key != "oneOf" {
+				dropped[key] = struct{}{}
 			}
 		}
 
 		normalizeGeminiSchemaTypeAndNullable(cleanedMap)
 
-		if props, ok := cleanedMap["properties"].(map[string]interface{}); ok && props != nil {
-			cleanedProps := make(map[string]interface{})
+		if constValue, ok := v["const"]; ok {
+			text, isString := constValue.(string)
+			if schemaType, typed := cleanedMap["type"]; isString && (!typed || schemaType == "STRING") {
+				cleanedMap["type"] = "STRING"
+				cleanedMap["enum"] = []any{text}
+			} else {
+				dropped["const"] = struct{}{}
+			}
+		}
+		if oneOf, ok := v["oneOf"]; ok {
+			if _, hasAnyOf := cleanedMap["anyOf"]; hasAnyOf {
+				dropped["oneOf"] = struct{}{}
+			} else {
+				cleanedMap["anyOf"] = oneOf
+			}
+		}
+
+		if props, ok := cleanedMap["properties"].(map[string]any); ok && props != nil {
+			cleanedProps := make(map[string]any)
 			for propName, propValue := range props {
-				cleanedProps[propName] = cleanGeminiFunctionParametersWithDepth(propValue, depth+1)
+				cleanedProps[propName] = cleanGeminiFunctionParametersWithDepth(propValue, depth+1, dropped)
 			}
 			cleanedMap["properties"] = cleanedProps
 		}
 
-		if items, ok := cleanedMap["items"].(map[string]interface{}); ok && items != nil {
-			cleanedMap["items"] = cleanGeminiFunctionParametersWithDepth(items, depth+1)
+		if items, ok := cleanedMap["items"].(map[string]any); ok && items != nil {
+			cleanedMap["items"] = cleanGeminiFunctionParametersWithDepth(items, depth+1, dropped)
 		}
-		if itemsArray, ok := cleanedMap["items"].([]interface{}); ok && len(itemsArray) > 0 {
-			cleanedMap["items"] = cleanGeminiFunctionParametersWithDepth(itemsArray[0], depth+1)
+		if itemsArray, ok := cleanedMap["items"].([]any); ok && len(itemsArray) > 0 {
+			cleanedMap["items"] = cleanGeminiFunctionParametersWithDepth(itemsArray[0], depth+1, dropped)
 		}
 
-		if nested, ok := cleanedMap["anyOf"].([]interface{}); ok && nested != nil {
-			cleanedNested := make([]interface{}, len(nested))
+		if nested, ok := cleanedMap["anyOf"].([]any); ok && nested != nil {
+			cleanedNested := make([]any, len(nested))
 			for i, item := range nested {
-				cleanedNested[i] = cleanGeminiFunctionParametersWithDepth(item, depth+1)
+				cleanedNested[i] = cleanGeminiFunctionParametersWithDepth(item, depth+1, dropped)
 			}
 			cleanedMap["anyOf"] = cleanedNested
 		}
 
 		return cleanedMap
-	case []interface{}:
-		cleanedArray := make([]interface{}, len(v))
+	case []any:
+		cleanedArray := make([]any, len(v))
 		for i, item := range v {
-			cleanedArray[i] = cleanGeminiFunctionParametersWithDepth(item, depth+1)
+			cleanedArray[i] = cleanGeminiFunctionParametersWithDepth(item, depth+1, dropped)
 		}
 		return cleanedArray
 	default:
@@ -94,22 +121,26 @@ func cleanGeminiFunctionParametersWithDepth(params interface{}, depth int) inter
 	}
 }
 
-func cleanGeminiFunctionParametersShallow(params interface{}) interface{} {
+func cleanGeminiFunctionParametersShallow(params any, dropped map[string]struct{}) any {
 	switch v := params.(type) {
-	case map[string]interface{}:
-		cleanedMap := make(map[string]interface{}, len(v))
+	case map[string]any:
+		cleanedMap := make(map[string]any, len(v))
 		for key, val := range v {
-			if _, ok := geminiOpenAPISchemaAllowedFields[key]; ok {
-				cleanedMap[key] = val
+			switch key {
+			case "properties", "items", "anyOf":
+				dropped[key] = struct{}{}
+			default:
+				if _, ok := geminiOpenAPISchemaAllowedFields[key]; ok {
+					cleanedMap[key] = val
+				} else {
+					dropped[key] = struct{}{}
+				}
 			}
 		}
 		normalizeGeminiSchemaTypeAndNullable(cleanedMap)
-		delete(cleanedMap, "properties")
-		delete(cleanedMap, "items")
-		delete(cleanedMap, "anyOf")
 		return cleanedMap
-	case []interface{}:
-		return []interface{}{}
+	case []any:
+		return []any{}
 	default:
 		return params
 	}
