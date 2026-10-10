@@ -379,6 +379,38 @@ func FromOpenAIChat(req *dto.GeneralOpenAIRequest) (Intent, []types.ConversionDi
 	}
 
 	var diagnostics []types.ConversionDiagnostic
+	// An Anthropic-style thinking object is the request's own reasoning control
+	// when neither reasoning_effort nor reasoning is set. The field is shared
+	// with other providers' dialects, so only the Anthropic types are read and
+	// anything else is left to pass through untouched.
+	if req.ReasoningEffort == "" && len(req.Reasoning) == 0 && kitutil.GetJsonType(req.THINKING) == "object" {
+		var thinking dto.Thinking
+		if err := kitutil.Unmarshal(req.THINKING, &thinking); err == nil {
+			switch thinking.Type {
+			case "enabled":
+				intent.Mode = ModeEnabled
+				intent.BudgetTokens = thinking.BudgetTokens
+				if thinking.BudgetTokens != nil {
+					intent.BudgetSource = SourceExplicit
+				}
+			case "adaptive":
+				intent.Mode = ModeAdaptive
+			case "disabled":
+				intent.Mode = ModeDisabled
+				intent.Effort = EffortNone
+			}
+			if intent.Mode != ModeUnset {
+				switch thinking.Display {
+				case "summarized":
+					include := true
+					intent.IncludeThoughts = &include
+				case "omitted":
+					include := false
+					intent.IncludeThoughts = &include
+				}
+			}
+		}
+	}
 	if len(req.Reasoning) > 0 {
 		var raw openRouterReasoning
 		if err := kitutil.Unmarshal(req.Reasoning, &raw); err != nil {
