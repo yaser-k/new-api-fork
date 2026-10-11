@@ -22,7 +22,7 @@ import { loginMethodLabel } from '@/features/security/components/login-session-u
 import { userActionName } from '@/features/users/lib/user-actions'
 import { isPersianIntlLocale } from '@/i18n/languages'
 import type { PermissionResourceDef } from '@/lib/admin-permissions'
-import dayjs from '@/lib/dayjs'
+import { formatFixed, formatTimestampToDate } from '@/lib/format'
 import { ROLE, getRoleLabelKey } from '@/lib/roles'
 
 import { renderAuditContent } from '../../lib/format'
@@ -585,7 +585,7 @@ export function buildAuditDetails(
     fields.push({
       label: t('Expiration'),
       value: params.expires_at
-        ? dayjs.unix(params.expires_at).format('YYYY-MM-DD HH:mm:ss')
+        ? formatTimestampToDate(params.expires_at, 'seconds', locale)
         : t('Never expires'),
     })
     delete params.expires_at
@@ -610,7 +610,7 @@ export function buildAuditDetails(
   ) {
     fields.push({
       label: t('Changed / Total'),
-      value: `${params.count} / ${params.total}`,
+      value: `${formatFixed(params.count, 0, locale)} / ${formatFixed(params.total, 0, locale)}`,
     })
     delete params.count
     delete params.total
