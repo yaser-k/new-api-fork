@@ -95,9 +95,7 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 		info.SetReasoningEffort(string(effectiveEffort))
 	}
 
-	if len(claudeRequest.StopSequences) == 1 {
-		openAIRequest.Stop = claudeRequest.StopSequences[0]
-	} else if len(claudeRequest.StopSequences) > 1 {
+	if len(claudeRequest.StopSequences) > 0 {
 		openAIRequest.Stop = claudeRequest.StopSequences
 	}
 
@@ -116,6 +114,8 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 	}
 	openAIRequest.Tools = openAITools
 
+	// cache_control is an Anthropic field; only OpenRouter Claude models accept it on Chat content parts.
+	isOpenRouterClaude := isOpenRouter && strings.HasPrefix(convmeta.UpstreamModelName(info), "anthropic/claude")
 	openAIMessages := make([]dto.Message, 0)
 	if claudeRequest.System != nil {
 		if claudeRequest.IsStringSystem() && claudeRequest.GetStringSystem() != "" {
@@ -130,7 +130,6 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 				openAIMessage := dto.Message{
 					Role: "system",
 				}
-				isOpenRouterClaude := isOpenRouter && strings.HasPrefix(convmeta.UpstreamModelName(info), "anthropic/claude")
 				if isOpenRouterClaude {
 					systemMediaMessages := make([]dto.MediaContent, 0, len(systems))
 					for _, system := range systems {
@@ -143,13 +142,13 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 					}
 					openAIMessage.SetMediaContent(systemMediaMessages)
 				} else {
-					var systemStr strings.Builder
+					systemTexts := make([]string, 0, len(systems))
 					for _, system := range systems {
-						if system.Text != nil {
-							systemStr.WriteString(*system.Text)
+						if system.Text != nil && *system.Text != "" {
+							systemTexts = append(systemTexts, *system.Text)
 						}
 					}
-					openAIMessage.SetStringContent(systemStr.String())
+					openAIMessage.SetStringContent(strings.Join(systemTexts, "\n\n"))
 				}
 				openAIMessages = append(openAIMessages, openAIMessage)
 			}
@@ -183,9 +182,11 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 				switch mediaMsg.Type {
 				case "text", "input_text":
 					message := dto.MediaContent{
-						Type:         "text",
-						Text:         mediaMsg.GetText(),
-						CacheControl: mediaMsg.CacheControl,
+						Type: "text",
+						Text: mediaMsg.GetText(),
+					}
+					if isOpenRouterClaude {
+						message.CacheControl = mediaMsg.CacheControl
 					}
 					mediaMessages = append(mediaMessages, message)
 				case "image":
@@ -270,7 +271,7 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 			if len(toolCalls) > 0 {
 				openAIMessage.SetToolCalls(toolCalls)
 			}
-			if len(mediaMessages) > 0 && len(toolCalls) == 0 {
+			if len(mediaMessages) > 0 {
 				openAIMessage.SetMediaContent(mediaMessages)
 			}
 		}
