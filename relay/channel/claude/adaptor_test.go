@@ -1,10 +1,13 @@
 package claude
 
 import (
+	"bytes"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -251,4 +254,75 @@ func TestConvertGeminiRequestThinkingConfigUsesReasoningIntent(t *testing.T) {
 func TestConvertGeminiRequestNilRequest(t *testing.T) {
 	_, err := (&Adaptor{}).ConvertGeminiRequest(nil, geminiToClaudeInfo(), nil)
 	require.Error(t, err)
+}
+
+func TestDoApiRequestAnthropicBetaHeaderOverride(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	allowList := map[string]any{
+		"mode": "set_header",
+		"path": "anthropic-beta",
+		"value": map[string]any{
+			"computer-use-2025-01-24": "computer-use-2025-01-24",
+			"$keep_only_declared":     true,
+		},
+	}
+	tests := []struct {
+		name         string
+		clientBeta   string
+		operation    map[string]any
+		expectedBeta []string
+	}{
+		{
+			name:       "delete_header removes the client header",
+			clientBeta: "computer-use-2025-01-24",
+			operation:  map[string]any{"mode": "delete_header", "path": "anthropic-beta"},
+		},
+		{
+			name:       "mapping that filters out every flag removes the client header",
+			clientBeta: "unknown-beta-2025-01-01, other-beta-2025-02-02",
+			operation:  allowList,
+		},
+		{
+			name:         "mapping that keeps some flags sends only those",
+			clientBeta:   "unknown-beta-2025-01-01, computer-use-2025-01-24",
+			operation:    allowList,
+			expectedBeta: []string{"computer-use-2025-01-24"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var upstreamBeta []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upstreamBeta = r.Header.Values("anthropic-beta")
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			c.Request.Header.Set("anthropic-beta", tt.clientBeta)
+
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "claude-sonnet-4-5",
+				RequestHeaders:  map[string]string{"anthropic-beta": tt.clientBeta},
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelBaseUrl:    server.URL,
+					ApiKey:            "test-key",
+					UpstreamModelName: "claude-sonnet-4-5",
+					ParamOverride:     map[string]any{"operations": []any{tt.operation}},
+				},
+			}
+			body, err := relaycommon.ApplyParamOverrideWithRelayInfo([]byte(`{"model":"claude-sonnet-4-5"}`), info)
+			require.NoError(t, err)
+
+			resp, err := channel.DoApiRequest(&Adaptor{}, c, info, bytes.NewReader(body))
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
+
+			assert.Equal(t, tt.expectedBeta, upstreamBeta)
+		})
+	}
 }
