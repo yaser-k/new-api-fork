@@ -2,6 +2,7 @@ package relayconvert
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -983,6 +984,144 @@ func TestConvertRequestRejectsUnregisteredExplicitPath(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "from claude to embedding is not registered")
+}
+
+// Gemini answers a function-call turn with one function-response turn that
+// holds a response per call, in call order; Vertex AI strips call ids by
+// default, leaving position as the only pairing.
+func TestConvertRequestToGeminiPairsFunctionResponsesWithCalls(t *testing.T) {
+	chatRequest := func(messages string) any {
+		var req dto.GeneralOpenAIRequest
+		require.NoError(t, kitutil.UnmarshalJsonStr(`{"model":"gemini-test","messages":`+messages+`}`, &req))
+		return &req
+	}
+	tests := []struct {
+		name    string
+		request any
+		want    []string
+	}{
+		{
+			name: "consecutive assistant tool calls",
+			request: chatRequest(`[
+				{"role":"user","content":"weather and time?"},
+				{"role":"assistant","content":null,"tool_calls":[{"id":"call_w","type":"function","function":{"name":"weather","arguments":"{}"}}]},
+				{"role":"assistant","content":"checking","tool_calls":[{"id":"call_t","type":"function","function":{"name":"time","arguments":"{}"}}]},
+				{"role":"tool","tool_call_id":"call_t","content":"noon"},
+				{"role":"tool","tool_call_id":"call_w","content":"sunny"}
+			]`),
+			want: []string{
+				"user: text",
+				"model: call weather call_w, call time call_t, text",
+				"user: response weather call_w, response time call_t",
+			},
+		},
+		{
+			name: "parallel tool results out of call order",
+			request: chatRequest(`[
+				{"role":"user","content":"weather and time?"},
+				{"role":"assistant","tool_calls":[
+					{"id":"call_w","type":"function","function":{"name":"weather","arguments":"{}"}},
+					{"id":"call_t","type":"function","function":{"name":"time","arguments":"{}"}}
+				]},
+				{"role":"tool","tool_call_id":"call_t","content":"noon"},
+				{"role":"tool","tool_call_id":"call_w","content":"sunny"},
+				{"role":"user","content":"thanks"}
+			]`),
+			want: []string{
+				"user: text",
+				"model: call weather call_w, call time call_t",
+				"user: response weather call_w, response time call_t",
+				"user: text",
+			},
+		},
+		{
+			name: "responses parallel outputs out of call order",
+			request: &dto.OpenAIResponsesRequest{
+				Model: "gemini-test",
+				Input: mustRawMessage(t, []map[string]any{
+					{"type": "function_call", "call_id": "call_w", "name": "weather", "arguments": "{}"},
+					{"type": "function_call", "call_id": "call_t", "name": "time", "arguments": "{}"},
+					{"type": "function_call_output", "call_id": "call_t", "output": "noon"},
+					{"type": "function_call_output", "call_id": "call_w", "output": "sunny"},
+				}),
+			},
+			want: []string{
+				"model: call weather call_w, call time call_t",
+				"user: response weather call_w, response time call_t",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ConvertRequest(nil, nil, types.RelayFormatGemini, tt.request)
+			require.NoError(t, err)
+			geminiReq, ok := result.Value.(*dto.GeminiChatRequest)
+			require.True(t, ok)
+
+			got := make([]string, 0, len(geminiReq.Contents))
+			for _, content := range geminiReq.Contents {
+				parts := make([]string, 0, len(content.Parts))
+				for _, part := range content.Parts {
+					switch {
+					case part.FunctionCall != nil:
+						parts = append(parts, "call "+part.FunctionCall.FunctionName+" "+part.FunctionCall.ID)
+					case part.FunctionResponse != nil:
+						parts = append(parts, "response "+part.FunctionResponse.Name+" "+kitutil.JsonRawMessageToString(part.FunctionResponse.ID))
+					default:
+						parts = append(parts, "text")
+					}
+				}
+				got = append(got, content.Role+": "+strings.Join(parts, ", "))
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestConvertRequestToGeminiConvertsOrReportsToolSchemaKeywords(t *testing.T) {
+	var req dto.GeneralOpenAIRequest
+	require.NoError(t, kitutil.UnmarshalJsonStr(`{
+		"model": "gemini-test",
+		"messages": [{"role": "user", "content": "hi"}],
+		"tools": [{"type": "function", "function": {"name": "set", "parameters": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"unit": {"const": "celsius"},
+				"count": {"type": "integer", "const": 3},
+				"target": {"oneOf": [{"type": "string"}, {"type": "integer", "exclusiveMinimum": 0}]}
+			},
+			"required": ["unit"]
+		}}}]
+	}`, &req))
+
+	result, err := ConvertRequest(nil, nil, types.RelayFormatGemini, &req)
+
+	require.NoError(t, err)
+	geminiReq, ok := result.Value.(*dto.GeminiChatRequest)
+	require.True(t, ok)
+	tools := geminiReq.GetTools()
+	require.Len(t, tools, 1)
+	functions, err := kitutil.Any2Type[[]map[string]any](tools[0].FunctionDeclarations)
+	require.NoError(t, err)
+	require.Len(t, functions, 1)
+	assert.Equal(t, map[string]any{
+		"type": "OBJECT",
+		"properties": map[string]any{
+			"unit":   map[string]any{"type": "STRING", "enum": []any{"celsius"}},
+			"count":  map[string]any{"type": "INTEGER"},
+			"target": map[string]any{"anyOf": []any{map[string]any{"type": "STRING"}, map[string]any{"type": "INTEGER"}}},
+		},
+		"required": []any{"unit"},
+	}, functions[0]["parameters"])
+	assert.Equal(t, []types.ConversionDiagnostic{{
+		Code:     "json_schema_keyword_dropped",
+		Path:     "tools[0]",
+		Message:  "Gemini function schemas have no equivalent for JSON Schema keywords additionalProperties, const, exclusiveMinimum; they were dropped",
+		Severity: types.ConversionDiagnosticWarning,
+		From:     types.RelayFormatOpenAI,
+		To:       types.RelayFormatGemini,
+	}}, result.Diagnostics)
 }
 
 func mustRawMessage(t *testing.T, value any) []byte {

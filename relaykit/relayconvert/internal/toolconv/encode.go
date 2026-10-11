@@ -698,7 +698,15 @@ func attachGeminiRequest(request any, set Set, options *convmeta.Options) (any, 
 						cloned = nil
 					}
 				}
-				parameters = sharedgemini.CleanFunctionParameters(cloned)
+				var dropped []string
+				parameters, dropped = sharedgemini.CleanFunctionParameters(cloned)
+				if len(dropped) > 0 {
+					diagnostics = append(diagnostics, presentationLoss(
+						fmt.Sprintf("tools[%d]", index),
+						"json_schema_keyword_dropped",
+						fmt.Sprintf("Gemini function schemas have no equivalent for JSON Schema keywords %s; they were dropped", strings.Join(dropped, ", ")),
+					))
+				}
 			}
 			function := map[string]any{
 				"name":        definition.Function.Name,
@@ -755,10 +763,13 @@ func attachGeminiRequest(request any, set Set, options *convmeta.Options) (any, 
 			}
 			if tool, handled := customTools[index]; handled {
 				if tool != nil {
+					// The input schema is built here; only its
+					// additionalProperties is dropped.
+					parameters, _ := sharedgemini.CleanFunctionParameters(tool.inputSchema())
 					functions = append(functions, map[string]any{
 						"name":        tool.name,
 						"description": tool.description,
-						"parameters":  sharedgemini.CleanFunctionParameters(tool.inputSchema()),
+						"parameters":  parameters,
 					})
 				}
 				continue
