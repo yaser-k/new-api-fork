@@ -257,6 +257,45 @@ func TestClaudeStreamFallbackCountsInterruptedToolUse(t *testing.T) {
 	assert.Equal(t, 100, claudeInfo.Usage.PromptTokens)
 }
 
+// Prompt figures reported by message_start are billed as reported when the
+// stream is cut before message_delta; the local prompt estimate only fills in
+// for a stream whose upstream reported no prompt usage.
+func TestClaudeStreamCutAfterMessageStartKeepsReportedPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		usage        *dto.ClaudeUsage
+		wantPrompt   int
+		wantCacheHit int
+	}{
+		{name: "cache reads only", usage: &dto.ClaudeUsage{CacheReadInputTokens: 5000, OutputTokens: 1}, wantCacheHit: 5000},
+		{name: "input and cache reads", usage: &dto.ClaudeUsage{InputTokens: 20, CacheReadInputTokens: 5000, OutputTokens: 1}, wantPrompt: 20, wantCacheHit: 5000},
+		{name: "no prompt figures", usage: &dto.ClaudeUsage{OutputTokens: 1}, wantPrompt: 1000},
+		{name: "no usage object", wantPrompt: 1000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claudeInfo := &ClaudeResponseInfo{Usage: &dto.Usage{}}
+			require.True(t, FormatClaudeResponseInfo(&dto.ClaudeResponse{
+				Type:    "message_start",
+				Message: &dto.ClaudeMediaMessage{Model: "claude-sonnet-5", Usage: tc.usage},
+			}, nil, claudeInfo))
+
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{
+				RelayFormat: types.RelayFormatClaude,
+				ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "claude-sonnet-5"},
+			}
+			info.SetEstimatePromptTokens(1000)
+			HandleStreamFinalResponse(c, info, claudeInfo)
+
+			assert.Equal(t, tc.wantPrompt, claudeInfo.Usage.PromptTokens)
+			assert.Equal(t, tc.wantCacheHit, claudeInfo.Usage.PromptTokensDetails.CachedTokens)
+			require.NotNil(t, claudeInfo.Usage.BillingUsage)
+			require.NotNil(t, claudeInfo.Usage.BillingUsage.ClaudeUsage)
+			assert.Equal(t, tc.wantPrompt, claudeInfo.Usage.BillingUsage.ClaudeUsage.InputTokens)
+		})
+	}
+}
+
 func TestBuildOpenAIStyleUsageFromClaudeUsage(t *testing.T) {
 	usage := &dto.Usage{
 		PromptTokens:     100,
