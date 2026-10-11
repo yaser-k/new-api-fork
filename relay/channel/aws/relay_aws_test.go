@@ -409,8 +409,9 @@ func TestAwsStreamHandlerStopsAtClientCancellation(t *testing.T) {
 		usage *dto.Usage
 	}
 	results := make(chan handlerResult, 1)
+	info := newAwsTestRelayInfo()
 	go func() {
-		err, usage := awsStreamHandler(c, newAwsTestRelayInfo(), adaptor)
+		err, usage := awsStreamHandler(c, info, adaptor)
 		results <- handlerResult{err: err, usage: usage}
 	}()
 
@@ -441,6 +442,8 @@ func TestAwsStreamHandlerStopsAtClientCancellation(t *testing.T) {
 	require.NotNil(t, result.usage)
 	assert.Equal(t, bodyLengthBeforeCancel, responseWriter.Body.Len())
 	assert.NotContains(t, responseWriter.Body.String(), "[DONE]")
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+	assert.False(t, info.StreamStatus.HasErrors(), "a client that left is not an upstream interruption")
 
 	release()
 	select {
@@ -448,5 +451,59 @@ func TestAwsStreamHandlerStopsAtClientCancellation(t *testing.T) {
 		require.Error(t, producerErr)
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream producer did not observe the closed stream")
+	}
+}
+
+// A Bedrock event stream that closes or breaks before message_stop was cut
+// short: the client gets one error event instead of a usage chunk and [DONE],
+// and what was delivered is still billed.
+func TestAwsStreamHandlerReportsUpstreamInterruption(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	tests := []struct {
+		name    string
+		trailer []byte
+		reason  relaycommon.StreamEndReason
+	}{
+		{name: "closed mid-answer", reason: relaycommon.StreamEndReasonEOF},
+		{name: "broken event stream", trailer: []byte("not an event stream message"), reason: relaycommon.StreamEndReasonScannerErr},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+				var body bytes.Buffer
+				for _, event := range []string{
+					`{"type":"message_start","message":{"id":"msg_test","type":"message","role":"assistant","model":"claude-test","content":[],"usage":{"input_tokens":100,"output_tokens":1}}}`,
+					`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+					`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`,
+				} {
+					if err := writeAwsStreamEvent(&body, event); err != nil {
+						return nil, err
+					}
+				}
+				body.Write(test.trailer)
+				return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+			}))
+			adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput()}
+			recorder := httptest.NewRecorder()
+			c := newAwsTestContext(recorder, context.Background())
+			info := newAwsTestRelayInfo()
+
+			handlerErr, usage := awsStreamHandler(c, info, adaptor)
+
+			require.Nil(t, handlerErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, 100, usage.PromptTokens)
+			assert.Positive(t, usage.CompletionTokens)
+			assert.Contains(t, recorder.Body.String(), "partial")
+			assert.Contains(t, recorder.Body.String(), `"code":"stream_interrupted"`)
+			assert.NotContains(t, recorder.Body.String(), "[DONE]")
+			assert.Equal(t, test.reason, info.StreamStatus.EndReason)
+			assert.True(t, info.StreamStatus.HasErrors())
+		})
 	}
 }

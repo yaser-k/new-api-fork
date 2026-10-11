@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -135,6 +136,48 @@ func ObjectData(c *gin.Context, object any) error {
 
 func Done(c *gin.Context) {
 	_ = StringData(c, "[DONE]")
+}
+
+// UpstreamStreamInterrupted reports whether the upstream ended an OpenAI- or
+// Claude-format client's stream without [DONE] or a completed response, for
+// example on a streaming timeout or a connection closed mid-answer. A stream
+// the client abandoned is not an upstream interruption.
+func UpstreamStreamInterrupted(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	if info.RelayFormat != types.RelayFormatOpenAI && info.RelayFormat != types.RelayFormatClaude {
+		return false
+	}
+	status := info.StreamStatus
+	if status == nil || requestContextDone(c) {
+		return false
+	}
+	switch status.EndReason {
+	case relaycommon.StreamEndReasonDone, relaycommon.StreamEndReasonClientGone, relaycommon.StreamEndReasonPingFail:
+		return false
+	}
+	return status.ResponseOutcome() != string(relaycommon.ResponseOutcomeCompleted)
+}
+
+// SendStreamInterrupted records an upstream interruption in the stream status
+// and ends the client's stream with one error event in its format, instead of
+// the [DONE] or message_stop of a finished answer.
+func SendStreamInterrupted(c *gin.Context, info *relaycommon.RelayInfo) {
+	message := fmt.Sprintf("upstream stream ended before the response completed (%s)", info.StreamStatus.EndReason)
+	info.StreamStatus.RecordError(message)
+	logger.LogWarn(c, common.LogText("upstream stream ended before the response completed (%s)", info.StreamStatus.EndReason))
+	if info.RelayFormat == types.RelayFormatClaude {
+		_ = ClaudeData(c, dto.ClaudeResponse{
+			Type:  "error",
+			Error: types.ClaudeError{Type: "api_error", Message: message},
+		})
+		return
+	}
+	_ = ObjectData(c, map[string]any{
+		"error": map[string]any{
+			"message": message,
+			"type":    "upstream_error",
+			"code":    "stream_interrupted",
+		},
+	})
 }
 
 func WssString(c *gin.Context, ws *websocket.Conn, str string) error {
