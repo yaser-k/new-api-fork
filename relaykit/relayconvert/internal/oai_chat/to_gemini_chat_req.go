@@ -166,8 +166,7 @@ func OpenAIChatRequestToGeminiGenerateContent(c context.Context, textRequest dto
 					}
 				}
 			}
-			// toolconv reports dropped keywords for the tools it attaches.
-			tool.Function.Parameters, _ = sharedgemini.CleanFunctionParameters(tool.Function.Parameters)
+			tool.Function.Parameters = sharedgemini.CleanFunctionParameters(tool.Function.Parameters)
 			functions = append(functions, tool.Function)
 		}
 		geminiTools := geminiRequest.GetTools()
