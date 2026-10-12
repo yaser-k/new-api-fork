@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -244,6 +245,11 @@ func TestRetriedMarkerBesideContentParts(t *testing.T) {
 	require.NoError(t, err)
 	adminLogs, _, err := model.GetAllLogs(model.LogFilter{}, 0, 10)
 	require.NoError(t, err)
+	var exportedLogs []*model.Log
+	require.NoError(t, model.StreamUserLogs(context.Background(), user.Id, model.LogFilter{}, func(log *model.Log) error {
+		exportedLogs = append(exportedLogs, log)
+		return nil
+	}))
 	for _, listing := range []struct {
 		name string
 		logs []*model.Log
@@ -251,6 +257,7 @@ func TestRetriedMarkerBesideContentParts(t *testing.T) {
 	}{
 		{"user", userLogs, []string{"answered", "final attempt"}},
 		{"token", tokenLogs, []string{"answered", "final attempt"}},
+		{"user export", exportedLogs, []string{"answered", "final attempt"}},
 		{"admin", adminLogs, []string{"answered", "retried attempt", "final attempt"}},
 	} {
 		names := make([]string, 0, len(listing.logs))

@@ -675,7 +675,7 @@ func StreamAllLogs(ctx context.Context, filter LogFilter, role int, fn func(*Log
 // StreamUserLogs is StreamAllLogs for one user's own logs, shaped like the
 // user log list.
 func StreamUserLogs(ctx context.Context, userId int, filter LogFilter, fn func(*Log) error) error {
-	tx, err := filter.apply(LOG_DB.WithContext(ctx).Where("logs.user_id = ?", userId))
+	tx, err := filter.apply(withoutRetriedAttempts(LOG_DB.WithContext(ctx).Where("logs.user_id = ?", userId), "logs.other"))
 	if err != nil {
 		return err
 	}
