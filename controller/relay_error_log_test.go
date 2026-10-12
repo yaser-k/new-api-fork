@@ -91,7 +91,7 @@ func TestProcessChannelErrorUsesSnapshotWithoutLeakingChannelMetadata(t *testing
 	require.True(t, ok)
 	assert.Equal(t, []any{"101"}, adminInfo["use_channel"])
 
-	logs, total, err := model.GetUserLogs(7, model.LogTypeError, 0, 0, "", "", 0, 10, "", "", "")
+	logs, total, err := model.GetUserLogs(7, model.LogFilter{Type: model.LogTypeError}, 0, 10)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Len(t, logs, 1)
@@ -238,11 +238,11 @@ func TestRetriedMarkerBesideContentParts(t *testing.T) {
 	assert.Contains(t, storedOther, "content_parts")
 	assert.Equal(t, map[string]any{"retried": true}, storedOther["admin_info"])
 
-	userLogs, _, err := model.GetUserLogs(user.Id, model.LogTypeUnknown, 0, 0, "", "", 0, 10, "", "", "")
+	userLogs, _, err := model.GetUserLogs(user.Id, model.LogFilter{}, 0, 10)
 	require.NoError(t, err)
 	tokenLogs, err := model.GetLogByTokenId(token.Id)
 	require.NoError(t, err)
-	adminLogs, _, err := model.GetAllLogs(model.LogTypeUnknown, 0, 0, "", "", "", 0, 10, 0, "", "", "")
+	adminLogs, _, err := model.GetAllLogs(model.LogFilter{}, 0, 10)
 	require.NoError(t, err)
 	for _, listing := range []struct {
 		name string
