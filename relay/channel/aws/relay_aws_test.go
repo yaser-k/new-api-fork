@@ -263,6 +263,8 @@ func TestAwsHandlersCancelSdkRequestAndSkipRetry(t *testing.T) {
 		request any
 		handle  func(*gin.Context, *relaycommon.RelayInfo, *Adaptor) (*relaytypes.NewAPIError, *dto.Usage)
 	}{
+		{name: "converse", request: newConverseTestInput(), handle: converseHandler},
+		{name: "converse stream", request: newConverseTestStreamInput(), handle: converseStreamHandler},
 		{name: "non-stream", request: newAwsInvokeModelInput(), handle: awsHandler},
 		{name: "stream", request: newAwsStreamInput(), handle: awsStreamHandler},
 		{name: "nova", request: newAwsInvokeModelInput(), handle: handleNovaRequest},

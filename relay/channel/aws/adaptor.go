@@ -31,6 +31,7 @@ type Adaptor struct {
 	AwsModelId string
 	AwsReq     any
 	IsNova     bool
+	IsConverse bool
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
@@ -39,6 +40,9 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
+	if isConverseModel(getAwsModelID(request.Model)) {
+		return nil, newConverseUnsupportedError("model", "the Messages API is not supported for this model on AWS Bedrock; use chat completions")
+	}
 	claudeAdaptor := claude.Adaptor{}
 	if _, err := claudeAdaptor.ConvertClaudeRequest(c, info, request); err != nil {
 		return nil, err
@@ -126,6 +130,15 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		return novaReq, nil
 	}
 
+	if isConverseModel(getAwsModelID(request.Model)) {
+		converseReq, err := convertToConverseRequest(c, request)
+		if err != nil {
+			return nil, err
+		}
+		a.IsConverse = true
+		return converseReq, nil
+	}
+
 	// 原有的Claude模型处理逻辑
 	result, err := service.ConvertRequest(c, info, types.RelayFormatClaude, request)
 	if err != nil {
@@ -162,6 +175,14 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if a.IsConverse && a.ClientMode != ClientModeApiKey {
+		if info.IsStream {
+			err, usage = converseStreamHandler(c, info, a)
+		} else {
+			err, usage = converseHandler(c, info, a)
+		}
+		return
+	}
 	if a.ClientMode == ClientModeApiKey {
 		claudeAdaptor := claude.Adaptor{}
 		usage, err = claudeAdaptor.DoResponse(c, resp, info)

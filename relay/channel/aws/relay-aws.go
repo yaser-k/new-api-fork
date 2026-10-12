@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimeTypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/auth/bearer"
 )
 
@@ -35,6 +36,25 @@ func getAwsErrorStatusCode(err error) int {
 	var httpErr interface{ HTTPStatusCode() int }
 	if errors.As(err, &httpErr) {
 		return httpErr.HTTPStatusCode()
+	}
+	// An exception inside an event stream has no HTTP response; use the
+	// status Bedrock gives the same exception on a plain request.
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "ThrottlingException", "ServiceQuotaExceededException":
+			return http.StatusTooManyRequests
+		case "ValidationException":
+			return http.StatusBadRequest
+		case "AccessDeniedException":
+			return http.StatusForbidden
+		case "ResourceNotFoundException":
+			return http.StatusNotFound
+		case "ModelTimeoutException":
+			return http.StatusRequestTimeout
+		case "ServiceUnavailableException", "ModelNotReadyException":
+			return http.StatusServiceUnavailable
+		}
 	}
 	// Default to 500 if we can't determine the status code
 	return http.StatusInternalServerError
@@ -118,6 +138,24 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	}
 	for key, value := range headerOverride {
 		requestHeader.Set(key, value)
+	}
+
+	if a.IsConverse {
+		var converseReq converseRequest
+		if err := common.DecodeJson(requestBody, &converseReq); err != nil {
+			return nil, types.NewErrorWithStatusCode(errors.Wrap(err, "decode converse request fail"), types.ErrorCodeBadRequestBody, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		a.AwsReq, err = newConverseInput(awsModelId, &converseReq, info.IsStream)
+		if err != nil {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeBadRequestBody, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		return nil, nil
+	}
+	// Only ConvertOpenAIRequest builds a Converse body. Any other request (the
+	// Messages API, or a passed-through body) would go out in a shape these
+	// models do not read, or be answered in one this adaptor reads as zero usage.
+	if isConverseModel(awsModelId) {
+		return nil, types.NewErrorWithStatusCode(errors.New("this request is not supported for this model on AWS Bedrock; use chat completions without pass-through"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
 	if isNovaModel(awsModelId) {
