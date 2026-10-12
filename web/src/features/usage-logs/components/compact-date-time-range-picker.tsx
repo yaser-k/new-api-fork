@@ -67,15 +67,12 @@ export function CompactDateTimeRangePicker({
 
   const label = useMemo(() => {
     if (!start && !end) return t('Date Range')
-    // The picker has minute precision, so seconds are always 00 for a start
-    // and 59 for an end. Hide them in the trigger label to keep the button
-    // width compact while still showing the meaningful timestamp.
-    // Solar Hijri in Persian; the Date values stay Gregorian.
+    // Solar Hijri in Persian; the Date values and the inputs stay Gregorian.
     const startText = start
-      ? formatDisplayDate(start, 'YYYY-MM-DD HH:mm', locale)
+      ? formatDisplayDate(start, 'YYYY-MM-DD HH:mm:ss', locale)
       : '-'
     const endText = end
-      ? formatDisplayDate(end, 'YYYY-MM-DD HH:mm', locale)
+      ? formatDisplayDate(end, 'YYYY-MM-DD HH:mm:ss', locale)
       : '-'
     return `${startText} ~ ${endText}`
   }, [end, start, t, locale])
@@ -83,7 +80,7 @@ export function CompactDateTimeRangePicker({
   const mobileLabel = useMemo(() => {
     if (!start || !end) return label
     if (dayjs(start).isSame(end, 'day')) {
-      return `${formatDisplayDate(start, 'MM/DD HH:mm', locale)}–${formatDisplayDate(end, 'HH:mm', locale)}`
+      return `${formatDisplayDate(start, 'MM/DD HH:mm:ss', locale)}–${formatDisplayDate(end, 'HH:mm:ss', locale)}`
     }
     return label
   }, [start, end, label, locale])

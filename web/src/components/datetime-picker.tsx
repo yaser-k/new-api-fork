@@ -38,11 +38,11 @@ import { cn } from '@/lib/utils'
 const calendarLocales = {
   en: enUS,
   zhCN,
+  zhTW,
   fr,
   ru,
   ja,
   vi,
-  zhTW,
 } as const
 
 interface DateTimePickerProps {
