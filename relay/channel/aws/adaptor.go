@@ -121,7 +121,10 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	}
 	// 检查是否为Nova模型
 	if isNovaModel(request.Model) {
-		novaReq := convertToNovaRequest(request)
+		novaReq, err := convertToNovaRequest(c, request)
+		if err != nil {
+			return nil, err
+		}
 		a.IsNova = true
 		return novaReq, nil
 	}
