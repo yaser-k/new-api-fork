@@ -40,14 +40,14 @@ func formatRequest(requestBody io.Reader, requestHeader http.Header) (*AwsClaude
 	awsClaudeRequest.AnthropicVersion = "bedrock-2023-05-31"
 
 	// check header anthropic-beta
-	var anthropicBeta []string
-	for flag := range strings.SplitSeq(requestHeader.Get("anthropic-beta"), ",") {
-		if flag = strings.TrimSpace(flag); flag != "" {
-			anthropicBeta = append(anthropicBeta, flag)
+	var betas []string
+	for beta := range strings.SplitSeq(requestHeader.Get("anthropic-beta"), ",") {
+		if beta = strings.TrimSpace(beta); beta != "" {
+			betas = append(betas, beta)
 		}
 	}
-	if len(anthropicBeta) > 0 {
-		betaJson, err := common.Marshal(anthropicBeta)
+	if len(betas) > 0 {
+		betaJson, err := common.Marshal(betas)
 		if err != nil {
 			return nil, err
 		}
