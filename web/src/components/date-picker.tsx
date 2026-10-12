@@ -53,7 +53,9 @@ export function DatePicker({
   const { t, i18n } = useTranslation()
   const placeholderText = placeholder ?? t('Pick a date')
   const calendarLocale =
-    calendarLocales[i18n.language as keyof typeof calendarLocales] ?? enUS
+    calendarLocales[
+      (i18n.resolvedLanguage || i18n.language) as keyof typeof calendarLocales
+    ] ?? enUS
   return (
     <Popover>
       <PopoverTrigger
