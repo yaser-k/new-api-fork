@@ -457,6 +457,10 @@ streamLoop:
 		usage = service.ResponseText2Usage(c, responseText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}
 	helper.SetEventStreamHeaders(c)
+	if helper.UpstreamStreamInterrupted(c, info) {
+		helper.SendStreamInterrupted(c, info)
+		return nil, usage
+	}
 	openai.HandleFinalResponse(c, info, lastStreamData, id, created, model, "", usage, false)
 	return nil, usage
 }
