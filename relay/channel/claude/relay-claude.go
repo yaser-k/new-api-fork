@@ -257,10 +257,10 @@ func recordClaudeServerToolUse(info *relaycommon.RelayInfo, serverToolUse *dto.C
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
-	if claudeInfo.Usage.PromptTokens == 0 {
-		//上游出错
-	}
-	if claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done {
+	// A stream that ended before message_start and before any output reached
+	// no billable upstream work, so its usage stays zero and nothing is billed.
+	upstreamEventReceived := claudeInfo.MessageStarted || claudeInfo.ResponseText.Len() > 0 || claudeInfo.ToolUseCount > 0
+	if upstreamEventReceived && (claudeInfo.Usage.CompletionTokens == 0 || !claudeInfo.Done) {
 		if common.DebugEnabled {
 			common.SysLog(common.LogText("claude response usage is not complete, maybe upstream error"))
 		}
@@ -273,7 +273,14 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 			(!claudeInfo.Done && fallback.CompletionTokens > claudeInfo.Usage.CompletionTokens) {
 			claudeInfo.Usage.CompletionTokens = fallback.CompletionTokens
 		}
-		if claudeInfo.Usage.PromptTokens == 0 {
+		// Prompt figures the upstream reported, cache reads and writes included,
+		// are billed as reported; the estimate only replaces missing ones.
+		promptReported := claudeInfo.Usage.PromptTokens > 0 ||
+			claudeInfo.Usage.PromptTokensDetails.CachedTokens > 0 ||
+			claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens > 0 ||
+			claudeInfo.Usage.ClaudeCacheCreation5mTokens > 0 ||
+			claudeInfo.Usage.ClaudeCacheCreation1hTokens > 0
+		if !promptReported {
 			claudeInfo.Usage.PromptTokens = fallback.PromptTokens
 		}
 		claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
