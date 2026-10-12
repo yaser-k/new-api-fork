@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type TimeOfDay = { hours: number; minutes: number }
+/** seconds is undefined when the text has none. */
+export type TimeOfDay = { hours: number; minutes: number; seconds?: number }
 
 /**
- * A 24-hour time of day typed as `H:mm`, `HH:mm` or `HHmm`, in Latin,
- * Persian or Arabic-Indic digits; undefined outside 00:00-23:59.
+ * A 24-hour time of day typed as `H:mm`, `HH:mm` or `HHmm`, with optional
+ * seconds (`H:mm:ss`, `HHmmss`), in Latin, Persian or Arabic-Indic digits.
+ * Undefined outside 00:00:00-23:59:59.
  */
 export function parseTimeOfDay(value: string): TimeOfDay | undefined {
   const latin = value
@@ -31,10 +33,15 @@ export function parseTimeOfDay(value: string): TimeOfDay | undefined {
     .replaceAll(/[\u0660-\u0669]/g, (digit) =>
       String(digit.charCodeAt(0) - 0x0660)
     )
-  const match = /^(\d{1,2}):?(\d{2})$/.exec(latin)
+  const match =
+    /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(latin) ??
+    /^(\d{2})(\d{2})(\d{2})?$/.exec(latin)
   if (!match) return undefined
   const hours = Number(match[1])
   const minutes = Number(match[2])
   if (hours > 23 || minutes > 59) return undefined
-  return { hours, minutes }
+  if (match[3] === undefined) return { hours, minutes }
+  const seconds = Number(match[3])
+  if (seconds > 59) return undefined
+  return { hours, minutes, seconds }
 }

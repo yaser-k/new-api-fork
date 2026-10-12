@@ -29,14 +29,27 @@ describe('parseTimeOfDay', () => {
     ['00:00', { hours: 0, minutes: 0 }],
     ['۰۹:۳۰', { hours: 9, minutes: 30 }],
     ['٠٩:٣٠', { hours: 9, minutes: 30 }],
+    ['09:30:45', { hours: 9, minutes: 30, seconds: 45 }],
+    ['9:30:45', { hours: 9, minutes: 30, seconds: 45 }],
+    ['093045', { hours: 9, minutes: 30, seconds: 45 }],
+    ['23:59:59', { hours: 23, minutes: 59, seconds: 59 }],
+    ['۰۹:۳۰:۴۵', { hours: 9, minutes: 30, seconds: 45 }],
   ])('reads %j as a 24-hour time', (text, expected) => {
     expect(parseTimeOfDay(text)).toEqual(expected)
   })
 
-  it.each(['', '24:00', '12:60', '1:2', '9.30', '09:30 PM', '123:45'])(
-    'rejects %j',
-    (text) => {
-      expect(parseTimeOfDay(text)).toBeUndefined()
-    }
-  )
+  it.each([
+    '',
+    '24:00',
+    '12:60',
+    '1:2',
+    '9.30',
+    '09:30 PM',
+    '123:45',
+    '12:30:60',
+    '12:30:5',
+    '93045',
+  ])('rejects %j', (text) => {
+    expect(parseTimeOfDay(text)).toBeUndefined()
+  })
 })

@@ -91,10 +91,18 @@ export function CompactDateTimeRangePicker({
       // The times show the interface's digits; parseTimeOfDay reads them back.
       const today = dayjs()
       setDraftStartTime(
-        formatDisplayDate(start ?? today.startOf('day').toDate(), 'HH:mm', locale)
+        formatDisplayDate(
+          start ?? today.startOf('day').toDate(),
+          'HH:mm:ss',
+          locale
+        )
       )
       setDraftEndTime(
-        formatDisplayDate(end ?? today.endOf('day').toDate(), 'HH:mm', locale)
+        formatDisplayDate(
+          end ?? today.endOf('day').toDate(),
+          'HH:mm:ss',
+          locale
+        )
       )
       setMonth(start ?? end ?? new Date())
     }
@@ -105,26 +113,33 @@ export function CompactDateTimeRangePicker({
     if (!parsedStartTime || !parsedEndTime) return
     const fromDay = draftRange?.from
     const toDay = draftRange?.to ?? fromDay
+    // A time typed without seconds covers its whole minute, so a start
+    // begins at the minute and an end includes all of it, as the presets'
+    // end of day does; with seconds it covers that second.
+    const startUnit =
+      parsedStartTime.seconds === undefined ? 'minute' : 'second'
+    const endUnit = parsedEndTime.seconds === undefined ? 'minute' : 'second'
     let nextStart = fromDay
       ? dayjs(fromDay)
           .hour(parsedStartTime.hours)
           .minute(parsedStartTime.minutes)
-          .startOf('minute')
+          .second(parsedStartTime.seconds ?? 0)
+          .startOf(startUnit)
           .toDate()
       : undefined
-    // An end time includes its whole minute, as the presets' end of day does.
     let nextEnd = toDay
       ? dayjs(toDay)
           .hour(parsedEndTime.hours)
           .minute(parsedEndTime.minutes)
-          .endOf('minute')
+          .second(parsedEndTime.seconds ?? 0)
+          .endOf(endUnit)
           .toDate()
       : undefined
     // A side left as it was keeps its exact value.
-    if (start && nextStart && dayjs(start).isSame(nextStart, 'minute')) {
+    if (start && nextStart && dayjs(start).isSame(nextStart, startUnit)) {
       nextStart = start
     }
-    if (end && nextEnd && dayjs(end).isSame(nextEnd, 'minute')) {
+    if (end && nextEnd && dayjs(end).isSame(nextEnd, endUnit)) {
       nextEnd = end
     }
     onChange({ start: nextStart, end: nextEnd })
@@ -226,8 +241,8 @@ export function CompactDateTimeRangePicker({
                     id={startTimeId}
                     value={draftStartTime}
                     onValueChange={setDraftStartTime}
-                    placeholder='00:00'
-                    className='h-8 w-18 shrink-0 px-2 text-sm leading-5'
+                    placeholder='00:00:00'
+                    className='h-8 w-22 shrink-0 px-2 text-sm leading-5'
                   />
                 </div>
               </div>
@@ -251,8 +266,8 @@ export function CompactDateTimeRangePicker({
                     id={endTimeId}
                     value={draftEndTime}
                     onValueChange={setDraftEndTime}
-                    placeholder='23:59'
-                    className='h-8 w-18 shrink-0 px-2 text-sm leading-5'
+                    placeholder='23:59:59'
+                    className='h-8 w-22 shrink-0 px-2 text-sm leading-5'
                   />
                 </div>
               </div>

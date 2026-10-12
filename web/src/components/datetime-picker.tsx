@@ -71,25 +71,26 @@ export function DateTimePicker({
   const [month, setMonth] = React.useState<Date | undefined>(value)
   // The time is the text of a 24-hour field in the interface's digits.
   const [time, setTime] = React.useState<string>(() =>
-    formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm', locale)
+    formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm:ss', locale)
   )
 
   React.useEffect(() => {
     setDate(value)
     setMonth(value)
     if (value) {
-      setTime(formatDisplayDate(value, 'HH:mm', locale))
+      setTime(formatDisplayDate(value, 'HH:mm:ss', locale))
     }
   }, [value, locale])
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
     if (selectedDate) {
-      const { hours, minutes } = parseTimeOfDay(time) ?? {
-        hours: 0,
-        minutes: 0,
-      }
+      const {
+        hours,
+        minutes,
+        seconds = 0,
+      } = parseTimeOfDay(time) ?? { hours: 0, minutes: 0 }
       const newDate = new Date(selectedDate)
-      newDate.setHours(hours, minutes, 0, 0)
+      newDate.setHours(hours, minutes, seconds, 0)
       setDate(newDate)
       setMonth(newDate)
       onChange?.(newDate)
@@ -108,12 +109,13 @@ export function DateTimePicker({
     if (!date || !parsed) return
     if (
       date.getHours() === parsed.hours &&
-      date.getMinutes() === parsed.minutes
+      date.getMinutes() === parsed.minutes &&
+      date.getSeconds() === (parsed.seconds ?? 0)
     ) {
       return
     }
     const newDate = new Date(date)
-    newDate.setHours(parsed.hours, parsed.minutes, 0, 0)
+    newDate.setHours(parsed.hours, parsed.minutes, parsed.seconds ?? 0, 0)
     setDate(newDate)
     onChange?.(newDate)
   }
@@ -121,7 +123,9 @@ export function DateTimePicker({
   const handleClear = () => {
     setDate(undefined)
     setMonth(undefined)
-    setTime(formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm', locale))
+    setTime(
+      formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm:ss', locale)
+    )
     onChange?.(undefined)
   }
 
@@ -161,8 +165,14 @@ export function DateTimePicker({
       <TimeOfDayInput
         value={time}
         onValueChange={handleTimeChange}
+        onBlur={() => {
+          // A field left empty or invalid shows the current time again.
+          if (date && !parseTimeOfDay(time)) {
+            setTime(formatDisplayDate(date, 'HH:mm:ss', locale))
+          }
+        }}
         aria-label={t('Time')}
-        className='w-20'
+        className='w-24'
         disabled={!date}
       />
       {date && (

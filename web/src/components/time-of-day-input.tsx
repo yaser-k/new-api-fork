@@ -38,8 +38,8 @@ type TimeOfDayInputProps = Omit<
  * A 24-hour time field. The browser's own time input follows the browser's
  * locale (AM/PM in an English browser), not the interface language; this one
  * shows the interface's digits, reads Latin, Persian or Arabic-Indic ones and
- * marks a time outside 00:00-23:59 invalid. The caller keeps the text and
- * reads it with parseTimeOfDay.
+ * marks a time outside 00:00:00-23:59:59 invalid. The caller keeps the text
+ * and reads it with parseTimeOfDay.
  */
 export function TimeOfDayInput(props: TimeOfDayInputProps) {
   const { value, onValueChange, className, onBlur, ...inputProps } = props
@@ -49,7 +49,7 @@ export function TimeOfDayInput(props: TimeOfDayInputProps) {
 
   return (
     <Input
-      placeholder='00:00'
+      placeholder='00:00:00'
       {...inputProps}
       value={value}
       onChange={(event) => onValueChange(event.target.value)}
@@ -57,8 +57,12 @@ export function TimeOfDayInput(props: TimeOfDayInputProps) {
         if (time) {
           onValueChange(
             formatDisplayDate(
-              dayjs().hour(time.hours).minute(time.minutes).toDate(),
-              'HH:mm',
+              dayjs()
+                .hour(time.hours)
+                .minute(time.minutes)
+                .second(time.seconds ?? 0)
+                .toDate(),
+              time.seconds === undefined ? 'HH:mm' : 'HH:mm:ss',
               locale
             )
           )
@@ -69,7 +73,7 @@ export function TimeOfDayInput(props: TimeOfDayInputProps) {
       inputMode='numeric'
       autoComplete='off'
       dir='ltr'
-      maxLength={5}
+      maxLength={8}
       className={cn('text-center tabular-nums', className)}
     />
   )

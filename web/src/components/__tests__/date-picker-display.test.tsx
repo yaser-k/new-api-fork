@@ -94,7 +94,7 @@ describe('DateTimePicker time field', () => {
     )
 
     const time = screen.getByLabelText('Time')
-    expect(time).toHaveValue('14:30')
+    expect(time).toHaveValue('14:30:00')
     await user.clear(time)
     await user.type(time, '7:45')
     await user.tab()
@@ -115,7 +115,7 @@ describe('DateTimePicker time field', () => {
     )
 
     const time = screen.getByLabelText('Time')
-    expect(time).toHaveValue('۱۴:۳۰')
+    expect(time).toHaveValue('۱۴:۳۰:۰۰')
     await user.clear(time)
     await user.type(time, '۰۹:۰۵')
 
