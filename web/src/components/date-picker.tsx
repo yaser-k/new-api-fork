@@ -32,11 +32,11 @@ import dayjs from '@/lib/dayjs'
 const calendarLocales = {
   en: enUS,
   zhCN,
+  zhTW,
   fr,
   ru,
   ja,
   vi,
-  zhTW,
 } as const
 
 type DatePickerProps = {

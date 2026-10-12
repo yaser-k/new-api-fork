@@ -378,7 +378,7 @@ export function AnnouncementsSection({
                 <div className='flex flex-col gap-1'>
                   <span className='text-sm font-medium'>
                     {formatTimestampRelative(
-                      Date.parse(announcement.publishDate),
+                      new Date(announcement.publishDate).getTime(),
                       'milliseconds',
                       locale
                     )}
