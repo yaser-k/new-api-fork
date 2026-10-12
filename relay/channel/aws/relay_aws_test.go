@@ -843,3 +843,55 @@ func TestNovaStreamWithoutContentFailsTheRequest(t *testing.T) {
 		})
 	}
 }
+
+// A Nova event stream that closes or breaks before messageStop was cut short:
+// the client gets one error event instead of a usage chunk and [DONE], and
+// what was delivered is still billed.
+func TestNovaStreamReportsUpstreamInterruption(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	tests := []struct {
+		name    string
+		trailer []byte
+		reason  relaycommon.StreamEndReason
+	}{
+		{name: "closed mid-answer", reason: relaycommon.StreamEndReasonEOF},
+		{name: "broken event stream", trailer: []byte("not an event stream message"), reason: relaycommon.StreamEndReasonScannerErr},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+				var body bytes.Buffer
+				for _, event := range []string{
+					`{"messageStart":{"role":"assistant"}}`,
+					`{"contentBlockDelta":{"delta":{"text":"partial"},"contentBlockIndex":0}}`,
+				} {
+					if err := writeAwsStreamEvent(&body, event); err != nil {
+						return nil, err
+					}
+				}
+				body.Write(test.trailer)
+				return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+			}))
+			adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
+			recorder := httptest.NewRecorder()
+			c := newAwsTestContext(recorder, context.Background())
+			info := newAwsTestRelayInfo()
+
+			handlerErr, usage := handleNovaStreamRequest(c, info, adaptor)
+
+			require.Nil(t, handlerErr)
+			require.NotNil(t, usage)
+			assert.Positive(t, usage.CompletionTokens)
+			assert.Contains(t, recorder.Body.String(), "partial")
+			assert.Contains(t, recorder.Body.String(), `"code":"stream_interrupted"`)
+			assert.NotContains(t, recorder.Body.String(), "[DONE]")
+			assert.Equal(t, test.reason, info.StreamStatus.EndReason)
+			assert.True(t, info.StreamStatus.HasErrors())
+		})
+	}
+}
