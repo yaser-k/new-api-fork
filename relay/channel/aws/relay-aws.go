@@ -376,6 +376,10 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 	if err := json.Unmarshal(awsResp.Body, &novaResp); err != nil {
 		return types.NewError(errors.Wrap(err, "unmarshal nova response"), types.ErrorCodeBadResponseBody), nil
 	}
+	text := strings.Builder{}
+	for _, block := range novaResp.Output.Message.Content {
+		text.WriteString(block.Text)
+	}
 
 	// 构造OpenAI格式响应
 	response := dto.OpenAITextResponse{
@@ -387,7 +391,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 			Index: 0,
 			Message: dto.Message{
 				Role:    "assistant",
-				Content: novaResp.Output.Message.Content[0].Text,
+				Content: text.String(),
 			},
 			FinishReason: "stop",
 		}},
