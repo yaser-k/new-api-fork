@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -348,6 +349,7 @@ func TestAwsHandlersCancelSdkRequestAndSkipRetry(t *testing.T) {
 		{name: "non-stream", request: newAwsInvokeModelInput(), handle: awsHandler},
 		{name: "stream", request: newAwsStreamInput(), handle: awsStreamHandler},
 		{name: "nova", request: newAwsInvokeModelInput(), handle: handleNovaRequest},
+		{name: "nova stream", request: newAwsStreamInput(), handle: handleNovaStreamRequest},
 	}
 
 	for _, test := range tests {
@@ -580,6 +582,392 @@ func TestAwsStreamHandlerReportsUpstreamInterruption(t *testing.T) {
 			require.Nil(t, handlerErr)
 			require.NotNil(t, usage)
 			assert.Equal(t, 100, usage.PromptTokens)
+			assert.Positive(t, usage.CompletionTokens)
+			assert.Contains(t, recorder.Body.String(), "partial")
+			assert.Contains(t, recorder.Body.String(), `"code":"stream_interrupted"`)
+			assert.NotContains(t, recorder.Body.String(), "[DONE]")
+			assert.Equal(t, test.reason, info.StreamStatus.EndReason)
+			assert.True(t, info.StreamStatus.HasErrors())
+		})
+	}
+}
+
+func TestDoAwsClientRequestNovaFollowsStreamFlag(t *testing.T) {
+	tests := []struct {
+		name     string
+		isStream bool
+	}{
+		{name: "stream", isStream: true},
+		{name: "non-stream", isStream: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "nova-lite-v1:0",
+				IsStream:        test.isStream,
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ApiKey:            "access-key|secret-key|us-east-1",
+					UpstreamModelName: "nova-lite-v1:0",
+				},
+			}
+			body := bytes.NewBufferString(`{"schemaVersion":"messages-v1","messages":[{"role":"user","content":[{"text":"hello"}]}]}`)
+			adaptor := &Adaptor{IsNova: true}
+
+			_, err := doAwsClientRequest(c, info, adaptor, body)
+			require.NoError(t, err)
+
+			var modelID *string
+			var requestBody []byte
+			if test.isStream {
+				awsReq, ok := adaptor.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput)
+				require.True(t, ok, "a streamed Nova request must use InvokeModelWithResponseStream, got %T", adaptor.AwsReq)
+				modelID, requestBody = awsReq.ModelId, awsReq.Body
+			} else {
+				awsReq, ok := adaptor.AwsReq.(*bedrockruntime.InvokeModelInput)
+				require.True(t, ok, "got %T", adaptor.AwsReq)
+				modelID, requestBody = awsReq.ModelId, awsReq.Body
+			}
+			assert.Equal(t, "us.amazon.nova-lite-v1:0", aws.ToString(modelID))
+			assert.JSONEq(t, `{"schemaVersion":"messages-v1","messages":[{"role":"user","content":[{"text":"hello"}]}]}`, string(requestBody))
+		})
+	}
+}
+
+func writeAwsStreamException(writer io.Writer, exceptionType string, message string) error {
+	return eventstream.NewEncoder().Encode(writer, eventstream.Message{
+		Headers: eventstream.Headers{
+			{Name: eventstreamapi.MessageTypeHeader, Value: eventstream.StringValue(eventstreamapi.ExceptionMessageType)},
+			{Name: eventstreamapi.ExceptionTypeHeader, Value: eventstream.StringValue(exceptionType)},
+			{Name: eventstreamapi.ContentTypeHeader, Value: eventstream.StringValue("application/json")},
+		},
+		Payload: []byte(`{"message":"` + message + `"}`),
+	})
+}
+
+func TestNovaStreamRelaysOpenAIChunks(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	events := []string{
+		`{"messageStart":{"role":"assistant"}}`,
+		`{"contentBlockDelta":{"delta":{"text":"Hello"},"contentBlockIndex":0}}`,
+		`{"contentBlockDelta":{"delta":{"text":" world"},"contentBlockIndex":0}}`,
+		`{"contentBlockStop":{"contentBlockIndex":0}}`,
+		`{"messageStop":{"stopReason":"max_tokens"}}`,
+		`{"metadata":{"usage":{"inputTokens":12,"outputTokens":5},"metrics":{},"trace":{}},"amazon-bedrock-invocationMetrics":{"inputTokenCount":12,"outputTokenCount":5,"invocationLatency":300,"firstByteLatency":100}}`,
+	}
+	client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+		var body bytes.Buffer
+		for _, event := range events {
+			if err := writeAwsStreamEvent(&body, event); err != nil {
+				return nil, err
+			}
+		}
+		return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+	}))
+	adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true, ClientMode: ClientModeAKSK}
+	recorder := httptest.NewRecorder()
+	c := newAwsTestContext(recorder, context.Background())
+	info := newAwsTestRelayInfo()
+
+	usage, handlerErr := adaptor.DoResponse(c, nil, info)
+
+	require.Nil(t, handlerErr)
+	require.IsType(t, &dto.Usage{}, usage)
+	assert.Equal(t, 12, usage.(*dto.Usage).PromptTokens)
+	assert.Equal(t, 5, usage.(*dto.Usage).CompletionTokens)
+	assert.Equal(t, 17, usage.(*dto.Usage).TotalTokens)
+	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+
+	var content strings.Builder
+	var finishReasons []string
+	var roles []string
+	var streamUsage *dto.Usage
+	var lines []string
+	for line := range strings.SplitSeq(recorder.Body.String(), "\n") {
+		data, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		lines = append(lines, data)
+		if data == "[DONE]" {
+			continue
+		}
+		var chunk dto.ChatCompletionsStreamResponse
+		require.NoError(t, common.UnmarshalJsonStr(data, &chunk))
+		assert.Equal(t, "chat.completion.chunk", chunk.Object)
+		for _, choice := range chunk.Choices {
+			if choice.Delta.Role != "" {
+				roles = append(roles, choice.Delta.Role)
+			}
+		}
+		if chunk.Usage != nil {
+			streamUsage = chunk.Usage
+		}
+		for _, choice := range chunk.Choices {
+			content.WriteString(choice.Delta.GetContentString())
+			if choice.FinishReason != nil {
+				finishReasons = append(finishReasons, *choice.FinishReason)
+			}
+		}
+	}
+	assert.Equal(t, "Hello world", content.String())
+	assert.Equal(t, []string{"assistant"}, roles)
+	assert.Equal(t, []string{"length"}, finishReasons)
+	require.NotNil(t, streamUsage)
+	assert.Equal(t, 17, streamUsage.TotalTokens)
+	require.NotEmpty(t, lines)
+	assert.Equal(t, "[DONE]", lines[len(lines)-1])
+	assert.Equal(t, relaycommon.StreamEndReasonEOF, info.StreamStatus.EndReason)
+	assert.Equal(t, string(relaycommon.ResponseOutcomeCompleted), info.StreamStatus.ResponseOutcome())
+}
+
+func TestNovaStreamFailsCleanlyBeforeFirstChunk(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+		var body bytes.Buffer
+		if err := writeAwsStreamEvent(&body, `{"messageStart":{"role":"assistant"}}`); err != nil {
+			return nil, err
+		}
+		if err := writeAwsStreamException(&body, "throttlingException", "Too many requests"); err != nil {
+			return nil, err
+		}
+		return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+	}))
+	adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
+	recorder := httptest.NewRecorder()
+	c := newAwsTestContext(recorder, context.Background())
+
+	handlerErr, usage := handleNovaStreamRequest(c, newAwsTestRelayInfo(), adaptor)
+
+	require.NotNil(t, handlerErr)
+	assert.Contains(t, handlerErr.Error(), "Too many requests")
+	assert.False(t, relaytypes.IsSkipRetryError(handlerErr))
+	assert.Nil(t, usage)
+	assert.Empty(t, recorder.Body.String())
+	assert.NotEqual(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+}
+
+func TestDoAwsClientRequestRefusesMessagesAPIForNova(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	info := &relaycommon.RelayInfo{
+		IsStream: true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ApiKey:            "access-key|secret-key|us-east-1",
+			UpstreamModelName: "nova-lite-v1:0",
+		},
+	}
+	body := bytes.NewBufferString(`{"model":"nova-lite-v1:0","max_tokens":64,"stream":true,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+
+	_, err := doAwsClientRequest(c, info, &Adaptor{}, body)
+
+	var apiErr *relaytypes.NewAPIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+	assert.True(t, relaytypes.IsSkipRetryError(apiErr))
+}
+
+// A chunk that cannot be read after the client already has part of the answer
+// ends the stream as cut short and bills what was delivered.
+func TestNovaStreamEndsOnUnreadableChunkAfterContent(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+		var body bytes.Buffer
+		for _, event := range []string{
+			`{"messageStart":{"role":"assistant"}}`,
+			`{"contentBlockDelta":{"delta":{"text":"partial"},"contentBlockIndex":0}}`,
+			`not json`,
+		} {
+			if err := writeAwsStreamEvent(&body, event); err != nil {
+				return nil, err
+			}
+		}
+		return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+	}))
+	adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
+	recorder := httptest.NewRecorder()
+	c := newAwsTestContext(recorder, context.Background())
+	info := newAwsTestRelayInfo()
+
+	handlerErr, usage := handleNovaStreamRequest(c, info, adaptor)
+
+	require.Nil(t, handlerErr)
+	require.NotNil(t, usage)
+	assert.Positive(t, usage.CompletionTokens)
+	assert.Contains(t, recorder.Body.String(), "partial")
+	assert.Equal(t, relaycommon.StreamEndReasonScannerErr, info.StreamStatus.EndReason)
+}
+
+func TestNovaStreamStopsAtClientCancellation(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	t.Cleanup(cancelRequest)
+	releaseRest := make(chan struct{})
+	t.Cleanup(func() { close(releaseRest) })
+
+	client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+		reader, writer := io.Pipe()
+		go func() {
+			defer writer.Close()
+			for _, event := range []string{
+				`{"messageStart":{"role":"assistant"}}`,
+				`{"contentBlockDelta":{"delta":{"text":"partial answer"},"contentBlockIndex":0}}`,
+			} {
+				if err := writeAwsStreamEvent(writer, event); err != nil {
+					return
+				}
+			}
+			<-releaseRest
+			_ = writeAwsStreamEvent(writer, `{"messageStop":{"stopReason":"end_turn"}}`)
+		}()
+		return newAwsStreamResponse(request, reader), nil
+	}))
+	responseWriter := newAwsNotifyingResponseWriter("partial answer")
+	c := newAwsTestContext(responseWriter, requestContext)
+	adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
+	info := newAwsTestRelayInfo()
+
+	type handlerResult struct {
+		err   *relaytypes.NewAPIError
+		usage *dto.Usage
+	}
+	results := make(chan handlerResult, 1)
+	go func() {
+		err, usage := handleNovaStreamRequest(c, info, adaptor)
+		results <- handlerResult{err: err, usage: usage}
+	}()
+
+	var bodyLengthBeforeCancel int
+	select {
+	case bodyLengthBeforeCancel = <-responseWriter.notified:
+	case <-time.After(5 * time.Second):
+		t.Fatal("partial response was not written")
+	}
+	cancelRequest()
+
+	var result handlerResult
+	select {
+	case result = <-results:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream handler did not stop after client cancellation")
+	}
+
+	require.Nil(t, result.err)
+	require.NotNil(t, result.usage)
+	assert.Positive(t, result.usage.CompletionTokens)
+	assert.Equal(t, bodyLengthBeforeCancel, responseWriter.Body.Len())
+	assert.NotContains(t, responseWriter.Body.String(), "[DONE]")
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+}
+
+// A stream that ends before any content (no events, or only messageStart, or
+// an unreadable first chunk) fails the request so it is refunded and retried,
+// rather than answering 200 with nothing and billing the prompt.
+func TestNovaStreamWithoutContentFailsTheRequest(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	tests := []struct {
+		name   string
+		events []string
+	}{
+		{name: "no events"},
+		{name: "only messageStart", events: []string{`{"messageStart":{"role":"assistant"}}`}},
+		{name: "unreadable first chunk", events: []string{`not json`}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+				var body bytes.Buffer
+				for _, event := range test.events {
+					if err := writeAwsStreamEvent(&body, event); err != nil {
+						return nil, err
+					}
+				}
+				return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+			}))
+			adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
+			recorder := httptest.NewRecorder()
+			c := newAwsTestContext(recorder, context.Background())
+
+			handlerErr, usage := handleNovaStreamRequest(c, newAwsTestRelayInfo(), adaptor)
+
+			require.NotNil(t, handlerErr)
+			assert.False(t, relaytypes.IsSkipRetryError(handlerErr))
+			assert.Nil(t, usage)
+			assert.Empty(t, recorder.Body.String())
+		})
+	}
+}
+
+// A Nova event stream that closes or breaks before messageStop was cut short:
+// the client gets one error event instead of a usage chunk and [DONE], and
+// what was delivered is still billed.
+func TestNovaStreamReportsUpstreamInterruption(t *testing.T) {
+	originalRelayTimeout := common.RelayTimeout
+	common.RelayTimeout = 0
+	t.Cleanup(func() {
+		common.RelayTimeout = originalRelayTimeout
+	})
+
+	tests := []struct {
+		name    string
+		trailer []byte
+		reason  relaycommon.StreamEndReason
+	}{
+		{name: "closed mid-answer", reason: relaycommon.StreamEndReasonEOF},
+		{name: "broken event stream", trailer: []byte("not an event stream message"), reason: relaycommon.StreamEndReasonScannerErr},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := newAwsTestClient(awsHTTPClientFunc(func(request *http.Request) (*http.Response, error) {
+				var body bytes.Buffer
+				for _, event := range []string{
+					`{"messageStart":{"role":"assistant"}}`,
+					`{"contentBlockDelta":{"delta":{"text":"partial"},"contentBlockIndex":0}}`,
+				} {
+					if err := writeAwsStreamEvent(&body, event); err != nil {
+						return nil, err
+					}
+				}
+				body.Write(test.trailer)
+				return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
+			}))
+			adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
+			recorder := httptest.NewRecorder()
+			c := newAwsTestContext(recorder, context.Background())
+			info := newAwsTestRelayInfo()
+
+			handlerErr, usage := handleNovaStreamRequest(c, info, adaptor)
+
+			require.Nil(t, handlerErr)
+			require.NotNil(t, usage)
 			assert.Positive(t, usage.CompletionTokens)
 			assert.Contains(t, recorder.Body.String(), "partial")
 			assert.Contains(t, recorder.Body.String(), `"code":"stream_interrupted"`)
