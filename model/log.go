@@ -140,7 +140,8 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		order = clickHouseLogOrder("")
 	}
-	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
+	tx := withoutRetriedAttempts(LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId), "other")
+	err = tx.Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
 	formatUserLogs(logs, 0)
 	return logs, err
 }
@@ -275,13 +276,36 @@ func RecordTopupLog(userId int, content *common.Message, callerIp string, paymen
 	}
 }
 
-func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
-	isStream bool, group string, other *LogOther) {
+// logOtherRetriedKey marks, in admin_info, the error row of a relay attempt
+// that another attempt of the same request followed.
+const logOtherRetriedKey = "retried"
+
+// retriedAttemptPattern matches the stored marker. JSON escapes quotes inside
+// string values, so only the marker key itself produces this text.
+const retriedAttemptPattern = `%"` + logOtherRetriedKey + `":true%`
+
+// withoutRetriedAttempts leaves out the error rows of retried relay attempts.
+// The user's own log views apply it; administrators see every attempt.
+func withoutRetriedAttempts(tx *gorm.DB, otherColumn string) *gorm.DB {
+	return tx.Where("("+otherColumn+" IS NULL OR "+otherColumn+" NOT LIKE ?)", retriedAttemptPattern)
+}
+
+// ErrorLog is the error log row of a failed relay attempt. Retry loops build it
+// when the attempt fails and record it once they know whether another attempt
+// follows.
+type ErrorLog struct {
+	log   *Log
+	other *LogOther
+}
+
+// NewErrorLog builds the error log row of a failed relay attempt without
+// saving it.
+func NewErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
+	isStream bool, group string, other *LogOther) *ErrorLog {
 	logger.LogInfo(c, common.LogText("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
-	otherStr := other.JSONString()
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -313,10 +337,25 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		}(),
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
-		Other:             otherStr,
 	}
-	err := createLog(log)
-	if err != nil {
+	return &ErrorLog{log: log, other: other}
+}
+
+// Record saves the row. A retried row stays in administrator listings and is
+// left out of the user's own logs, where the final attempt's row stands for
+// the request. Record does nothing on a nil ErrorLog.
+func (e *ErrorLog) Record(c *gin.Context, retried bool) {
+	if e == nil {
+		return
+	}
+	if retried {
+		if e.other == nil {
+			e.other = NewLogOther()
+		}
+		e.other.SetAdmin(logOtherRetriedKey, true)
+	}
+	e.log.Other = e.other.JSONString()
+	if err := createLog(e.log); err != nil {
 		logger.LogError(c, common.LogText("failed to record log: %s", err.Error()))
 	}
 }
@@ -567,6 +606,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	} else {
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
 	}
+	tx = withoutRetriedAttempts(tx, "logs.other")
 
 	if tx, err = applyExplicitLogTextFilter(tx, "logs.model_name", modelName); err != nil {
 		return nil, 0, err
