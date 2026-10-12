@@ -18,12 +18,18 @@ type InterfaceSetting struct {
 	// a custom currency in that language. A language without an entry uses
 	// general_setting.custom_currency_symbol, which the backend also uses.
 	CurrencySymbols map[string]string `json:"currency_symbols"`
+	// KeepHeaderLTR keeps the top bars laid out left to right in a
+	// right-to-left interface language: the logo stays at the left and the
+	// actions at the right, while the navigation links and the page keep the
+	// language's direction. False mirrors the bars with the page.
+	KeepHeaderLTR bool `json:"keep_header_ltr"`
 }
 
 var interfaceSetting = InterfaceSetting{
 	Languages:       []string{},
 	DefaultLanguage: "",
 	CurrencySymbols: map[string]string{},
+	KeepHeaderLTR:   false,
 }
 
 func init() {
