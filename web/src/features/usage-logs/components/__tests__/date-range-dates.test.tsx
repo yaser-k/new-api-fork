@@ -23,12 +23,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CompactDateTimeRangePicker } from '../compact-date-time-range-picker'
 
-describe('CompactDateTimeRangePicker in Persian', () => {
-  afterEach(async () => {
-    await i18next.changeLanguage('en')
-  })
+// 2026-09-23 is 1 Mehr 1405, 2026-09-25 is 3 Mehr and 2026-09-27 is 5 Mehr.
+afterEach(async () => {
+  vi.useRealTimers()
+  await i18next.changeLanguage('en')
+})
 
-  it('shows the range in Solar Hijri and keeps the Gregorian values', async () => {
+describe('CompactDateTimeRangePicker in Persian', () => {
+  it('shows the range in Solar Hijri and keeps the values when confirmed unchanged', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     const start = new Date(2026, 8, 25, 0, 0)
@@ -43,12 +45,84 @@ describe('CompactDateTimeRangePicker in Persian', () => {
     ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /۱۴۰۵\/۰۷\/۰۳/ }))
-    expect(await screen.findByLabelText('Start Time')).toHaveValue(
-      '2026-09-25T00:00'
-    )
-    expect(screen.getByLabelText('End Time')).toHaveValue('2026-09-25T11:35')
+    expect(
+      await screen.findByRole('grid', { name: 'مهر ۱۴۰۵' })
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Start Time')).toHaveValue('۰۰:۰۰')
+    expect(screen.getByLabelText('End Time')).toHaveValue('۱۱:۳۵')
 
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
     expect(onChange).toHaveBeenCalledWith({ start, end })
+  })
+
+  it('picks a range on the Solar Hijri calendar with 24-hour times typed in Persian digits', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 25, 12))
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    await i18next.changeLanguage('fa')
+    render(<CompactDateTimeRangePicker onChange={onChange} />)
+
+    await user.click(screen.getAllByRole('button', { name: 'Date Range' })[0])
+    await screen.findByRole('grid', { name: 'مهر ۱۴۰۵' })
+    await user.click(
+      screen.getByRole('button', { name: /(^|\s)۱-ام مهر ۱۴۰۵/ })
+    )
+    await user.click(
+      screen.getByRole('button', { name: /(^|\s)۵-ام مهر ۱۴۰۵/ })
+    )
+    const startTime = screen.getByLabelText('Start Time')
+    await user.clear(startTime)
+    await user.type(startTime, '۰۹:۳۰')
+    const endTime = screen.getByLabelText('End Time')
+    await user.clear(endTime)
+    await user.type(endTime, '18:05')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(onChange).toHaveBeenCalledWith({
+      start: new Date(2026, 8, 23, 9, 30, 0, 0),
+      end: new Date(2026, 8, 27, 18, 5, 59, 999),
+    })
+  })
+})
+
+describe('CompactDateTimeRangePicker time fields', () => {
+  it('in English, shows the Gregorian month and ends a picked day at its last minute', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 25, 12))
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(<CompactDateTimeRangePicker onChange={onChange} />)
+
+    await user.click(screen.getAllByRole('button', { name: 'Date Range' })[0])
+    expect(
+      screen.getByRole('grid', { name: 'September 2026' })
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /September 25th, 2026/ }))
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(onChange).toHaveBeenCalledWith({
+      start: new Date(2026, 8, 25, 0, 0, 0, 0),
+      end: new Date(2026, 8, 25, 23, 59, 59, 999),
+    })
+  })
+
+  it('marks a time outside 00:00-23:59 invalid and disables Confirm', async () => {
+    const user = userEvent.setup()
+    render(
+      <CompactDateTimeRangePicker
+        start={new Date(2026, 8, 25, 0, 0)}
+        end={new Date(2026, 8, 25, 11, 35)}
+        onChange={() => {}}
+      />
+    )
+
+    await user.click(screen.getAllByRole('button', { name: /^2026/ })[0])
+    const endTime = screen.getByLabelText('End Time')
+    await user.clear(endTime)
+    await user.type(endTime, '24:10')
+
+    expect(endTime).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
   })
 })

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { CompactDateTimeRangePicker } from '../compact-date-time-range-picker'
@@ -35,6 +36,24 @@ describe('CompactDateTimeRangePicker direction', () => {
 
     const label = screen.getByText('2026-09-25 00:00 ~ 2026-09-25 11:35')
     expect(label).toHaveAttribute('dir', 'auto')
+  })
+
+  it('keeps the typed times left to right inside an RTL page', async () => {
+    const user = userEvent.setup()
+    render(
+      <div dir='rtl'>
+        <CompactDateTimeRangePicker
+          start={new Date(2026, 8, 25, 0, 0)}
+          end={new Date(2026, 8, 25, 11, 35)}
+          onChange={() => {}}
+        />
+      </div>
+    )
+
+    await user.click(screen.getAllByRole('button', { name: /^2026/ })[0])
+
+    expect(screen.getByLabelText('Start Time')).toHaveAttribute('dir', 'ltr')
+    expect(screen.getByLabelText('End Time')).toHaveAttribute('dir', 'ltr')
   })
 
   it('isolates the placeholder label so it follows its own script', () => {
