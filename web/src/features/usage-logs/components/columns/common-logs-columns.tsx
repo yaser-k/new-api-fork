@@ -229,7 +229,7 @@ function buildTypeDetailSegments(
       })
     } else {
       segments.push({
-        text: `${t('Dynamic Pricing')} · ${t('No matching results')}`,
+        text: `${t('Dynamic Pricing')} · ${other.matched_tier || t('Special billing expression')}`,
         muted: true,
       })
     }
@@ -285,7 +285,7 @@ function buildTypeDetailSegments(
       }
     } else {
       segments.push({
-        text: `${t('Dynamic Pricing')} · ${t('No matching results')}`,
+        text: `${t('Dynamic Pricing')} · ${other.matched_tier || t('Special billing expression')}`,
         muted: true,
       })
     }
