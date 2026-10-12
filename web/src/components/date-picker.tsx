@@ -33,11 +33,11 @@ import { formatDisplayDate } from '@/lib/format'
 const calendarLocales = {
   en: enUS,
   zhCN,
+  zhTW,
   fr,
   ru,
   ja,
   vi,
-  zhTW,
 } as const
 
 type DatePickerProps = {
