@@ -268,6 +268,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	}
 	stream := awsResp.GetStream()
 	defer stream.Close()
+	info.StreamStatus = relaycommon.NewStreamStatus()
 
 	claudeInfo := &claude.ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -308,6 +309,16 @@ streamLoop:
 		}
 	}
 
+	switch {
+	case requestContext.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, requestContext.Err())
+	case ctx.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, ctx.Err())
+	case stream.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, stream.Err())
+	default:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	}
 	_ = stream.Close()
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
 	return nil, claudeInfo.Usage
