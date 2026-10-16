@@ -287,6 +287,39 @@ func TestConvertRequestClaudeToChatResolvesToolResultNames(t *testing.T) {
 	assert.Equal(t, "assistant", chatReq.Messages[5].Role)
 }
 
+func TestConvertRequestClaudeToChatKeepsCustomTypedTool(t *testing.T) {
+	for _, toolType := range []string{"", "custom"} {
+		t.Run("type "+toolType, func(t *testing.T) {
+			tool := map[string]any{
+				"name":         "lookup",
+				"description":  "Look up a term",
+				"input_schema": map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}},
+			}
+			if toolType != "" {
+				tool["type"] = toolType
+			}
+			request := &dto.ClaudeRequest{
+				Model:      "claude-test",
+				Messages:   []dto.ClaudeMessage{{Role: "user", Content: "define relay"}},
+				Tools:      []any{tool, map[string]any{"type": "bash_20250124", "name": "bash"}},
+				ToolChoice: map[string]any{"type": "tool", "name": "lookup"},
+			}
+
+			result, err := ConvertRequest(context.Background(), &convmeta.Values{}, types.RelayFormatOpenAI, request)
+			require.NoError(t, err)
+
+			converted, ok := result.Value.(*dto.GeneralOpenAIRequest)
+			require.True(t, ok)
+			require.Len(t, converted.Tools, 1)
+			assert.Equal(t, "function", converted.Tools[0].Type)
+			assert.Equal(t, "lookup", converted.Tools[0].Function.Name)
+			assert.Equal(t, "Look up a term", converted.Tools[0].Function.Description)
+			assert.NotNil(t, converted.Tools[0].Function.Parameters)
+			assert.Equal(t, map[string]any{"type": "function", "function": map[string]any{"name": "lookup"}}, converted.ToolChoice)
+		})
+	}
+}
+
 func TestConvertRequestClaudeToResponsesPreservesMixedBlockOrder(t *testing.T) {
 	info := &convmeta.Values{ConversionChain: []types.RelayFormat{types.RelayFormatClaude}}
 	stream := true
