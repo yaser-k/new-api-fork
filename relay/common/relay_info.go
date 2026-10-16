@@ -161,6 +161,7 @@ type RelayInfo struct {
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
 	RuntimeHeadersOverride                map[string]any
+	RuntimeRemovedHeaders                 []string // removed by param override; never sent upstream
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
 
