@@ -1474,11 +1474,7 @@ func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
 	//}
 }
 
-func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) {
-	if quota == 0 && usedQuota == 0 && requestCount == 0 {
-		return
-	}
-
+func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) error {
 	err := DB.Model(&User{}).Where("id = ?", id).Updates(
 		map[string]any{
 			"quota":         gorm.Expr("quota + ?", quota),
@@ -1489,6 +1485,7 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	if err != nil {
 		common.SysLog(common.LogText("failed to batch update user quota, used quota and request count: %s", err.Error()))
 	}
+	return err
 }
 
 // GetUsernameById gets username from Redis first, falls back to DB if needed
