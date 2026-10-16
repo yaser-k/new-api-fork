@@ -25,7 +25,6 @@ distributor.group_access_denied: "اجازۀ دسترسی به این گروه �
 distributor.get_channel_failed: "دریافت کانال در دسترس برای مدل ⁨{{.Model}}⁩ در گروه ⁨{{.Group}}⁩ ناموفق بود (distributor): ⁨{{.Error}}⁩"
 distributor.no_available_channel: "برای مدل ⁨{{.Model}}⁩ در گروه ⁨{{.Group}}⁩ هیچ کانالی در دسترس نیست (distributor)"
 distributor.no_available_channel_task_plugin: "برای مدل ⁨{{.Model}}⁩ در گروه ⁨{{.Group}}⁩ هیچ کانالی در دسترس نیست: این مدل در اختیار یک افزونۀ وظیفه است که هیچ کانال فعالی برای آن ندارد (distributor)"
-distributor.invalid_midjourney_request: "درخواست Midjourney نامعتبر است: ⁨{{.Error}}⁩"
 distributor.invalid_request_parse_model: "درخواست نامعتبر است؛ تشخیص مدل ممکن نیست"
 quota.user_insufficient: "سهمیۀ کاربر کافی نیست؛ سهمیۀ باقی‌مانده: ⁨{{.Remaining}}⁩"
 quota.pre_consume_insufficient: "سهمیه برای پیش‌کسر این درخواست کافی نیست: ⁨{{.Remaining}}⁩ باقی مانده و ⁨{{.Required}}⁩ لازم است"
