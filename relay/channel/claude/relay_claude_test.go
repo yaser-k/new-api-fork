@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/tokenkit"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -22,6 +24,47 @@ import (
 
 func commonPointer[T any](value T) *T {
 	return &value
+}
+
+func TestClaudeStreamFinalUsageEstimatesOnlyUncountedUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, startUsage, deltaUsage, stopReason string // no deltaUsage: the stream broke before message_delta
+		streamText                               bool
+		wantInput, wantOutput                    int
+		wantLocalCount                           bool
+	}{
+		{name: "cache-only refusal keeps zeros", startUsage: `{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":20000,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":20000}}`, deltaUsage: `{"output_tokens":0}`, stopReason: "refusal"},
+		{name: "broken stream keeps cache-only input", startUsage: `{"input_tokens":0,"output_tokens":1,"cache_read_input_tokens":50000}`, streamText: true, wantOutput: 2, wantLocalCount: true},
+		{name: "zeros after streamed text are estimated", startUsage: `{"input_tokens":0,"output_tokens":0}`, deltaUsage: `{"output_tokens":0}`, stopReason: "end_turn", streamText: true, wantInput: 1200, wantOutput: 2, wantLocalCount: true},
+		{name: "zero delta input keeps start input", startUsage: `{"input_tokens":1000,"output_tokens":1}`, deltaUsage: `{"input_tokens":0,"output_tokens":50}`, stopReason: "end_turn", streamText: true, wantInput: 1000, wantOutput: 50},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "claude-opus-4-8"}}
+			info.SetEstimatePromptTokens(1200)
+			state := &ClaudeResponseInfo{Usage: &dto.Usage{}}
+			start := fmt.Sprintf(`{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-4-8","usage":%s}}`, tc.startUsage)
+			require.Nil(t, HandleStreamResponseData(c, info, state, start))
+			if tc.streamText {
+				require.Nil(t, HandleStreamResponseData(c, info, state, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`))
+			}
+			if tc.deltaUsage != "" {
+				delta := fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q},"usage":%s}`, tc.stopReason, tc.deltaUsage)
+				require.Nil(t, HandleStreamResponseData(c, info, state, delta))
+				require.Nil(t, HandleStreamResponseData(c, info, state, `{"type":"message_stop"}`))
+			}
+			HandleStreamFinalResponse(c, info, state)
+			assert.Equal(t, tc.wantInput, state.Usage.PromptTokens)
+			assert.Equal(t, tc.wantOutput, state.Usage.CompletionTokens)
+			assert.Equal(t, tc.wantLocalCount, common.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
+			canonical, ok := state.Usage.BillingUsage.CanonicalUsage()
+			require.True(t, ok)
+			assert.Equal(t, tc.wantInput, canonical.PromptTokens, "settlement must bill the same input")
+			assert.Equal(t, tc.wantOutput, canonical.CompletionTokens)
+		})
+	}
 }
 
 func TestResponseOpenAI2ClaudeToolUseInputIsObject(t *testing.T) {
@@ -295,6 +338,53 @@ func TestClaudeStreamCutAfterMessageStartKeepsReportedPrompt(t *testing.T) {
 			require.NotNil(t, claudeInfo.Usage.BillingUsage)
 			require.NotNil(t, claudeInfo.Usage.BillingUsage.ClaudeUsage)
 			assert.Equal(t, tc.wantPrompt, claudeInfo.Usage.BillingUsage.ClaudeUsage.InputTokens)
+		})
+	}
+}
+
+// A refusal before any output is waived while the refusal waiver applies, also
+// when its prompt was read from or written to the cache: the cache figures stay
+// on the usage settlement reads, and the billing-exempt reason, not missing
+// usage, is what settles it at zero.
+func TestClaudeStreamCachedRefusalBeforeOutputIsWaived(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	settings := model_setting.GetClaudeSettings()
+	oldWaiver, oldCategories := settings.RefusalBillingWaiverEnabled, settings.RefusalBilledCategories
+	t.Cleanup(func() {
+		settings.RefusalBillingWaiverEnabled, settings.RefusalBilledCategories = oldWaiver, oldCategories
+	})
+	settings.RefusalBillingWaiverEnabled = true
+	settings.RefusalBilledCategories = []string{"bio"}
+
+	for _, tc := range []struct {
+		name, startUsage              string
+		wantCacheRead, wantCacheWrite int
+	}{
+		{name: "cache read", startUsage: `{"input_tokens":0,"output_tokens":1,"cache_read_input_tokens":50000}`, wantCacheRead: 50000},
+		{name: "one-hour cache write", startUsage: `{"input_tokens":0,"output_tokens":1,"cache_creation_input_tokens":20000,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":20000}}`, wantCacheWrite: 20000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "claude-opus-4-8"}}
+			info.SetEstimatePromptTokens(1200)
+			state := &ClaudeResponseInfo{Usage: &dto.Usage{}}
+			for _, data := range []string{
+				fmt.Sprintf(`{"type":"message_start","message":{"id":"msg_1","model":"claude-opus-4-8","usage":%s}}`, tc.startUsage),
+				`{"type":"message_delta","delta":{"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber","explanation":null}},"usage":{"output_tokens":0}}`,
+				`{"type":"message_stop"}`,
+			} {
+				require.Nil(t, HandleStreamResponseData(c, info, state, data))
+			}
+			HandleStreamFinalResponse(c, info, state)
+
+			assert.Equal(t, "claude_refusal_before_output category=cyber", common.GetContextKeyString(c, constant.ContextKeyBillingExemptReason))
+			assert.Zero(t, state.Usage.PromptTokens, "the prompt estimate must not replace a cached prompt")
+			assert.Zero(t, state.Usage.CompletionTokens)
+			require.NotNil(t, state.Usage.BillingUsage)
+			require.NotNil(t, state.Usage.BillingUsage.ClaudeUsage)
+			assert.Equal(t, tc.wantCacheRead, state.Usage.BillingUsage.ClaudeUsage.CacheReadInputTokens)
+			assert.Equal(t, tc.wantCacheWrite, state.Usage.BillingUsage.ClaudeUsage.CacheCreationInputTokens)
 		})
 	}
 }
