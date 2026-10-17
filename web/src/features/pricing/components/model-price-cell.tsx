@@ -250,7 +250,7 @@ export function ModelPriceCell(props: {
               {metric.label}
             </span>
             <span
-              className='min-w-0 font-mono text-sm break-words whitespace-normal tabular-nums'
+              className='font-mono text-sm wrap-normal whitespace-normal tabular-nums'
               title={metric.value}
             >
               {metric.value}
