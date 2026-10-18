@@ -31,6 +31,7 @@ import {
   PricingToolbar,
   ModelCardGrid,
   ModelDetailsDrawer,
+  RetiredModelsSection,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
@@ -49,6 +50,7 @@ export function Pricing() {
     usableGroup,
     endpointMap,
     autoGroups,
+    retiredModels,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -257,6 +259,8 @@ export function Pricing() {
               />
 
               {renderPricingContent()}
+
+              <RetiredModelsSection models={retiredModels} />
             </main>
           </div>
 
