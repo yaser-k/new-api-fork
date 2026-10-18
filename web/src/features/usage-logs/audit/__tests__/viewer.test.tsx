@@ -446,8 +446,10 @@ it('filters own access history by result, generation and time and resets paginat
     await screen.findByRole('option', { name: 'Historical tokens' })
   )
   await user.click(screen.getByRole('button', { name: 'Date Range' }))
+  const [firstDay] = within(screen.getByRole('grid')).getAllByRole('button')
+  await user.click(firstDay)
   fireEvent.change(screen.getByLabelText('Start Time'), {
-    target: { value: '2026-09-01T12:00' },
+    target: { value: '12:00' },
   })
   await user.click(screen.getByRole('button', { name: 'Confirm' }))
   await waitFor(() =>
@@ -808,5 +810,43 @@ it('mobile access history keeps pagination visible and puts result filters in a 
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, 'setPointerCapture')
     }
+  }
+})
+
+it('in a right-to-left page, lays out route and client values left to right', async () => {
+  vi.spyOn(api, 'get').mockResolvedValue({
+    data: {
+      success: true,
+      data: {
+        total: 1,
+        items: [
+          {
+            event_id: 'request-2',
+            created_at: 1788600600,
+            username: 'alice',
+            category: 'access_token',
+            action: 'access_token.request',
+            content: '',
+            other: {},
+            user_agent: 'Mozilla/5.0 (X11; Linux x86_64)',
+            method: 'GET',
+            route: '/api/user/self',
+            ip: '127.0.0.1',
+            status: 200,
+            success: true,
+          },
+        ],
+      },
+    },
+  })
+  renderViewer()
+  const row = await screen.findByRole('row', { name: /127.0.0.1/ })
+  for (const value of ['/api/user/self', 'Mozilla/5.0 (X11; Linux x86_64)']) {
+    // Tailwind's rtl: variant only applies under dir="rtl", so English
+    // layout is unchanged.
+    expect(within(row).getByText(value)).toHaveClass(
+      'rtl:[direction:ltr]',
+      'rtl:text-right'
+    )
   }
 })

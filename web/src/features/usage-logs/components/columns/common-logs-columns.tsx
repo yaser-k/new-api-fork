@@ -50,7 +50,12 @@ import type { BillingUsageSchema } from '@/features/pricing/types'
 import { toIntlLocale } from '@/i18n/languages'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatNumber,
+  formatGregorianTitle,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -86,11 +91,17 @@ interface DetailSegment {
   danger?: boolean
 }
 
-function formatRatioCompact(ratio: number | undefined): string {
+// Up to four fraction digits without trailing zeros (`2`, `1.5`, `0.1235`),
+// in the given locale; rounds like `toFixed(4)`.
+function formatRatioCompact(
+  ratio: number | undefined,
+  locale: string | undefined
+): string {
   if (ratio == null || !Number.isFinite(ratio)) return '-'
-  return ratio % 1 === 0
-    ? String(ratio)
-    : ratio.toFixed(4).replace(/\.?0+$/, '')
+  return Intl.NumberFormat(locale, {
+    maximumFractionDigits: 4,
+    useGrouping: false,
+  }).format(Number(ratio.toFixed(4)))
 }
 
 function getGroupRatio(other: LogOtherData | null): number | null {
@@ -163,7 +174,7 @@ function buildTypeDetailSegments(
       })
     }
     segments.push({
-      text: `${t('Fee')}: ${formatLogQuota(other?.fee_quota ?? log.quota)}`,
+      text: `${t('Fee')}: ${formatLogQuota(other?.fee_quota ?? log.quota, locale)}`,
       muted: true,
     })
     return segments
@@ -173,7 +184,12 @@ function buildTypeDetailSegments(
 
   const segments: DetailSegment[] = []
 
-  const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
+  const priceOpts = {
+    digitsLarge: 4,
+    digitsSmall: 6,
+    abbreviate: false,
+    locale,
+  }
   const formatPrice = (price: number) =>
     `${formatBillingCurrencyFromUSD(price, priceOpts)}/M`
   const formatPriceCompact = (price: number) =>
@@ -327,7 +343,7 @@ function buildTypeDetailSegments(
 
       if (effectiveRatio != null && Number.isFinite(effectiveRatio)) {
         segments.push({
-          text: `${ratioLabel} ${formatRatioCompact(effectiveRatio)}x`,
+          text: `${ratioLabel} ${formatRatioCompact(effectiveRatio, locale)}x`,
         })
       }
     }
@@ -348,7 +364,8 @@ export function useCommonLogsColumns(
   isRoot: boolean,
   showBillingSource = false
 ): ColumnDef<UsageLog>[] {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const currency = useSystemConfigStore((state) => state.config.currency)
   return useMemo(() => {
     const columns: ColumnDef<UsageLog>[] = [
@@ -362,15 +379,18 @@ export function useCommonLogsColumns(
 
           return (
             <div className='flex min-w-0 flex-col gap-0.5'>
-              <span className='truncate font-mono text-xs tabular-nums'>
-                {formatTimestampToDate(timestamp)}
+              <span
+                className='truncate font-mono text-xs tabular-nums'
+                title={formatGregorianTitle(timestamp, locale)}
+              >
+                {formatTimestampToDate(timestamp, 'seconds', locale)}
               </span>
               <StatusBadge
                 label={t(config.label)}
                 variant={config.color as StatusBadgeProps['variant']}
                 size='sm'
                 copyable={false}
-                className='-ml-1.5 !text-xs [&_span]:!text-xs'
+                className='-ms-1.5 !text-xs [&_span]:!text-xs'
               />
             </div>
           )
@@ -484,7 +504,7 @@ export function useCommonLogsColumns(
                       {affinity && (
                         <button
                           type='button'
-                          className='absolute -top-1 -right-1 leading-none text-amber-500'
+                          className='absolute -end-1 -top-1 leading-none text-amber-500'
                           onClick={(e) => {
                             e.stopPropagation()
                             setAffinityTarget({
@@ -564,7 +584,7 @@ export function useCommonLogsColumns(
             return (
               <button
                 type='button'
-                className='flex items-center gap-1.5 text-left'
+                className='flex items-center gap-1.5 text-start'
                 onClick={(e) => {
                   e.stopPropagation()
                   setSelectedUserId(log.user_id)
@@ -661,7 +681,7 @@ export function useCommonLogsColumns(
                 {group && groupRatio != null ? ' ' : null}
                 {groupRatio != null ? (
                   <span className='text-muted-foreground/60 relative top-px align-baseline tabular-nums'>
-                    {formatRatioCompact(groupRatio)}x
+                    {formatRatioCompact(groupRatio, locale)}x
                   </span>
                 ) : null}
               </span>
@@ -744,20 +764,23 @@ export function useCommonLogsColumns(
 
           return (
             <div className='flex flex-col gap-0.5'>
-              <span className='font-mono text-xs font-medium tabular-nums'>
-                {promptTokens.toLocaleString()} /{' '}
-                {completionTokens.toLocaleString()}
+              <span
+                dir='ltr'
+                className='font-mono text-xs font-medium tabular-nums'
+              >
+                {formatNumber(promptTokens, locale)} /{' '}
+                {formatNumber(completionTokens, locale)}
               </span>
               {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
                 <div className='flex items-center gap-1 text-[11px]'>
                   {cacheReadTokens > 0 && (
                     <span className='text-muted-foreground/60'>
-                      {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
+                      {t('Cache')}↓ {formatNumber(cacheReadTokens, locale)}
                     </span>
                   )}
                   {cacheWriteTokens > 0 && (
                     <span className='text-muted-foreground/60'>
-                      ↑ {cacheWriteTokens.toLocaleString()}
+                      ↑ {formatNumber(cacheWriteTokens, locale)}
                     </span>
                   )}
                 </div>
@@ -831,7 +854,7 @@ export function useCommonLogsColumns(
             other,
             t,
             isAdmin,
-            i18n.language,
+            i18n.resolvedLanguage || i18n.language,
             usageSchema
           )
           const primary = segments[0]
@@ -855,7 +878,7 @@ export function useCommonLogsColumns(
               >
                 {primary.text}
                 {hasMore && (
-                  <span className='text-muted-foreground/40 ml-0.5'>
+                  <span className='text-muted-foreground/40 ms-0.5'>
                     +{segments.length - 1}
                   </span>
                 )}
@@ -873,7 +896,7 @@ export function useCommonLogsColumns(
             <>
               <button
                 type='button'
-                className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+                className='group flex max-w-[200px] items-center gap-1 text-start text-xs'
                 onClick={() => setDialogOpen(true)}
                 title={t('Click to view full details')}
               >
@@ -897,5 +920,5 @@ export function useCommonLogsColumns(
     return columns
     // Log formatters read currency settings from the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, isAdmin, isRoot, showBillingSource, currency])
+  }, [t, locale, isAdmin, isRoot, showBillingSource, currency])
 }

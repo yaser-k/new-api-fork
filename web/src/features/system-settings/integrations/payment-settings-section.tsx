@@ -47,6 +47,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getPaymentErrorTranslation } from '@/features/wallet/lib/payment'
+import { formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
@@ -814,7 +815,7 @@ export function PaymentSettingsSection({
                   'Payment, redemption codes, subscription plans, and invitation rewards are locked until the root administrator confirms the compliance terms.'
                 )}
               </p>
-              <ol className='list-decimal space-y-1 pl-5'>
+              <ol className='list-decimal space-y-1 ps-5'>
                 {complianceStatements.map((statement) => (
                   <li key={statement}>{statement}</li>
                 ))}
@@ -837,11 +838,7 @@ export function PaymentSettingsSection({
           <AlertTitle>{t('Compliance confirmed')}</AlertTitle>
           <AlertDescription>
             {t('Confirmed at {{time}} by user #{{userId}}', {
-              time: complianceDefaults.confirmedAt
-                ? new Date(
-                    complianceDefaults.confirmedAt * 1000
-                  ).toLocaleString()
-                : '-',
+              time: formatTimestampToDate(complianceDefaults.confirmedAt),
               userId: complianceDefaults.confirmedBy || '-',
             })}
           </AlertDescription>
@@ -971,12 +968,12 @@ export function PaymentSettingsSection({
                         >
                           {payMethodsVisualMode ? (
                             <>
-                              <Code2 className='mr-2 h-3 w-3' />
+                              <Code2 className='me-2 h-3 w-3' />
                               {t('JSON Editor')}
                             </>
                           ) : (
                             <>
-                              <Eye className='mr-2 h-3 w-3' />
+                              <Eye className='me-2 h-3 w-3' />
                               {t('Visual Editor')}
                             </>
                           )}
@@ -1036,12 +1033,12 @@ export function PaymentSettingsSection({
                           >
                             {amountOptionsVisualMode ? (
                               <>
-                                <Code2 className='mr-2 h-3 w-3' />
+                                <Code2 className='me-2 h-3 w-3' />
                                 {t('JSON Editor')}
                               </>
                             ) : (
                               <>
-                                <Eye className='mr-2 h-3 w-3' />
+                                <Eye className='me-2 h-3 w-3' />
                                 {t('Visual Editor')}
                               </>
                             )}
@@ -1096,12 +1093,12 @@ export function PaymentSettingsSection({
                           >
                             {amountDiscountVisualMode ? (
                               <>
-                                <Code2 className='mr-2 h-3 w-3' />
+                                <Code2 className='me-2 h-3 w-3' />
                                 {t('JSON Editor')}
                               </>
                             ) : (
                               <>
-                                <Eye className='mr-2 h-3 w-3' />
+                                <Eye className='me-2 h-3 w-3' />
                                 {t('Visual Editor')}
                               </>
                             )}
@@ -1167,6 +1164,7 @@ export function PaymentSettingsSection({
                         <FormLabel>{t('Epay endpoint')}</FormLabel>
                         <FormControl>
                           <Input
+                            dir='ltr'
                             placeholder={t('https://pay.example.com')}
                             {...field}
                             onChange={(event) =>
@@ -1190,6 +1188,7 @@ export function PaymentSettingsSection({
                         <FormLabel>{t('Callback address')}</FormLabel>
                         <FormControl>
                           <Input
+                            dir='ltr'
                             placeholder={t('https://gateway.example.com')}
                             {...field}
                             onChange={(event) =>
@@ -1217,6 +1216,7 @@ export function PaymentSettingsSection({
                         <FormLabel>{t('Epay merchant ID')}</FormLabel>
                         <FormControl>
                           <Input
+                            dir='ltr'
                             placeholder='10001'
                             autoComplete='off'
                             {...field}
@@ -1363,6 +1363,7 @@ export function PaymentSettingsSection({
                         <FormLabel>{t('Price ID')}</FormLabel>
                         <FormControl>
                           <Input
+                            dir='ltr'
                             placeholder={t('price_xxx')}
                             {...field}
                             onChange={(event) =>
@@ -1567,12 +1568,12 @@ export function PaymentSettingsSection({
                         >
                           {creemProductsVisualMode ? (
                             <>
-                              <Code2 className='mr-2 h-3 w-3' />
+                              <Code2 className='me-2 h-3 w-3' />
                               {t('JSON Editor')}
                             </>
                           ) : (
                             <>
-                              <Eye className='mr-2 h-3 w-3' />
+                              <Eye className='me-2 h-3 w-3' />
                               {t('Visual Editor')}
                             </>
                           )}
