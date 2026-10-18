@@ -26,6 +26,7 @@ import {
 } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
+import { ModelLink } from '@/features/rankings/components/entity-links'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { parseTags } from '../lib/filters'
@@ -33,6 +34,7 @@ import type { PricingModel } from '../types'
 import { CachedPriceCell } from './cached-price-cell'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelPriceCell, type ModelPriceCellOptions } from './model-price-cell'
+import { RetiredModelBadge, RetiredModelSuccessor } from './retired-models'
 
 // ----------------------------------------------------------------------------
 // Pricing Table Columns
@@ -55,6 +57,19 @@ export function usePricingColumns(
       ),
       cell: ({ row }) => {
         const model = row.original
+        if (model.retired) {
+          return (
+            <div className='flex max-w-full min-w-0 flex-col gap-0.5'>
+              <ModelLink
+                modelName={model.model_name}
+                className='block truncate font-mono text-sm font-medium'
+              />
+              <span className='text-muted-foreground text-xs'>
+                {t('Retired on {{date}}', { date: model.retired.retired_at })}
+              </span>
+            </div>
+          )
+        }
         const modelIconKey = model.icon || model.vendor_icon
         const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 14) : null
 
@@ -74,9 +89,12 @@ export function usePricingColumns(
     {
       accessorKey: 'quota_type',
       header: t('Type'),
-      cell: ({ row }) => (
-        <ModelBillingModeBadge model={row.original} className='-ml-1.5' />
-      ),
+      cell: ({ row }) =>
+        row.original.retired ? (
+          <RetiredModelBadge />
+        ) : (
+          <ModelBillingModeBadge model={row.original} className='-ml-1.5' />
+        ),
       size: 110,
       enableSorting: false,
     },
@@ -88,9 +106,15 @@ export function usePricingColumns(
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title={t('Price')} />
       ),
-      cell: ({ row }) => (
-        <ModelPriceCell model={row.original} options={options} />
-      ),
+      cell: ({ row }) =>
+        row.original.retired ? (
+          <RetiredModelSuccessor
+            model={row.original.retired}
+            className='text-muted-foreground text-xs'
+          />
+        ) : (
+          <ModelPriceCell model={row.original} options={options} />
+        ),
       size: 180,
       enableSorting: false,
     },
@@ -99,9 +123,12 @@ export function usePricingColumns(
     {
       id: 'cached_price',
       header: t('Cached'),
-      cell: ({ row }) => (
-        <CachedPriceCell model={row.original} options={options} />
-      ),
+      cell: ({ row }) =>
+        row.original.retired ? (
+          <span className='text-muted-foreground/50 text-xs'>—</span>
+        ) : (
+          <CachedPriceCell model={row.original} options={options} />
+        ),
       size: 110,
       enableSorting: false,
     },

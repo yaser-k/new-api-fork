@@ -31,7 +31,6 @@ import {
   PricingToolbar,
   ModelCardGrid,
   ModelDetailsDrawer,
-  RetiredModelsSection,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
 import { useFilters } from './hooks/use-filters'
@@ -77,13 +76,14 @@ export function Pricing() {
     setTokenUnit,
     setViewMode,
     setShowRechargePrice,
+    models: listedModels,
     filteredModels,
     hasActiveFilters,
     activeFilterCount,
     availableTags,
     clearFilters,
     clearSearch,
-  } = useFilters(models || [])
+  } = useFilters(models || [], retiredModels)
 
   const handleModelClick = useCallback((modelName: string) => {
     setSelectedModelName(modelName)
@@ -220,7 +220,7 @@ export function Pricing() {
               groups={availableGroups}
               groupRatios={groupRatio}
               tags={availableTags}
-              models={models || []}
+              models={listedModels}
               hasActiveFilters={hasActiveFilters}
               onClearFilters={clearFilters}
               className='hover-scrollbar sticky top-20 hidden max-h-[calc(100dvh-6rem)] self-start overflow-y-auto xl:block'
@@ -229,7 +229,7 @@ export function Pricing() {
             <main className='min-w-0 space-y-4'>
               <PricingToolbar
                 filteredCount={filteredModels.length}
-                totalCount={models?.length}
+                totalCount={listedModels.length}
                 sortBy={sortBy}
                 onSortChange={setSortBy}
                 tokenUnit={tokenUnit}
@@ -252,15 +252,13 @@ export function Pricing() {
                 groups={availableGroups}
                 groupRatios={groupRatio}
                 tags={availableTags}
-                models={models || []}
+                models={listedModels}
                 hasActiveFilters={hasActiveFilters}
                 activeFilterCount={activeFilterCount}
                 onClearFilters={clearFilters}
               />
 
               {renderPricingContent()}
-
-              <RetiredModelsSection models={retiredModels} />
             </main>
           </div>
 

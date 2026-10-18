@@ -23,6 +23,11 @@ import { useStatus } from '@/hooks/use-status'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { getPricing } from '../api'
+import type { RetiredModel } from '../types'
+
+// Stable when the answer has no retired models, so the lists built on it are
+// not rebuilt on every render.
+const NO_RETIRED_MODELS: RetiredModel[] = []
 
 export function usePricingData(enabled = true) {
   const { status } = useStatus()
@@ -71,7 +76,7 @@ export function usePricingData(enabled = true) {
     usableGroup: data?.usable_group ?? {},
     endpointMap: data?.supported_endpoint ?? {},
     autoGroups: data?.auto_groups ?? [],
-    retiredModels: data?.retired_models ?? [],
+    retiredModels: data?.retired_models ?? NO_RETIRED_MODELS,
     isLoading,
     error,
     refetch,

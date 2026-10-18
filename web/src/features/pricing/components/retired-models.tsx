@@ -16,22 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ExternalLink } from 'lucide-react'
-import { useId, useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { ChevronRight, ExternalLink } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { buttonVariants } from '@/components/ui/button'
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { ModelLink } from '@/features/rankings/components/entity-links'
 
 import type { RetiredModel } from '../types'
 
-function RetiredModelBadge() {
+export function RetiredModelBadge() {
   const { t } = useTranslation()
   return <Badge variant='secondary'>{t('Retired')}</Badge>
 }
@@ -51,85 +47,73 @@ function RetirementNoticeLink(props: { url: string }) {
   )
 }
 
-function RetiredModelItem(props: { model: RetiredModel }) {
+/** The successor of a retired model, as a link to its page. */
+export function RetiredModelSuccessor(props: {
+  model: RetiredModel
+  className?: string
+}) {
   const { t } = useTranslation()
   return (
-    <li className='flex flex-col gap-1 py-3 first:pt-0 last:pb-0'>
-      <div className='flex flex-wrap items-center gap-2'>
-        <ModelLink
-          modelName={props.model.model_name}
-          className='font-mono text-sm font-semibold'
-        />
-        <RetiredModelBadge />
-        <span className='text-muted-foreground text-xs'>
-          {t('Retired on {{date}}', { date: props.model.retired_at })}
-        </span>
-      </div>
-      <div className='text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'>
-        <span>
-          {t('Use instead')}:{' '}
-          <ModelLink
-            modelName={props.model.successor}
-            className='text-foreground font-mono'
-          />
-        </span>
-        {props.model.notice_url && (
-          <RetirementNoticeLink url={props.model.notice_url} />
-        )}
-      </div>
-      {props.model.note && (
-        <p className='text-muted-foreground text-xs'>{props.model.note}</p>
-      )}
-    </li>
+    <span className={props.className}>
+      {t('Use instead')}:{' '}
+      <ModelLink
+        modelName={props.model.successor}
+        className='text-foreground font-mono'
+      />
+    </span>
   )
 }
 
 /**
- * The retired models of the pricing page, hidden until the visitor opens
- * them. Retired models cannot be called, so they are listed apart from the
- * live models, each with its successor.
+ * The card of a retired model in the pricing list: its retirement and
+ * successor instead of prices, with no way to call or copy it.
  */
-export function RetiredModelsSection(props: { models: RetiredModel[] }) {
+export function RetiredModelCard(props: { model: RetiredModel }) {
   const { t } = useTranslation()
-  const headingId = useId()
-  const [open, setOpen] = useState(false)
-
-  if (props.models.length === 0) return null
-
+  const initial = props.model.model_name.charAt(0).toUpperCase() || '?'
   return (
-    <section
-      aria-labelledby={headingId}
-      className='bg-card/60 rounded-xl border p-4'
-    >
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <div className='flex flex-wrap items-center justify-between gap-2'>
-          <div>
-            <h2 id={headingId} className='text-sm font-semibold'>
-              {t('Retired models')}
-            </h2>
-            <p className='text-muted-foreground mt-0.5 text-xs'>
-              {t(
-                'These models can no longer be called. Use their successors instead.'
-              )}
-            </p>
-          </div>
-          <CollapsibleTrigger render={<Button variant='outline' size='sm' />}>
-            {open
-              ? t('Hide retired models')
-              : t('Show retired models ({{count}})', {
-                  count: props.models.length,
-                })}
-          </CollapsibleTrigger>
+    <Card className='hover:ring-foreground/20 h-full min-w-0 gap-3 transition-colors'>
+      <CardHeader className='flex flex-row items-start gap-3'>
+        <div
+          aria-hidden
+          className='bg-muted/50 flex size-10 shrink-0 items-center justify-center rounded-lg'
+        >
+          <span className='text-muted-foreground text-sm font-bold'>
+            {initial}
+          </span>
         </div>
-        <CollapsibleContent>
-          <ul className='mt-4 divide-y'>
-            {props.models.map((model) => (
-              <RetiredModelItem key={model.model_name} model={model} />
-            ))}
-          </ul>
-        </CollapsibleContent>
-      </Collapsible>
-    </section>
+        <div className='min-w-0 flex-1'>
+          <h3 className='line-clamp-2 font-mono text-[15px] leading-snug font-semibold [overflow-wrap:anywhere]'>
+            <ModelLink modelName={props.model.model_name} />
+          </h3>
+          <div className='mt-1 flex flex-wrap items-center gap-2'>
+            <RetiredModelBadge />
+            <span className='text-muted-foreground text-xs'>
+              {t('Retired on {{date}}', { date: props.model.retired_at })}
+            </span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className='text-muted-foreground flex flex-1 flex-col gap-1.5 text-xs'>
+        <RetiredModelSuccessor model={props.model} />
+        {props.model.note && <p>{props.model.note}</p>}
+        {props.model.notice_url && (
+          <span>
+            <RetirementNoticeLink url={props.model.notice_url} />
+          </span>
+        )}
+      </CardContent>
+      <CardFooter className='mt-auto justify-end border-0 bg-transparent pt-0'>
+        <Link
+          to='/pricing/$modelId'
+          params={{ modelId: props.model.model_name }}
+          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+        >
+          {t('Details')}
+          <ChevronRight aria-hidden className='size-3.5' />
+        </Link>
+      </CardFooter>
+    </Card>
   )
 }
 

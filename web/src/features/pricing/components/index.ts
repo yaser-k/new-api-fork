@@ -29,4 +29,3 @@ export {
   ModelDetailsDrawer,
 } from './model-details'
 export { PricingTable } from './pricing-table'
-export { RetiredModelsSection } from './retired-models'

@@ -101,6 +101,8 @@ export type PricingModel = {
   input_modalities?: Modality[]
   output_modalities?: Modality[]
   capabilities?: ModelCapability[]
+  /** Set on the entry of a retired model: it has no price and cannot be called */
+  retired?: RetiredModel
 }
 
 /** Input/output modalities supported by a model. */
