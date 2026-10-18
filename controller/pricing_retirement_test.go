@@ -111,6 +111,46 @@ func TestGetPricingListsRetiredModelsNewestFirst(t *testing.T) {
 	assert.Equal(t, 1, bytes.Count(logs.Bytes(), []byte(`retired model "zz-priced-retired-model" still has live pricing`)), logs.String())
 }
 
+func TestGetPricingRetiredModelsWithShowAllGroups(t *testing.T) {
+	setupPricingRetirementTest(t)
+	// svip has a group ratio but is not a group the anonymous viewer may use.
+	require.NoError(t, model.DB.Create(&[]model.Ability{
+		{Group: "svip", Model: "zz-svip-live-model", ChannelId: 1, Enabled: true},
+		{Group: "svip", Model: "zz-svip-retired-model", ChannelId: 1, Enabled: true},
+	}).Error)
+	model.InvalidatePricingCache()
+	withRetiredModels(t, `{
+		"zz-priced-retired-model": {"retired_at": "2026-09-30", "successor": "zz-live-model"},
+		"zz-svip-retired-model": {"retired_at": "2026-09-30", "successor": "zz-svip-live-model"}
+	}`)
+	setting := operation_setting.GetGeneralSetting()
+	original := setting.PricingShowAllGroups
+	t.Cleanup(func() { setting.PricingShowAllGroups = original })
+
+	for _, showAll := range []bool{false, true} {
+		setting.PricingShowAllGroups = showAll
+		var payload pricingRetirementResponse
+		require.NoError(t, common.Unmarshal(servePricing(t).Body.Bytes(), &payload))
+
+		names := make([]string, 0, len(payload.Data))
+		for _, item := range payload.Data {
+			names = append(names, item.ModelName)
+		}
+		assert.Contains(t, names, "zz-live-model")
+		if showAll {
+			assert.Contains(t, names, "zz-svip-live-model", "the extra group's models are listed")
+		} else {
+			assert.NotContains(t, names, "zz-svip-live-model")
+		}
+		assert.NotContains(t, names, "zz-priced-retired-model")
+		assert.NotContains(t, names, "zz-svip-retired-model", "a retired model is never priced, whatever the group")
+		assert.Equal(t, []pricingRetiredModel{
+			{ModelName: "zz-priced-retired-model", RetiredAt: "2026-09-30", Successor: "zz-live-model"},
+			{ModelName: "zz-svip-retired-model", RetiredAt: "2026-09-30", Successor: "zz-svip-live-model"},
+		}, payload.RetiredModels)
+	}
+}
+
 func TestGetPricingUnchangedWithoutRetiredModels(t *testing.T) {
 	setupPricingRetirementTest(t)
 	require.Empty(t, operation_setting.GetModelRetirementsCopy())
