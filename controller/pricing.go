@@ -38,6 +38,25 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 	return filtered
 }
 
+// pricingVisibleGroups returns the groups whose models and ratios the pricing
+// page lists. By default these are the groups the viewer may use. With
+// showAll, every group that has a group ratio is added, named by itself.
+// It only widens what is displayed: which groups a user may use is still
+// decided by service.GetUserUsableGroups.
+func pricingVisibleGroups(usableGroup map[string]string, groupRatio map[string]float64, showAll bool) map[string]string {
+	visible := make(map[string]string, len(usableGroup)+len(groupRatio))
+	maps.Copy(visible, usableGroup)
+	if !showAll {
+		return visible
+	}
+	for group := range groupRatio {
+		if _, ok := visible[group]; !ok {
+			visible[group] = group
+		}
+	}
+	return visible
+}
+
 func GetPricing(c *gin.Context) {
 	pricing := model.GetPricing()
 	userId, exists := c.Get("id")
@@ -60,7 +79,8 @@ func GetPricing(c *gin.Context) {
 
 	retirements := operation_setting.GetModelRetirementsCopy()
 	pricing = withoutRetiredPricing(pricing, retirements)
-	usableGroup = service.GetUserUsableGroups(group)
+	usableGroup = pricingVisibleGroups(service.GetUserUsableGroups(group), ratio_setting.GetGroupRatioCopy(),
+		operation_setting.IsPricingShowAllGroups())
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
