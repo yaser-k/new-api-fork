@@ -121,6 +121,16 @@ export type ModelCapability =
   | 'caching'
   | 'embeddings'
 
+/** A model the operator retired: it can no longer be called. */
+export type RetiredModel = {
+  model_name: string
+  /** Retirement date, YYYY-MM-DD */
+  retired_at: string
+  successor: string
+  notice_url?: string
+  note?: string
+}
+
 export type PricingData = {
   success: boolean
   message?: string
@@ -130,6 +140,8 @@ export type PricingData = {
   usable_group: Record<string, { desc: string; ratio: number }>
   supported_endpoint: Record<string, string>
   auto_groups: string[]
+  /** Newest retirement first; absent when no model is retired */
+  retired_models?: RetiredModel[]
 }
 
 export type TokenUnit = 'M' | 'K'
