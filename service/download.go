@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
@@ -64,6 +66,18 @@ func DoDownloadRequest(originUrl string, reason ...string) (resp *http.Response,
 		}
 
 		common.SysLog(common.LogText("downloading from origin: %s, reason: %s", common.MaskSensitiveInfo(originUrl), strings.Join(reason, ", ")))
-		return GetSSRFProtectedHTTPClient().Get(originUrl)
+		client := GetSSRFProtectedHTTPClient()
+		// The caller chose this URL. Bound the whole download, headers and body, so a host
+		// that accepts the connection and then stalls cannot hold the request, and the
+		// request body it carries, until a restart.
+		if seconds := constant.FileDownloadTimeoutSeconds; seconds > 0 {
+			timeout := time.Duration(min(seconds, maxTimeoutSeconds)) * time.Second
+			if client.Timeout == 0 || client.Timeout > timeout {
+				bounded := *client
+				bounded.Timeout = timeout
+				client = &bounded
+			}
+		}
+		return client.Get(originUrl)
 	}
 }
