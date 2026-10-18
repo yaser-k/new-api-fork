@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -265,4 +266,102 @@ func TestOaiStreamHandlerDirectForwardDoesNotWaitForNextFrame(t *testing.T) {
 	got := extractDataLines(recorder.snapshot())
 	assert.Equal(t, []string{frameRole, frameMixedUsageExt, frameContent1, frameFinish, "[DONE]"}, got,
 		"final transcript must match the upstream frames exactly once, in order, verbatim")
+}
+
+// A stream the upstream ends without [DONE] or a finish_reason was cut short:
+// the client gets everything received, then one error event in its own format
+// instead of a usage chunk and [DONE] or a message_stop. Billing is unchanged.
+func TestOaiStreamHandlerUpstreamInterruption(t *testing.T) {
+	tests := []struct {
+		name         string
+		format       types.RelayFormat
+		frames       []string
+		wantContains []string
+		wantMissing  []string
+	}{
+		{
+			name:         "openai client: cut mid-answer ends with an error, not [DONE]",
+			format:       types.RelayFormatOpenAI,
+			frames:       []string{frameRole, frameContent1},
+			wantContains: []string{"data: " + frameContent1, `"code":"stream_interrupted"`, `"type":"upstream_error"`},
+			wantMissing:  []string{"[DONE]", `"prompt_tokens"`},
+		},
+		{
+			name:         "openai client: finish_reason without [DONE] is complete",
+			format:       types.RelayFormatOpenAI,
+			frames:       []string{frameRole, frameContent1, frameFinish},
+			wantContains: []string{"data: " + frameFinish, "data: [DONE]"},
+			wantMissing:  []string{"stream_interrupted"},
+		},
+		{
+			name:         "claude client: held frame delivered, then an error event",
+			format:       types.RelayFormatClaude,
+			frames:       []string{frameRole, frameContent1},
+			wantContains: []string{"hello streaming world", "event: error\n", `"type":"api_error"`},
+			wantMissing:  []string{"message_stop", "end_turn"},
+		},
+		{
+			name:         "claude client: a held frame without choices does not end the message",
+			format:       types.RelayFormatClaude,
+			frames:       []string{frameRole, frameContent1, frameUsageOnly},
+			wantContains: []string{"hello streaming world", "event: error\n"},
+			wantMissing:  []string{"message_stop", "end_turn"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body strings.Builder
+			for _, frame := range tt.frames {
+				body.WriteString("data: " + frame + "\n\n")
+			}
+			recorder := httptest.NewRecorder()
+			c, resp, info := setupOaiStreamTest(t, recorder, strings.NewReader(body.String()), true)
+			info.RelayFormat = tt.format
+
+			usage, apiErr := OaiStreamHandler(c, info, resp)
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Positive(t, usage.CompletionTokens, "what was delivered is still billed")
+
+			got := recorder.Body.String()
+			for _, want := range tt.wantContains {
+				assert.Contains(t, got, want)
+			}
+			for _, missing := range tt.wantMissing {
+				assert.NotContains(t, got, missing)
+			}
+			interrupted := strings.Contains(got, "stream_interrupted") || strings.Contains(got, "event: error")
+			assert.Equal(t, interrupted, info.StreamStatus.HasErrors(), "an interruption is recorded for the request log")
+		})
+	}
+
+	t.Run("a client that left is not an upstream interruption", func(t *testing.T) {
+		pr, pw := io.Pipe()
+		t.Cleanup(func() { _ = pw.Close() })
+		recorder := newSyncFrameRecorder()
+		c, resp, info := setupOaiStreamTest(t, recorder, pr, true)
+		resp.Body = pr // closed by the scanner once the client leaves
+		ctx, cancel := context.WithCancel(c.Request.Context())
+		c.Request = c.Request.WithContext(ctx)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			_, _ = OaiStreamHandler(c, info, resp)
+		}()
+		_, err := pw.Write([]byte("data: " + frameContent1 + "\n\n"))
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return strings.Contains(recorder.snapshot(), "hello streaming world")
+		}, 3*time.Second, 5*time.Millisecond)
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("handler did not finish after the client left")
+		}
+
+		assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+		assert.False(t, info.StreamStatus.HasErrors())
+	})
 }
