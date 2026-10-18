@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -108,11 +109,16 @@ func GetRequestAutoGroups(c *gin.Context, userGroup string) []string {
 }
 
 // GetGroupsEnabledModels 按 groups 顺序获取各分组启用的模型并去重
+// A retired model is left out even if a channel still lists it: the
+// distributor refuses it.
 func GetGroupsEnabledModels(groups []string) []string {
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	for _, group := range groups {
 		for _, modelName := range model.GetGroupEnabledModels(group) {
+			if operation_setting.IsModelRetired(modelName) {
+				continue
+			}
 			if _, ok := seen[modelName]; !ok {
 				seen[modelName] = struct{}{}
 				models = append(models, modelName)
