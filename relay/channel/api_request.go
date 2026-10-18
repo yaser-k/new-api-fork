@@ -195,6 +195,8 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 //   - "re:<regex>" / "regex:<regex>": passthrough headers whose names match the regex (Go regexp)
 //
 // Passthrough rules are applied first, then normal overrides are applied, so explicit overrides win.
+// Headers removed by param override operations come back with an empty value: the caller must
+// remove them from the upstream request, including a value copied from the client.
 func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]string, error) {
 	headerOverride := make(map[string]string)
 	if info == nil {
@@ -292,6 +294,11 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 
 		headerOverride[key] = value
 	}
+	if info.UseRuntimeHeadersOverride {
+		for _, name := range info.RuntimeRemovedHeaders {
+			headerOverride[name] = ""
+		}
+	}
 	return headerOverride, nil
 }
 
@@ -304,6 +311,10 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 		return
 	}
 	for key, value := range headerOverride {
+		if value == "" {
+			req.Header.Del(key)
+			continue
+		}
 		req.Header.Set(key, value)
 		// set Host in req
 		if strings.EqualFold(key, "Host") {
@@ -399,6 +410,10 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, err
 	}
 	for key, value := range headerOverride {
+		if value == "" {
+			targetHeader.Del(key)
+			continue
+		}
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
