@@ -54,7 +54,7 @@ function renderAtPricing(content: React.ReactNode) {
   const pricing = createRoute({
     getParentRoute: () => root,
     path: '/pricing',
-    component: () => <>{content}</>,
+    component: () => <div>{content}</div>,
   })
   const details = createRoute({
     getParentRoute: () => root,
