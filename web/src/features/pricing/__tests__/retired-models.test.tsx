@@ -230,6 +230,16 @@ describe('pricing page model tags', () => {
     expect(screen.getByRole('link', { name: 'example-model-v0' })).toBeVisible()
   })
 
+  it('counts only the callable models on the other filters when some are retired', async () => {
+    renderAt('/pricing')
+
+    expect(await screen.findByText('example-model-v2')).toBeVisible()
+    expect(tagChip(/^All Vendors\s*2$/)).toBeVisible()
+    expect(tagChip(/^All Models\s*2$/)).toBeVisible()
+    expect(tagChip(/^All Types\s*2$/)).toBeVisible()
+    expect(tagChip(/^All Tags\s*4$/)).toBeVisible()
+  })
+
   it('opens on the tag in the address', async () => {
     renderAt('/pricing?tag=status:retired')
 
