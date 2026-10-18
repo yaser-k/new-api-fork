@@ -237,6 +237,7 @@ export function EmailSettingsSection({
                 <FormLabel>{t('SMTP Host')}</FormLabel>
                 <FormControl>
                   <Input
+                    dir='ltr'
                     autoComplete='off'
                     placeholder={t('smtp.example.com')}
                     {...field}
@@ -389,6 +390,7 @@ export function EmailSettingsSection({
                 <FormLabel>{t('Username')}</FormLabel>
                 <FormControl>
                   <Input
+                    dir='ltr'
                     autoComplete='off'
                     placeholder={t('noreply@example.com')}
                     {...field}
@@ -411,6 +413,7 @@ export function EmailSettingsSection({
                 <FormLabel>{t('From Address')}</FormLabel>
                 <FormControl>
                   <Input
+                    dir='ltr'
                     autoComplete='off'
                     placeholder={t('New API &lt;noreply@example.com&gt;')}
                     {...field}
