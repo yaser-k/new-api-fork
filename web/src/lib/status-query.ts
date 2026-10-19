@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { queryOptions, type QueryClient } from '@tanstack/react-query'
 
+import { applyInterfaceLanguageSettings } from '@/i18n/interface-language-policy'
 import { getStatus } from '@/lib/api'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import {
@@ -144,6 +145,14 @@ async function fetchStatus(): Promise<StatusData | null> {
       }
     }
     writeCachedStatus(status)
+    try {
+      applyInterfaceLanguageSettings(status)
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[status] Failed to apply interface languages', err)
+      }
+    }
   }
 
   return status
