@@ -27,11 +27,16 @@ import {
   QUOTA_TYPES,
   ENDPOINT_TYPES,
   DEFAULT_TOKEN_UNIT,
+  MODEL_STATUS_TAGS,
   VIEW_MODES,
   type ViewMode,
 } from '../constants'
-import { filterAndSortModels, extractAllTags } from '../lib/filters'
-import type { PricingModel, TokenUnit } from '../types'
+import {
+  filterAndSortModels,
+  extractAllTags,
+  toRetiredEntries,
+} from '../lib/filters'
+import type { PricingModel, RetiredModel, TokenUnit } from '../types'
 
 type FilterState = {
   search?: string
@@ -53,8 +58,19 @@ function normalizeViewMode(value: unknown): ViewMode {
   return VIEW_MODES.CARD
 }
 
-export function useFilters(models: PricingModel[]) {
+export function useFilters(
+  liveModels: PricingModel[],
+  retiredModels: RetiredModel[] = []
+) {
   const search = useSearch({ from: '/pricing/' })
+  // Retired models are listed with the live ones; the page opens on the live
+  // ones when there are retired models.
+  const models = useMemo(
+    () => [...liveModels, ...toRetiredEntries(retiredModels)],
+    [liveModels, retiredModels]
+  )
+  const defaultTag =
+    retiredModels.length > 0 ? MODEL_STATUS_TAGS.ACTIVE : FILTER_ALL
   const [filterState, setFilterState] = useState<FilterState>(() => ({
     search: search.search,
     sort: search.sort,
@@ -75,7 +91,7 @@ export function useFilters(models: PricingModel[]) {
   const groupFilter = filterState.group || FILTER_ALL
   const quotaTypeFilter = filterState.quotaType || QUOTA_TYPES.ALL
   const endpointTypeFilter = filterState.endpointType || ENDPOINT_TYPES.ALL
-  const tagFilter = filterState.tag || FILTER_ALL
+  const tagFilter = filterState.tag || defaultTag
   const tokenUnit: TokenUnit =
     filterState.tokenUnit === 'K' ? 'K' : DEFAULT_TOKEN_UNIT
   const viewMode = normalizeViewMode(filterState.view)
@@ -123,8 +139,8 @@ export function useFilters(models: PricingModel[]) {
     [updateFilters]
   )
   const setTagFilter = useCallback(
-    (v: string) => updateFilters({ tag: v === FILTER_ALL ? undefined : v }),
-    [updateFilters]
+    (v: string) => updateFilters({ tag: v === defaultTag ? undefined : v }),
+    [updateFilters, defaultTag]
   )
   const setTokenUnit = useCallback(
     (v: TokenUnit) =>
@@ -142,9 +158,9 @@ export function useFilters(models: PricingModel[]) {
   )
 
   const availableTags = useMemo(() => {
-    if (!models || models.length === 0) return []
-    return extractAllTags(models)
-  }, [models])
+    if (!liveModels || liveModels.length === 0) return []
+    return extractAllTags(liveModels)
+  }, [liveModels])
 
   const filteredModels = useMemo(() => {
     if (!models || models.length === 0) return []
@@ -175,8 +191,15 @@ export function useFilters(models: PricingModel[]) {
       groupFilter !== FILTER_ALL ||
       quotaTypeFilter !== QUOTA_TYPES.ALL ||
       endpointTypeFilter !== ENDPOINT_TYPES.ALL ||
-      tagFilter !== FILTER_ALL,
-    [vendorFilter, groupFilter, quotaTypeFilter, endpointTypeFilter, tagFilter]
+      tagFilter !== defaultTag,
+    [
+      vendorFilter,
+      groupFilter,
+      quotaTypeFilter,
+      endpointTypeFilter,
+      tagFilter,
+      defaultTag,
+    ]
   )
 
   const activeFilterCount = useMemo(
@@ -185,8 +208,15 @@ export function useFilters(models: PricingModel[]) {
       (groupFilter !== FILTER_ALL ? 1 : 0) +
       (quotaTypeFilter !== QUOTA_TYPES.ALL ? 1 : 0) +
       (endpointTypeFilter !== ENDPOINT_TYPES.ALL ? 1 : 0) +
-      (tagFilter !== FILTER_ALL ? 1 : 0),
-    [vendorFilter, groupFilter, quotaTypeFilter, endpointTypeFilter, tagFilter]
+      (tagFilter !== defaultTag ? 1 : 0),
+    [
+      vendorFilter,
+      groupFilter,
+      quotaTypeFilter,
+      endpointTypeFilter,
+      tagFilter,
+      defaultTag,
+    ]
   )
 
   const clearFilters = useCallback(() => {
@@ -224,6 +254,7 @@ export function useFilters(models: PricingModel[]) {
     setTokenUnit,
     setViewMode,
     setShowRechargePrice,
+    models,
     filteredModels,
     hasActiveFilters,
     activeFilterCount,
