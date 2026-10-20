@@ -173,6 +173,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+	// The previous attempt's error row is recorded as retried when another
+	// attempt starts, and as the request's final row otherwise.
+	var failedAttemptLog *model.ErrorLog
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.StreamStatus = nil
@@ -202,6 +205,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
+		failedAttemptLog.Record(c, true)
+		failedAttemptLog = nil
 
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
@@ -225,12 +230,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		decision := service.DecideRelayRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())
 		service.RecordPolicyFailure(c, channel.Id, newAPIError, decision)
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
+		failedAttemptLog = service.ProcessAttemptChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
 		if decision.Action != "retry" {
 			break
 		}
 	}
+	failedAttemptLog.Record(c, false)
 
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
@@ -537,6 +543,9 @@ func executeTaskSubmissionWith(
 		RequestPath: c.Request.URL.Path,
 		Retry:       common.GetPointer(0),
 	}
+	// The previous attempt's error row is recorded as retried when another
+	// attempt starts, and as the request's final row otherwise.
+	var failedAttemptLog *model.ErrorLog
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		stage = "select_channel"
@@ -579,6 +588,8 @@ func executeTaskSubmissionWith(
 			break
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
+		failedAttemptLog.Record(c, true)
+		failedAttemptLog = nil
 
 		stage = "submit"
 		result, taskErr = submit(c, relayInfo)
@@ -597,7 +608,7 @@ func executeTaskSubmissionWith(
 		decision := decideTaskRetry(c, taskErr, common.RetryTimes-retryParam.GetRetry())
 		service.RecordPolicyFailure(c, channel.Id, taskAPIError, decision)
 		if !taskErr.LocalError {
-			processChannelError(c,
+			failedAttemptLog = service.ProcessAttemptChannelError(c,
 				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
 				taskAPIError,
@@ -610,6 +621,7 @@ func executeTaskSubmissionWith(
 			break
 		}
 	}
+	failedAttemptLog.Record(c, false)
 
 	useChannel := c.GetStringSlice("use_channel")
 	if len(useChannel) > 1 {
