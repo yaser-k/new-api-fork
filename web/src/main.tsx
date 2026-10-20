@@ -21,6 +21,7 @@ import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 
+import { applyInterfaceLanguageSettings } from '@/i18n/interface-language-policy'
 import { installBuildMetadata } from '@/lib/build-metadata'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
@@ -80,6 +81,7 @@ if (!rootElement) {
     }
     // Cache-first
     const cached = readCachedStatus()
+    applyInterfaceLanguageSettings(cached)
     if (cached?.system_name) apply(cached.system_name as string)
     if (cached?.logo) applyFaviconToDom(cached.logo as string)
 
