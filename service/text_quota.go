@@ -64,6 +64,9 @@ type textQuotaSummary struct {
 	ToolSurchargeItems     []ToolSurchargeItem
 	ToolCallSurchargeQuota decimal.Decimal
 	FixedPriceBilling      bool
+	// BillingExemptReason is set when the upstream does not bill this
+	// response (constant.ContextKeyBillingExemptReason); it settles at zero.
+	BillingExemptReason string
 }
 
 // hasBillableUsage reports whether this request should incur any charge.
@@ -239,6 +242,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		CacheCreationRatio5m: relayInfo.PriceData.CacheCreation5mRatio,
 		CacheCreationRatio1h: relayInfo.PriceData.CacheCreation1hRatio,
 		UsageSemantic:        usageSemanticFromUsage(relayInfo, usage),
+		BillingExemptReason:  common.GetContextKeyString(ctx, constant.ContextKeyBillingExemptReason),
 	}
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
@@ -368,7 +372,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		noteQuotaClamp(relayInfo, clamp)
 	}
 
-	if !summary.hasBillableUsage() {
+	if !summary.hasBillableUsage() || summary.BillingExemptReason != "" {
 		summary.Quota = 0
 	} else if !ratio.IsZero() && summary.Quota == 0 {
 		summary.Quota = 1
@@ -410,7 +414,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if billingUsage == nil && snap != nil && billingexpr.UsesFixedPricingByHash(snap.ExprString, snap.ExprHash) {
 		billingUsage = &dto.Usage{PromptTokens: summary.PromptTokens, CompletionTokens: summary.CompletionTokens, TotalTokens: summary.TotalTokens}
 	}
-	if billingUsage != nil {
+	if billingUsage != nil && summary.BillingExemptReason == "" {
 		var tieredUsedVars map[string]bool
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			tieredUsedVars = billingexpr.UsedVarsByHash(snap.ExprString, snap.ExprHash)
@@ -445,7 +449,10 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		extraContent = append(extraContent, common.NewMessage("Audio input cost {{quota}}", map[string]any{"quota": logger.FormatQuota(common.QuotaFromDecimal(q))}))
 	}
 
-	if !summary.hasBillableUsage() {
+	if summary.BillingExemptReason != "" {
+		extraContent = append(extraContent, common.NewMessage("Upstream did not bill this request, so nothing was charged: {{reason}}", map[string]any{"reason": summary.BillingExemptReason}))
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, 0)
+	} else if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, common.NewMessage("Upstream returned no usage, so nothing was charged (possibly an upstream timeout)"))
 		logger.LogError(ctx, common.LogText("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
@@ -483,6 +490,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {
 		other.SetAdmin("reject_reason", adminRejectReason)
+	}
+	if summary.BillingExemptReason != "" {
+		other.SetPublic("billing_exempt_reason", summary.BillingExemptReason)
 	}
 	if summary.ImageTokens != 0 {
 		other.SetPublic("image", true)
