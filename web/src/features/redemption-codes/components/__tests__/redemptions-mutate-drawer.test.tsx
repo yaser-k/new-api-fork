@@ -52,6 +52,7 @@ await i18n.use(initReactI18next).init({
 type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
+  post: ApiMethod
   put: ApiMethod
 }
 type RenderedDrawer = {
@@ -64,6 +65,7 @@ type CurrencyFixture = {
 
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
+const originalPost = apiClient.post
 const originalPut = apiClient.put
 const originalConsoleLog = Reflect.get(console, 'log')
 let renderedDrawer: RenderedDrawer | null = null
@@ -93,7 +95,7 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
-function drawerTree(currentRow: Redemption) {
+function drawerTree(currentRow?: Redemption) {
   return (
     <I18nextProvider i18n={i18n}>
       <RedemptionsProvider>
@@ -179,6 +181,7 @@ async function waitForLoadedForm(): Promise<void> {
 
 afterEach(() => {
   apiClient.get = originalGet
+  apiClient.post = originalPost
   apiClient.put = originalPut
   Reflect.set(console, 'log', originalConsoleLog)
   toast.dismiss()
@@ -187,6 +190,31 @@ afterEach(() => {
 })
 
 describe('redemption drawer', () => {
+  test('sends a default name without bidi isolates for a right-to-left currency symbol', async () => {
+    const creates: Array<Record<string, unknown>> = []
+    apiClient.post = async (_url, data) => {
+      creates.push(data as Record<string, unknown>)
+      return { data: { success: true, data: ['key-1'] } }
+    }
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        displayInCurrency: true,
+        quotaDisplayType: 'CUSTOM',
+        quotaPerUnit: 500000,
+        usdExchangeRate: 1,
+        customCurrencySymbol: 'تومان',
+        customCurrencyExchangeRate: 1,
+      },
+    })
+
+    render(drawerTree())
+    submitForm()
+    await waitFor(() => expect(creates).toHaveLength(1))
+
+    expect(creates[0]?.name).toContain('تومان')
+    expect(creates[0]?.name).not.toMatch(/[\u2068\u2069]/)
+  })
+
   test('shows the reported CNY quota without floating-point noise', async () => {
     const original = redemption(1, 13888889)
     apiClient.get = async () => ({ data: { success: true, data: original } })
