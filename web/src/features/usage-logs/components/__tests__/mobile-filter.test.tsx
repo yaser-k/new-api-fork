@@ -125,14 +125,18 @@ afterEach(async () => {
 })
 
 it('applies the selected mobile date range directly and resets pagination while retaining filters', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 8, 8, 12))
   const router = await renderMobileFilter()
   const user = userEvent.setup()
   await user.click(screen.getByRole('button', { name: /^\d{4}-\d{2}/ }))
+  await user.click(screen.getByRole('button', { name: /September 7th, 2026/ }))
+  await user.click(screen.getByRole('button', { name: /September 8th, 2026/ }))
   fireEvent.change(screen.getByLabelText('Start Time'), {
-    target: { value: '2026-09-07T09:30' },
+    target: { value: '09:30' },
   })
   fireEvent.change(screen.getByLabelText('End Time'), {
-    target: { value: '2026-09-08T17:45' },
+    target: { value: '17:45' },
   })
   await user.click(screen.getByRole('button', { name: 'Confirm' }))
   await waitFor(() =>
@@ -140,8 +144,8 @@ it('applies the selected mobile date range directly and resets pagination while 
       page: 1,
       group: 'default',
       type: ['2'],
-      startTime: new Date('2026-09-07T09:30').getTime(),
-      endTime: new Date('2026-09-08T17:45').getTime(),
+      startTime: new Date(2026, 8, 7, 9, 30).getTime(),
+      endTime: new Date(2026, 8, 8, 17, 45, 59, 999).getTime(),
     })
   )
 })
