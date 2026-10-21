@@ -313,6 +313,7 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_inference_geo',
   'allow_speed',
   'claude_beta_query',
+  'response_drop_fields',
   'ollama_openai_chat',
   'disable_task_polling_sleep',
   'upstream_model_update_check_enabled',
@@ -3108,6 +3109,32 @@ export function ChannelMutateDrawer({
                   )}
                 />
               )}
+
+              <FormField
+                control={form.control}
+                name='response_drop_fields'
+                render={({ field }) => (
+                  <FormItem className='space-y-2 px-4 py-3'>
+                    <FormLabel className='text-sm'>
+                      {t('Response fields to remove')}
+                    </FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        placeholder={t('One JSON path per line')}
+                        {...field}
+                        disabled={sensitiveLocked}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Remove these JSON paths, such as billing or usage.some_field, from Claude-format answers forwarded to clients as they came'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </>
           )}
         </div>
