@@ -846,6 +846,62 @@ func TestBuildTieredTokenParams_GPT_AudioOutputNoVar(t *testing.T) {
 	}
 }
 
+// A Gemini image answer's image tokens (here a measured gemini-3.1-flash-image answer: 21 text
+// prompt tokens, 1120 image output tokens) bill at an image output price only when the model's
+// billing expression names img_o. Ratio pricing and an expression without img_o bill them as
+// completion tokens, as before. The prices are illustrative, image output at twenty times text output.
+func TestGeminiImageOutputTokensBillAtTheImageOutputPrice(t *testing.T) {
+	usage := effectiveBillingUsage(&dto.Usage{BillingUsage: dto.NewGeminiChatBillingUsage(&dto.GeminiUsageMetadata{
+		PromptTokenCount:        21,
+		CandidatesTokenCount:    1120,
+		TotalTokenCount:         1141,
+		PromptTokensDetails:     []dto.GeminiPromptTokensDetails{{Modality: "TEXT", TokenCount: 21}},
+		CandidatesTokensDetails: []dto.GeminiPromptTokensDetails{{Modality: "IMAGE", TokenCount: 1120}},
+	})})
+
+	tests := []struct {
+		name      string
+		expr      string
+		wantC     float64
+		wantQuota int
+	}{
+		// (21 * 0.5 + 1120 * 60) / 1e6 * 500000 = 33605.25
+		{"expression with img_o", `tier("base", p * 0.5 + c * 3 + img_o * 60)`, 0, 33605},
+		// (21 * 0.5 + 1120 * 3) / 1e6 * 500000 = 1685.25
+		{"expression without img_o", `tier("base", p * 0.5 + c * 3)`, 1120, 1685},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := BuildTieredTokenParams(usage, false, billingexpr.UsedVars(tt.expr))
+			assert.Equal(t, 21.0, params.P)
+			assert.Equal(t, tt.wantC, params.C)
+			assert.Equal(t, 1120.0, params.ImgO)
+
+			ok, quota, _ := TryTieredSettle(makeRelayInfo(tt.expr, 1, 21, 0), params)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantQuota, quota)
+		})
+	}
+
+	t.Run("ratio pricing", func(t *testing.T) {
+		gin.SetMode(gin.TestMode)
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		// Model ratio 0.25 and completion ratio 6 are the same text prices: (21 + 1120 * 6) * 0.25 = 1685.25
+		relayInfo := &relaycommon.RelayInfo{
+			OriginModelName: "gemini-3.1-flash-image",
+			PriceData: types.PriceData{
+				ModelRatio:      0.25,
+				CompletionRatio: 6,
+				GroupRatioInfo:  types.GroupRatioInfo{GroupRatio: 1},
+			},
+		}
+		summary := calculateTextQuotaSummary(ctx, relayInfo, usage)
+		assert.Equal(t, 21, summary.PromptTokens)
+		assert.Equal(t, 1120, summary.CompletionTokens)
+		assert.Equal(t, 1685, summary.Quota)
+	})
+}
+
 func TestBuildTieredTokenParams_ParityWithRatio(t *testing.T) {
 	// GPT-5.4 prices: input=$2.5, output=$15, cacheRead=$0.25
 	// Ratio equivalents: modelRatio=1.25, completionRatio=6, cacheRatio=0.1
