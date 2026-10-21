@@ -19,6 +19,8 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func stopReasonClaude2OpenAI(reason string) string {
@@ -82,6 +84,22 @@ func patchClaudeMessageDeltaUsageData(data string, usage *dto.ClaudeUsage) strin
 	return relayconvert.PatchClaudeMessageDeltaUsageData(data, usage)
 }
 
+// dropResponseFields removes the channel's response_drop_fields paths from a
+// Claude-format answer that is forwarded as it came. Data that holds none of
+// the paths is returned unchanged, without being re-encoded.
+func dropResponseFields(data string, paths []string) string {
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" || !gjson.Get(data, path).Exists() {
+			continue
+		}
+		if dropped, err := sjson.Delete(data, path); err == nil {
+			data = dropped
+		}
+	}
+	return data
+}
+
 func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *dto.ChatCompletionsStreamResponse, claudeInfo *ClaudeResponseInfo) bool {
 	return relayconvert.FormatClaudeResponseInfo(claudeResponse, oaiResponse, claudeInfo)
 }
@@ -124,6 +142,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 			}
 		}
 		countClaudeStreamBillableTools(info, &claudeResponse)
+		if info.HasChannelMeta() {
+			data = dropResponseFields(data, info.ChannelOtherSettings.ResponseDropFields)
+		}
 		helper.ClaudeChunkData(c, claudeResponse, data)
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		state, err := claudeToChatStreamState(info)
@@ -410,6 +431,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	case types.RelayFormatClaude:
 		responseData = data
+		if info.HasChannelMeta() && len(info.ChannelOtherSettings.ResponseDropFields) > 0 {
+			responseData = []byte(dropResponseFields(string(data), info.ChannelOtherSettings.ResponseDropFields))
+		}
 	case types.RelayFormatGemini:
 		{
 			convertResult, convertErr := service.ConvertResponse(c, info, types.RelayFormatGemini, &claudeResponse)
