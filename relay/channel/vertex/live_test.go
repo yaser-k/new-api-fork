@@ -57,6 +57,8 @@ type fakeLiveAPI struct {
 	path          string
 	received      []string
 	ended         chan struct{}
+	// replayDelay is how long the upstream takes to answer the end of the audio.
+	replayDelay time.Duration
 }
 
 func newFakeLiveAPI(t *testing.T, replay []string, closeAfterSetup bool) *fakeLiveAPI {
@@ -88,6 +90,10 @@ func newFakeLiveAPI(t *testing.T, replay []string, closeAfterSetup bool) *fakeLi
 					return
 				}
 			case strings.Contains(string(message), `"audioStreamEnd"`) && replay != nil:
+				api.mu.Lock()
+				delay := api.replayDelay
+				api.mu.Unlock()
+				time.Sleep(delay)
 				for _, event := range replay {
 					_ = conn.WriteMessage(websocket.TextMessage, []byte(event))
 				}
@@ -363,4 +369,74 @@ func TestVertexRealtimeRefusesWhatLiveCannotServe(t *testing.T) {
 			assert.Empty(t, api.messages())
 		})
 	}
+}
+
+// A session that ends before the upstream reports the usage of its audio is still billed: the upstream
+// stays open for the grace period, and audio it never reports is billed by its length.
+func TestVertexLiveTranscriptionGracePeriod(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	baseline := runtime.NumGoroutine()
+
+	t.Run("usage that arrives after the client closed is settled", func(t *testing.T) {
+		api := newFakeLiveAPI(t, liveMeasuredSession(), false)
+		api.mu.Lock()
+		api.replayDelay = 200 * time.Millisecond
+		api.mu.Unlock()
+		gatewayURL, results := newLiveGateway(t, api.URL, 9201)
+		client, _, err := websocket.DefaultDialer.Dial(gatewayURL, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "transcription_session.created", readLiveEvent(t, client)["type"])
+		for i := range 3 {
+			sendLiveEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{byte(i + 1)}, 4800))+`"}`)
+		}
+		// The client closes right after its last audio frame, before any transcription.
+		_ = client.Close()
+
+		result := awaitLiveResult(t, results, api)
+		require.Nil(t, result.apiErr)
+		assert.Equal(t, dto.RealtimeUsage{
+			TotalTokens:        290,
+			InputTokens:        272,
+			OutputTokens:       18,
+			InputTokenDetails:  dto.InputTokenDetails{AudioTokens: 272},
+			OutputTokenDetails: dto.OutputTokenDetails{TextTokens: 18},
+		}, *result.usage)
+		received := api.messages()
+		require.Len(t, received, 5)
+		assert.JSONEq(t, `{"realtimeInput":{"audioStreamEnd":true}}`, received[4])
+	})
+
+	t.Run("audio the upstream never reports is billed by its length", func(t *testing.T) {
+		saved := liveUsageGrace
+		liveUsageGrace = 300 * time.Millisecond
+		t.Cleanup(func() { liveUsageGrace = saved })
+		api := newFakeLiveAPI(t, nil, false)
+		gatewayURL, results := newLiveGateway(t, api.URL, 9202)
+		client, _, err := websocket.DefaultDialer.Dial(gatewayURL, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "transcription_session.created", readLiveEvent(t, client)["type"])
+		// 10.85 s of pcm16 at 24 kHz, the measured sample's length: 108 frames of 100 ms and one of 50 ms.
+		frame := base64.StdEncoding.EncodeToString(make([]byte, 4800))
+		for range 108 {
+			sendLiveEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+frame+`"}`)
+		}
+		sendLiveEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+base64.StdEncoding.EncodeToString(make([]byte, 2400))+`"}`)
+		_ = client.Close()
+
+		// The upstream never closes by itself: the session closes it when the grace period ends.
+		result := awaitLiveResult(t, results, api)
+		require.Nil(t, result.apiErr)
+		// 520800 bytes / 48000 = 10.85 s at 25 tokens a second, rounded up: the measured 272 audio tokens.
+		assert.Equal(t, dto.RealtimeUsage{
+			TotalTokens:       272,
+			InputTokens:       272,
+			InputTokenDetails: dto.InputTokenDetails{AudioTokens: 272},
+		}, *result.usage)
+	})
+
+	// No goroutine or connection of the sessions above outlives the grace period.
+	for deadline := time.Now().Add(5 * time.Second); runtime.NumGoroutine() > baseline && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	assert.LessOrEqual(t, runtime.NumGoroutine(), baseline)
 }
