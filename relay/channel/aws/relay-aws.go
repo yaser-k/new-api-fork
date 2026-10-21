@@ -109,6 +109,19 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 		awsModelId = awsModelCrossRegion(awsModelId, awsRegionPrefix)
 	}
 
+	// Only ConvertOpenAIRequest builds a Pegasus body. Any other request (the
+	// Messages API, or a passed-through body) would be sent as Anthropic's.
+	if isPegasusModel(awsModelId) {
+		if !a.IsPegasus {
+			return nil, types.NewErrorWithStatusCode(errors.New("this request is not supported for TwelveLabs Pegasus on AWS Bedrock; use chat completions with one video_url part, without pass-through"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		a.AwsReq, err = newPegasusInput(awsModelId, requestBody, info.IsStream)
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
 	// init empty request.header
 	requestHeader := http.Header{}
 	a.SetupRequestHeader(c, &requestHeader, info)
