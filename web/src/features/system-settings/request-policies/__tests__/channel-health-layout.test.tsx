@@ -95,6 +95,7 @@ describe('channel health layout', () => {
       screen.getByRole('textbox', { name: 'Auto-disable status codes' }),
       screen.getByRole('textbox', { name: 'Auto-disable error codes' }),
       screen.getByRole('textbox', { name: 'Failure keywords' }),
+      screen.getByRole('textbox', { name: 'Retry keywords' }),
     ]) {
       expect(formItemOf(control)?.parentElement).toBe(grid)
     }
