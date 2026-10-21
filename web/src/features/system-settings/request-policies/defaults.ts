@@ -28,6 +28,7 @@ export type HealthSettings = {
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
+  AutomaticRetryKeywords: string
   AutomaticDisableStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
@@ -54,6 +55,7 @@ export const defaultRequestPolicySettings: RequestPolicySettings = {
   AutomaticDisableChannelEnabled: false,
   AutomaticEnableChannelEnabled: false,
   AutomaticDisableKeywords: '',
+  AutomaticRetryKeywords: '',
   AutomaticDisableStatusCodes: '401',
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 10,
