@@ -195,3 +195,30 @@ func TestInferencePresetSettingsAndDatabaseRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestChannelUpstreamEndUserIDFieldRoundTripAndValidation(t *testing.T) {
+	channel := &Channel{OtherSettings: `{"allow_safety_identifier":true}`}
+	assert.Empty(t, channel.GetOtherSettings().UpstreamEndUserIDField, "off by default")
+
+	for _, field := range []string{"safety_identifier", "user", "metadata.user_id"} {
+		settings := channel.GetOtherSettings()
+		settings.UpstreamEndUserIDField = field
+		channel.SetOtherSettings(settings)
+		assert.JSONEq(t, `{"allow_safety_identifier":true,"upstream_end_user_id_field":"`+field+`"}`, channel.OtherSettings)
+		assert.Equal(t, field, channel.GetOtherSettings().UpstreamEndUserIDField)
+		require.NoError(t, channel.ValidateSettings())
+	}
+
+	settings := channel.GetOtherSettings()
+	settings.UpstreamEndUserIDField = ""
+	channel.SetOtherSettings(settings)
+	assert.JSONEq(t, `{"allow_safety_identifier":true}`, channel.OtherSettings)
+	require.NoError(t, channel.ValidateSettings())
+
+	for _, field := range []string{"metadata", "user_id", "email", " user"} {
+		channel.OtherSettings = `{"upstream_end_user_id_field":"` + field + `"}`
+		err := channel.ValidateSettings()
+		require.Error(t, err, field)
+		assert.Contains(t, err.Error(), "upstream_end_user_id_field")
+	}
+}
