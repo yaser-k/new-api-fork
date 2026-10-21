@@ -498,3 +498,97 @@ func TestClaudeResponsePassesInputTransformationsThrough(t *testing.T) {
 	require.Nil(t, HandleStreamResponseData(c, info, &ClaudeResponseInfo{Usage: &dto.Usage{}}, event))
 	assert.Contains(t, w.Body.String(), "data: "+event+"\n")
 }
+
+func TestClaudeStreamResponseDropFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	start := `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":12,"output_tokens":1}}}`
+	text := `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`
+	delta := `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":12,"output_tokens":7,"x":1},"billing":{"billed_cost_usd":"0.0123","currency":"USD","effective_discount_percent":0,"status":"ok","zero_data_retention":false},"request_id":"req_1"}`
+	stop := `{"type":"message_stop","amazon-bedrock-invocationMetrics":{"inputTokenCount":12,"outputTokenCount":7,"invocationLatency":900,"firstByteLatency":300}}`
+	events := []string{start, text, delta, stop}
+	stream := func(t *testing.T, drop []string) (string, dto.Usage) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude, ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName:    "claude-opus-5-5",
+			ChannelOtherSettings: dto.ChannelOtherSettings{ResponseDropFields: drop},
+		}}
+		state := &ClaudeResponseInfo{Usage: &dto.Usage{}}
+		for _, event := range events {
+			require.Nil(t, HandleStreamResponseData(c, info, state, event))
+		}
+		HandleStreamFinalResponse(c, info, state)
+		return w.Body.String(), *state.Usage
+	}
+	baseline, baselineUsage := stream(t, nil)
+
+	t.Run("empty list forwards every event as it came", func(t *testing.T) {
+		for _, event := range events {
+			assert.Contains(t, baseline, "data: "+event+"\n")
+		}
+	})
+	for _, tc := range []struct {
+		name    string
+		drop    []string
+		replace map[string]string
+	}{
+		{name: "top-level object and string are removed", drop: []string{"billing", "request_id"}, replace: map[string]string{
+			delta: `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":12,"output_tokens":7,"x":1}}`,
+		}},
+		{name: "hyphenated key is removed", drop: []string{"amazon-bedrock-invocationMetrics"}, replace: map[string]string{
+			stop: `{"type":"message_stop"}`,
+		}},
+		{name: "nested path keeps the rest of its object", drop: []string{"usage.x"}, replace: map[string]string{
+			delta: `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":12,"output_tokens":7},"billing":{"billed_cost_usd":"0.0123","currency":"USD","effective_discount_percent":0,"status":"ok","zero_data_retention":false},"request_id":"req_1"}`,
+		}},
+		{name: "a usage field removed for the client still counts", drop: []string{"usage.output_tokens"}, replace: map[string]string{
+			delta: `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":12,"x":1},"billing":{"billed_cost_usd":"0.0123","currency":"USD","effective_discount_percent":0,"status":"ok","zero_data_retention":false},"request_id":"req_1"}`,
+		}},
+		{name: "events without listed paths are forwarded as they came", drop: []string{"", "  ", "absent", "usage.absent"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := baseline
+			for original, dropped := range tc.replace {
+				require.Contains(t, want, "data: "+original+"\n")
+				want = strings.Replace(want, "data: "+original+"\n", "data: "+dropped+"\n", 1)
+			}
+			body, usage := stream(t, tc.drop)
+			assert.Equal(t, want, body)
+			assert.Equal(t, baselineUsage, usage, "usage is read from the upstream event")
+		})
+	}
+}
+
+func TestClaudeResponseDropFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := `{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1},"billing":{"billed_cost_usd":"0.0123","currency":"USD"},"request_id":"req_1"}`
+	respond := func(t *testing.T, drop []string) (*httptest.ResponseRecorder, dto.Usage) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude, ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName:    "claude-opus-5-5",
+			ChannelOtherSettings: dto.ChannelOtherSettings{ResponseDropFields: drop},
+		}}
+		upstream := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Length": {fmt.Sprint(len(body))}, "Content-Type": {"application/json"}}}
+		state := &ClaudeResponseInfo{Usage: &dto.Usage{}}
+		require.Nil(t, HandleClaudeResponseData(c, info, state, upstream, []byte(body)))
+		return w, *state.Usage
+	}
+	_, baselineUsage := respond(t, nil)
+
+	t.Run("listed fields are removed", func(t *testing.T) {
+		w, usage := respond(t, []string{"billing", "request_id"})
+		assert.Equal(t, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}`, w.Body.String())
+		var decoded map[string]any
+		require.NoError(t, common.Unmarshal(w.Body.Bytes(), &decoded))
+		assert.Equal(t, fmt.Sprint(w.Body.Len()), w.Header().Get("Content-Length"))
+		assert.Equal(t, baselineUsage, usage)
+	})
+	t.Run("body without listed paths is forwarded as it came", func(t *testing.T) {
+		w, _ := respond(t, []string{"absent"})
+		assert.Equal(t, body, w.Body.String())
+		assert.Equal(t, fmt.Sprint(len(body)), w.Header().Get("Content-Length"))
+	})
+}

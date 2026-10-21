@@ -196,6 +196,22 @@ func TestInferencePresetSettingsAndDatabaseRoundTrip(t *testing.T) {
 	}
 }
 
+func TestChannelResponseDropFieldsRoundTrip(t *testing.T) {
+	channel := &Channel{OtherSettings: `{"allow_safety_identifier":true}`}
+	settings := channel.GetOtherSettings()
+	assert.Empty(t, settings.ResponseDropFields, "absent by default")
+
+	settings.ResponseDropFields = []string{"billing", "amazon-bedrock-invocationMetrics", "usage.x"}
+	channel.SetOtherSettings(settings)
+	assert.JSONEq(t, `{"allow_safety_identifier":true,"response_drop_fields":["billing","amazon-bedrock-invocationMetrics","usage.x"]}`, channel.OtherSettings)
+	assert.Equal(t, []string{"billing", "amazon-bedrock-invocationMetrics", "usage.x"}, channel.GetOtherSettings().ResponseDropFields)
+
+	settings.ResponseDropFields = nil
+	channel.SetOtherSettings(settings)
+	assert.JSONEq(t, `{"allow_safety_identifier":true}`, channel.OtherSettings)
+	assert.Empty(t, channel.GetOtherSettings().ResponseDropFields)
+}
+
 func TestChannelUpstreamEndUserIDFieldRoundTripAndValidation(t *testing.T) {
 	channel := &Channel{OtherSettings: `{"allow_safety_identifier":true}`}
 	assert.Empty(t, channel.GetOtherSettings().UpstreamEndUserIDField, "off by default")

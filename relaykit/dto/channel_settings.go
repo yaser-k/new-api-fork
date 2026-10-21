@@ -122,6 +122,7 @@ type ChannelOtherSettings struct {
 	UpstreamEndUserIDField                string                `json:"upstream_end_user_id_field,omitempty"` // request field that carries an opaque id of the requesting user; empty sends none
 	DisableStore                          bool                  `json:"disable_store,omitempty"`              // 是否禁用 store 透传（默认允许透传，禁用后可能导致 Codex 无法使用）
 	AllowIncludeObfuscation               bool                  `json:"allow_include_obfuscation,omitempty"`  // 是否允许 stream_options.include_obfuscation 透传（默认过滤以避免关闭流混淆保护）
+	ResponseDropFields                    []string              `json:"response_drop_fields,omitempty"`       // JSON paths removed from Claude-format answers forwarded as they came
 	DisableTaskPollingSleep               bool                  `json:"disable_task_polling_sleep,omitempty"` // 是否跳过异步任务轮询间隔
 	AwsKeyType                            AwsKeyType            `json:"aws_key_type,omitempty"`
 	AwsApiType                            AwsApiType            `json:"aws_api_type,omitempty"`
