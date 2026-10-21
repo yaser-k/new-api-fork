@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -519,6 +520,30 @@ func TestCalculateTextQuotaSummaryUsesGeminiBillingUsageBeforeTopLevelUsage(t *t
 	require.Equal(t, 7, summary.CacheTokens)
 	require.Equal(t, 128, summary.TotalTokens)
 	require.Equal(t, 145, summary.Quota)
+}
+
+// A Gemini transcription answer's usage (the measured 10.85 s request: 272 audio prompt tokens and 18
+// text output tokens) is priced by the audio quota, its audio at the model's audio ratio. The ratios
+// are illustrative.
+func TestCalculateAudioQuotaPricesGeminiTranscriptionUsage(t *testing.T) {
+	savedAudio, savedCompletion := ratio_setting.AudioRatio2JSONString(), ratio_setting.CompletionRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateAudioRatioByJSONString(savedAudio))
+		require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(savedCompletion))
+	})
+	require.NoError(t, ratio_setting.UpdateAudioRatioByJSONString(`{"gemini-3.5-transcribe":4}`))
+	require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(`{"gemini-3.5-transcribe":4}`))
+
+	quota, clamp := calculateAudioQuota(QuotaInfo{
+		InputDetails:  TokenDetails{AudioTokens: 272},
+		OutputDetails: TokenDetails{TextTokens: 18},
+		ModelName:     "gemini-3.5-transcribe",
+		ModelRatio:    0.5,
+		GroupRatio:    1,
+	})
+	require.Nil(t, clamp)
+	// (0 text + 18 * 4 completion + 272 * 4 audio) * 0.5 model ratio
+	assert.Equal(t, 580, quota)
 }
 
 func TestCalculateTextQuotaSummaryUsesOpenAIBillingUsageBeforeTopLevelUsage(t *testing.T) {
