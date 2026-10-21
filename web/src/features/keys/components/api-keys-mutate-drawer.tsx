@@ -538,7 +538,7 @@ export function ApiKeysMutateDrawer({
                           value={field.value}
                           onChange={field.onChange}
                           placeholder={t('Never expires')}
-                          className='min-w-0 [&_input[type=time]]:w-24 sm:[&_input[type=time]]:w-32'
+                          className='min-w-0'
                         />
                       </FormControl>
                       <div className='grid grid-cols-4 gap-2 sm:flex'>
