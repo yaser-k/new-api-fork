@@ -70,6 +70,9 @@ var claudeModelMap = map[string]string{
 const anthropicVersion = "vertex-2023-10-16"
 
 type Adaptor struct {
+	// transcription is set by ConvertAudioRequest for a Gemini transcription model; its answer follows it.
+	transcription *gemini.TranscriptionRequest
+
 	RequestMode        int
 	AccountCredentials Credentials
 	// embeddingEncodingFormat is the encoding_format of an embeddings request, applied to its answer.
@@ -157,9 +160,22 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	return vertexClaudeReq, nil
 }
 
+// isGeminiTranscriptionModel reports whether a model is one of Gemini's transcription models, which
+// transcribe audio through generateContent.
+func isGeminiTranscriptionModel(upstreamModelName string) bool {
+	return strings.HasPrefix(upstreamModelName, "gemini-") && strings.Contains(upstreamModelName, "transcribe")
+}
+
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	if info.RelayMode != constant.RelayModeAudioTranscription || a.RequestMode != RequestModeGemini || !isGeminiTranscriptionModel(info.UpstreamModelName) {
+		return nil, errors.New("not implemented")
+	}
+	transcription, body, err := gemini.ConvertTranscriptionRequest(c, info)
+	if err != nil {
+		return nil, err
+	}
+	a.transcription = transcription
+	return body, nil
 }
 
 // isGeminiImageModel reports whether a model is one of Gemini's image models, which generate images
@@ -291,6 +307,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	if a.transcription != nil {
+		// The transcription body is JSON, not the client's multipart upload.
+		req.Set("Content-Type", "application/json")
+	}
 	if info.ChannelOtherSettings.VertexKeyType != dto.VertexKeyTypeAPIKey {
 		accessToken, err := getAccessToken(a, info)
 		if err != nil {
@@ -478,6 +498,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		case RequestModeClaude:
 			return claudeAdaptor.DoResponse(c, resp, info)
 		case RequestModeGemini:
+			if a.transcription != nil {
+				return gemini.GeminiTranscriptionHandler(c, info, resp, a.transcription)
+			}
 			if info.RelayMode == constant.RelayModeGemini {
 				return gemini.GeminiTextGenerationHandler(c, info, resp)
 			} else {
