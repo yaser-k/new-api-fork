@@ -27,7 +27,27 @@ const (
 	RequestModeClaude     = 1
 	RequestModeGemini     = 2
 	RequestModeOpenSource = 3
+	RequestModeMistral    = 4
 )
+
+// Mistral's chat models on Vertex AI take an OpenAI chat body through rawPredict on the
+// mistralai publisher. Mistral's OCR model takes a document body and is not one of them.
+var mistralChatModelPrefixes = []string{"mistral-", "codestral-"}
+
+// mistralChatModelID reports whether an upstream model name is one of Mistral's chat models
+// and returns its bare id, without a "mistralai/" publisher prefix.
+func mistralChatModelID(upstreamModelName string) (string, bool) {
+	id := strings.TrimPrefix(upstreamModelName, PublisherMistral+"/")
+	if strings.HasPrefix(id, "mistral-ocr") {
+		return "", false
+	}
+	for _, prefix := range mistralChatModelPrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return id, true
+		}
+	}
+	return "", false
+}
 
 var claudeModelMap = map[string]string{
 	"claude-3-sonnet-20240229":   "claude-3-sonnet@20240229",
@@ -124,6 +144,8 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 		// open source models
 		strings.Contains(info.UpstreamModelName, "-maas") {
 		a.RequestMode = RequestModeOpenSource
+	} else if _, ok := mistralChatModelID(info.UpstreamModelName); ok {
+		a.RequestMode = RequestModeMistral
 	} else {
 		a.RequestMode = RequestModeGemini
 	}
@@ -144,8 +166,13 @@ func (a *Adaptor) getRequestUrl(info *relaycommon.RelayInfo, modelName, suffix s
 			return BuildAnthropicModelURL(info.ChannelBaseUrl, DefaultAPIVersion, adc.ProjectID, region, modelName, suffix), nil
 		} else if a.RequestMode == RequestModeOpenSource {
 			return BuildOpenSourceChatCompletionsURL(info.ChannelBaseUrl, adc.ProjectID, region), nil
+		} else if a.RequestMode == RequestModeMistral {
+			return BuildMistralModelURL(info.ChannelBaseUrl, DefaultAPIVersion, adc.ProjectID, region, modelName, suffix), nil
 		}
 	} else {
+		if a.RequestMode == RequestModeMistral {
+			return "", errors.New("vertex mistral models need a service account key, not an API key")
+		}
 		var keyPrefix string
 		if strings.HasSuffix(suffix, "?alt=sse") {
 			keyPrefix = "&"
@@ -200,6 +227,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		return a.getRequestUrl(info, model, suffix)
 	} else if a.RequestMode == RequestModeOpenSource {
 		return a.getRequestUrl(info, "", "")
+	} else if a.RequestMode == RequestModeMistral {
+		if info.IsStream {
+			suffix = "streamRawPredict"
+		} else {
+			suffix = "rawPredict"
+		}
+		modelID, _ := mistralChatModelID(info.UpstreamModelName)
+		return a.getRequestUrl(info, modelID, suffix)
 	}
 	return "", errors.New("unsupported request mode")
 }
@@ -309,6 +344,10 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		return geminiRequest, nil
 	} else if a.RequestMode == RequestModeOpenSource {
 		return request, nil
+	} else if a.RequestMode == RequestModeMistral {
+		// rawPredict takes Mistral's own chat body, which names the model by its bare id.
+		request.Model, _ = mistralChatModelID(info.UpstreamModelName)
+		return request, nil
 	}
 	return nil, errors.New("unsupported request mode")
 }
@@ -343,7 +382,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			} else {
 				return gemini.GeminiChatStreamHandler(c, info, resp)
 			}
-		case RequestModeOpenSource:
+		case RequestModeOpenSource, RequestModeMistral:
 			return openai.OaiStreamHandler(c, info, resp)
 		}
 	} else {
@@ -359,7 +398,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				}
 				return gemini.GeminiChatHandler(c, info, resp)
 			}
-		case RequestModeOpenSource:
+		case RequestModeOpenSource, RequestModeMistral:
 			return openai.OpenaiHandler(c, info, resp)
 		}
 	}
