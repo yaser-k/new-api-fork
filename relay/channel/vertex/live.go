@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -27,7 +28,17 @@ import (
 // liveSessionLimit is the longest a Live API session lasts; the session is closed when it is reached.
 var liveSessionLimit = 10 * time.Minute
 
-const liveAudioMIMEType = "audio/pcm;rate=24000"
+// liveUsageGrace is how long the upstream stays open, once the session ends, for the usage of audio it
+// has not reported yet. A variable so that tests can shorten it.
+var liveUsageGrace = 10 * time.Second
+
+const (
+	liveAudioMIMEType = "audio/pcm;rate=24000"
+	// liveAudioBytesPerSecond is pcm16 mono at 24 kHz.
+	liveAudioBytesPerSecond = 48000
+	// liveAudioTokensPerSecond is the Live API's audio input rate, measured at 272 tokens for 10.85 s.
+	liveAudioTokensPerSecond = 25
+)
 
 var liveAudioStreamEnd = map[string]any{"realtimeInput": map[string]any{"audioStreamEnd": true}}
 
@@ -147,6 +158,12 @@ func stableInterimText(previous, current string) string {
 	return ""
 }
 
+// liveEstimatedAudioTokens is the audio input tokens of pcm16 audio at 24 kHz, rounded up and bounded.
+func liveEstimatedAudioTokens(audioBytes int64) int {
+	tokens := (max(audioBytes, 0)*liveAudioTokensPerSecond + liveAudioBytesPerSecond - 1) / liveAudioBytesPerSecond
+	return int(min(tokens, math.MaxInt32))
+}
+
 func liveOffsetMs(offset string) *int64 {
 	duration, err := time.ParseDuration(offset)
 	if err != nil {
@@ -158,40 +175,46 @@ func liveOffsetMs(offset string) *int64 {
 type liveSession struct {
 	client   *websocket.Conn
 	upstream *websocket.Conn
-	done     chan struct{}
-	once     sync.Once
+	// clientDone and upstreamDone are closed when the reader of that side has ended.
+	clientDone   chan struct{}
+	upstreamDone chan struct{}
+	// upstreamClosing is closed when the session closes the upstream itself.
+	upstreamClosing chan struct{}
+	// usageArrived gets a signal each time the upstream reports usage.
+	usageArrived chan struct{}
+	clientOnce   sync.Once
+	upstreamOnce sync.Once
 
-	// mu guards writes to the client and the transcription state below.
+	// mu guards writes to the client and the state below.
 	mu          sync.Mutex
 	itemID      string
 	itemDone    bool
 	lastInterim string
 	sent        string
 	usage       dto.RealtimeUsage
+	streamEnded bool
+	// unreportedAudioBytes is the audio forwarded since the upstream last reported usage.
+	unreportedAudioBytes int64
 }
 
-func (s *liveSession) close() {
-	s.once.Do(func() {
-		close(s.done)
-		deadline := time.Now().Add(time.Second)
-		closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
-		_ = s.client.WriteControl(websocket.CloseMessage, closeMessage, deadline)
-		_ = s.upstream.WriteControl(websocket.CloseMessage, closeMessage, deadline)
-		_ = s.client.Close()
-		_ = s.upstream.Close()
+func closeLiveConn(conn *websocket.Conn) {
+	closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")
+	_ = conn.WriteControl(websocket.CloseMessage, closeMessage, time.Now().Add(time.Second))
+	_ = conn.Close()
+}
+
+func (s *liveSession) closeClient() {
+	s.clientOnce.Do(func() { closeLiveConn(s.client) })
+}
+
+func (s *liveSession) closeUpstream() {
+	s.upstreamOnce.Do(func() {
+		close(s.upstreamClosing)
+		closeLiveConn(s.upstream)
 	})
 }
 
-func (s *liveSession) closed() bool {
-	select {
-	case <-s.done:
-		return true
-	default:
-		return false
-	}
-}
-
-// writeUpstream is called from the client reader only, the upstream's single writer.
+// writeUpstream has one caller at a time: the setup, then the client reader, then the session's end.
 func (s *liveSession) writeUpstream(message any) error {
 	data, err := common.Marshal(message)
 	if err != nil {
@@ -231,12 +254,10 @@ func (s *liveSession) currentItemLocked() string {
 // relayClient forwards the client's audio upstream until the client ends, and refuses the events a
 // transcription session does not take.
 func (s *liveSession) relayClient() {
-	defer s.close()
+	defer close(s.clientDone)
 	for {
 		_, message, err := s.client.ReadMessage()
 		if err != nil {
-			// The client ended: the upstream gets the end of the audio before the session closes.
-			_ = s.writeUpstream(liveAudioStreamEnd)
 			return
 		}
 		var event liveClientEvent
@@ -254,11 +275,16 @@ func (s *liveSession) relayClient() {
 			if err := s.writeUpstream(audio); err != nil {
 				return
 			}
+			s.mu.Lock()
+			s.unreportedAudioBytes += int64(len(event.Audio)/4*3 - strings.Count(event.Audio[max(len(event.Audio)-2, 0):], "="))
+			s.streamEnded = false
+			s.mu.Unlock()
 		case "input_audio_buffer.commit":
 			if err := s.writeUpstream(liveAudioStreamEnd); err != nil {
 				return
 			}
 			s.mu.Lock()
+			s.streamEnded = true
 			s.sendLocked(liveClientServerEvent{Type: "input_audio_buffer.committed", ItemId: s.currentItemLocked()})
 			s.mu.Unlock()
 		case "transcription_session.update", "session.update":
@@ -282,12 +308,14 @@ func (s *liveSession) relayClient() {
 
 // relayUpstream turns the upstream's messages into the client's events and adds up the usage they carry.
 func (s *liveSession) relayUpstream(info *relaycommon.RelayInfo) {
-	defer s.close()
+	defer close(s.upstreamDone)
 	for {
 		_, message, err := s.upstream.ReadMessage()
 		if err != nil {
-			if s.closed() {
+			select {
+			case <-s.upstreamClosing:
 				return
+			default:
 			}
 			var closeErr *websocket.CloseError
 			if !errors.As(err, &closeErr) || closeErr.Code != websocket.CloseNormalClosure {
@@ -325,6 +353,11 @@ func (s *liveSession) relayUpstream(info *relaycommon.RelayInfo) {
 			s.usage.OutputTokenDetails.AudioTokens = saturatingTokenAdd(s.usage.OutputTokenDetails.AudioTokens, audioOut)
 			s.usage.OutputTokenDetails.TextTokens = saturatingTokenAdd(s.usage.OutputTokenDetails.TextTokens, output-audioOut)
 			s.usage.TotalTokens = saturatingTokenAdd(s.usage.TotalTokens, saturatingTokenAdd(prompt, output))
+			s.unreportedAudioBytes = 0
+			select {
+			case s.usageArrived <- struct{}{}:
+			default:
+			}
 		}
 		switch {
 		case upstream.SetupComplete != nil:
@@ -378,37 +411,90 @@ func (s *liveSession) relayUpstream(info *relaycommon.RelayInfo) {
 }
 
 // liveTranscriptionHandler runs a realtime transcription session on the Live API until either side
-// closes or the session limit is reached, then returns its usage. Both connections are closed and both
-// relay goroutines have ended when it returns.
+// closes or the session limit is reached, then returns its usage, waiting at most liveUsageGrace for the
+// usage of audio not yet reported. Both connections are closed and both relay goroutines have ended
+// when it returns.
 func (a *Adaptor) liveTranscriptionHandler(c *gin.Context, info *relaycommon.RelayInfo) (*dto.RealtimeUsage, *types.NewAPIError) {
 	if info.ClientWs == nil || info.TargetWs == nil {
 		return nil, types.NewError(errors.New("invalid websocket connection"), types.ErrorCodeBadResponse)
 	}
 	info.IsStream = true
-	session := &liveSession{client: info.ClientWs, upstream: info.TargetWs, done: make(chan struct{})}
+	session := &liveSession{
+		client:          info.ClientWs,
+		upstream:        info.TargetWs,
+		clientDone:      make(chan struct{}),
+		upstreamDone:    make(chan struct{}),
+		upstreamClosing: make(chan struct{}),
+		usageArrived:    make(chan struct{}, 1),
+	}
 
 	var setup liveSetupMessage
 	region := normalizeVertexRegion(GetModelRegion(info.ApiVersion, info.OriginModelName))
 	setup.Setup.Model = fmt.Sprintf("projects/%s/locations/%s/publishers/google/models/%s", a.AccountCredentials.ProjectID, region, info.UpstreamModelName)
 	setup.Setup.GenerationConfig.ResponseModalities = []string{"TEXT"}
 	if err := session.writeUpstream(setup); err != nil {
-		session.close()
+		session.closeClient()
+		session.closeUpstream()
 		return nil, types.NewError(fmt.Errorf("send the Live API setup: %w", err), types.ErrorCodeDoRequestFailed)
 	}
 
-	var wg sync.WaitGroup
-	wg.Go(session.relayClient)
-	wg.Go(func() { session.relayUpstream(info) })
+	go session.relayClient()
+	go session.relayUpstream(info)
 	limit := time.NewTimer(liveSessionLimit)
 	defer limit.Stop()
 	select {
-	case <-session.done:
+	case <-session.clientDone:
+	case <-session.upstreamDone:
 	case <-limit.C:
 		session.sendError("session_expired", fmt.Sprintf("the Live API session reached its %s limit", liveSessionLimit), "")
-		session.close()
 	}
-	wg.Wait()
+	session.closeClient()
+	// The client reader has ended, so the session is now the upstream's only writer.
+	<-session.clientDone
+
+	// Audio the upstream has not reported usage for keeps it open for a grace period: the end of the
+	// audio goes upstream if the client did not send it, and the usage that follows is settled.
+	session.mu.Lock()
+	streamEnded, unreported := session.streamEnded, session.unreportedAudioBytes
+	session.mu.Unlock()
+	select {
+	case <-session.upstreamDone:
+	default:
+		if !streamEnded {
+			_ = session.writeUpstream(liveAudioStreamEnd)
+		}
+		if unreported > 0 {
+			grace := time.NewTimer(liveUsageGrace)
+		waitForUsage:
+			for {
+				select {
+				case <-session.usageArrived:
+					session.mu.Lock()
+					unreported = session.unreportedAudioBytes
+					session.mu.Unlock()
+					if unreported == 0 {
+						break waitForUsage
+					}
+				case <-session.upstreamDone:
+					break waitForUsage
+				case <-grace.C:
+					break waitForUsage
+				}
+			}
+			grace.Stop()
+		}
+	}
+	session.closeUpstream()
+	<-session.upstreamDone
 
 	usage := session.usage
+	// Audio the upstream never reported is billed by its length, as audio input with no output.
+	if session.unreportedAudioBytes > 0 {
+		tokens := liveEstimatedAudioTokens(session.unreportedAudioBytes)
+		usage.InputTokens = saturatingTokenAdd(usage.InputTokens, tokens)
+		usage.InputTokenDetails.AudioTokens = saturatingTokenAdd(usage.InputTokenDetails.AudioTokens, tokens)
+		usage.TotalTokens = saturatingTokenAdd(usage.TotalTokens, tokens)
+		logger.LogWarn(c, common.LogText("live transcription usage estimated: %d audio bytes without upstream usage billed as %d audio tokens", session.unreportedAudioBytes, tokens))
+	}
 	return &usage, nil
 }
