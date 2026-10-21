@@ -54,6 +54,8 @@ export type BillingVar = {
   isBase?: boolean
   isConditionOnly?: boolean
   group?: string
+  /** Priced per second rather than per 1M tokens (input video seconds). */
+  unit?: 'second'
 }
 
 export const BILLING_VARS: BillingVar[] = [
@@ -156,7 +158,36 @@ export const BILLING_VARS: BillingVar[] = [
     side: 'output',
     group: 'media',
   },
+  {
+    key: 'vid_sec',
+    field: 'videoInputPrice',
+    tierField: 'video_input_unit_cost',
+    label: 'Video input price',
+    shortLabel: 'Video seconds',
+    side: 'input',
+    group: 'media',
+    unit: 'second',
+  },
 ]
+
+/**
+ * Coefficients of a token expression are prices per 1M units, because its
+ * output is divided by 1,000,000. A token variable's price is the coefficient
+ * per 1M tokens; a second-unit variable (vid_sec) is shown and entered per
+ * second, so USD 0.00049 a second is the coefficient 490.
+ */
+export function billingVarUnitPrice(key: string, coefficient: number): number {
+  return BILLING_VARS.find((v) => v.key === key)?.unit === 'second'
+    ? coefficient / 1_000_000
+    : coefficient
+}
+
+/** The coefficient a unit price from {@link billingVarUnitPrice} came from. */
+export function billingVarCoefficient(key: string, unitPrice: number): number {
+  return BILLING_VARS.find((v) => v.key === key)?.unit === 'second'
+    ? unitPrice * 1_000_000
+    : unitPrice
+}
 
 /** Vars that have real price fields (excludes condition-only vars like `len`) */
 export const BILLING_PRICING_VARS: BillingVar[] = BILLING_VARS.filter(
@@ -258,6 +289,7 @@ export type TierCondition = {
   value: number
 }
 
+/** Price fields hold USD per 1M tokens, or per second for a second-unit variable. */
 export type ParsedTier = {
   billingUnit?: 'token' | 'request'
   fixedPrice?: number
@@ -298,7 +330,7 @@ function mapTokenTier(
     ...Object.fromEntries(
       Object.entries(tier.prices).map(([key, price]) => [
         BILLING_VAR_KEY_TO_FIELD[key],
-        price,
+        billingVarUnitPrice(key, price),
       ])
     ),
   }

@@ -56,6 +56,7 @@ const extras: ExtraTokenValues = {
   imageCacheTokens: 0,
   audioInputTokens: 0,
   audioOutputTokens: 0,
+  videoSeconds: 0,
 }
 
 test('evaluates and round-trips separate image cache prices including an explicit zero', () => {
