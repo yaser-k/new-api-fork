@@ -52,6 +52,8 @@ const anthropicVersion = "vertex-2023-10-16"
 type Adaptor struct {
 	RequestMode        int
 	AccountCredentials Credentials
+	// embeddingEncodingFormat is the encoding_format of an embeddings request, applied to its answer.
+	embeddingEncodingFormat string
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
@@ -189,6 +191,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		if strings.HasPrefix(info.UpstreamModelName, "imagen") {
 			suffix = "predict"
 		}
+		if info.RelayMode == constant.RelayModeEmbeddings {
+			suffix = "embedContent"
+		}
 		return a.getRequestUrl(info, info.UpstreamModelName, suffix)
 	} else if a.RequestMode == RequestModeClaude {
 		if info.IsStream {
@@ -321,8 +326,40 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	// Gemini embedding models are the ones that answer embedContent here.
+	if a.RequestMode != RequestModeGemini || !strings.HasPrefix(info.UpstreamModelName, "gemini-embedding") {
+		return nil, errors.New("not implemented")
+	}
+
+	var inputs []string
+	switch input := request.Input.(type) {
+	case string:
+		inputs = []string{input}
+	case []any:
+		for _, item := range input {
+			text, ok := item.(string)
+			if !ok {
+				return nil, types.NewErrorWithStatusCode(errors.New("vertex embeddings take text inputs, not token arrays"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+			inputs = append(inputs, text)
+		}
+	}
+	if len(inputs) == 0 {
+		return nil, types.NewErrorWithStatusCode(errors.New("input is empty"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if len(inputs) > maxEmbedContentInputs {
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("vertex embeddings take at most %d inputs in one request, got %d", maxEmbedContentInputs, len(inputs)), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	batch := embedContentBatch{Requests: make([]embedContentRequest, 0, len(inputs))}
+	for _, text := range inputs {
+		batch.Requests = append(batch.Requests, embedContentRequest{
+			Content:              dto.GeminiChatContent{Parts: []dto.GeminiPart{{Text: text}}},
+			OutputDimensionality: request.Dimensions,
+		})
+	}
+	a.embeddingEncodingFormat = request.EncodingFormat
+	return batch, nil
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
@@ -338,10 +375,16 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		}
 		return conn, nil
 	}
+	if info.RelayMode == constant.RelayModeEmbeddings {
+		return a.doEmbedContentCalls(c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayMode == constant.RelayModeEmbeddings {
+		return embedContentHandler(c, info, resp, a.embeddingEncodingFormat)
+	}
 	claudeAdaptor := claude.Adaptor{}
 	if info.IsStream {
 		switch a.RequestMode {
