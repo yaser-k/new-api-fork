@@ -183,6 +183,7 @@ import {
   hasModelConfigChanged,
   findMissingModelsInMapping,
   validateModelMappingJson,
+  UPSTREAM_END_USER_ID_FIELDS,
 } from '../../lib'
 import {
   getChannelConfigurationSection,
@@ -309,6 +310,7 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
+  'upstream_end_user_id_field',
   'allow_include_obfuscation',
   'allow_inference_geo',
   'allow_speed',
@@ -3024,6 +3026,55 @@ export function ChannelMutateDrawer({
               />
             </>
           )}
+
+          <FormField
+            control={form.control}
+            name='upstream_end_user_id_field'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-3 px-4 py-3'>
+                <div className='space-y-0.5'>
+                  <FormLabel className='text-sm'>
+                    {t('Send end-user identifier')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Writes an opaque hash of the requesting user into the chosen field. It needs a stable server secret (CRYPTO_SECRET or SESSION_SECRET).'
+                    )}
+                  </FormDescription>
+                </div>
+                <Select
+                  disabled={sensitiveLocked}
+                  items={[
+                    { value: 'none', label: t('None') },
+                    ...UPSTREAM_END_USER_ID_FIELDS.map((value) => ({
+                      value,
+                      label: value,
+                    })),
+                  ]}
+                  value={field.value || 'none'}
+                  onValueChange={(value) =>
+                    field.onChange(value === 'none' ? '' : value)
+                  }
+                >
+                  <FormControl>
+                    <SelectTrigger className='w-44 shrink-0'>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='none'>{t('None')}</SelectItem>
+                      {UPSTREAM_END_USER_ID_FIELDS.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {value}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+          />
 
           {CLAUDE_FIELD_PASSTHROUGH_TYPES.has(currentType) && (
             <>

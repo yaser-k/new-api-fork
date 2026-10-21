@@ -48,6 +48,7 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
+  'upstream_end_user_id_field',
   'allow_include_obfuscation',
   'allow_inference_geo',
   'allow_speed',
