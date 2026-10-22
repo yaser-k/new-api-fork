@@ -16,8 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  type RenderResult,
+} from '@testing-library/react'
 import { afterEach, describe, expect, test } from 'vitest'
+
+import type { ApiKey } from '../../types'
 
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
@@ -37,14 +45,17 @@ type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
   post: ApiMethod
+  put: ApiMethod
 }
 type RenderedDrawer = {
   queryClient: InstanceType<typeof QueryClient>
+  result?: RenderResult
 }
 
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
 const originalPost = apiClient.post
+const originalPut = apiClient.put
 let renderedDrawer: RenderedDrawer | null = null
 
 function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
@@ -84,7 +95,7 @@ function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
   }
 }
 
-async function renderCreateDrawer(): Promise<void> {
+function createSeededQueryClient(): InstanceType<typeof QueryClient> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -119,6 +130,11 @@ async function renderCreateDrawer(): Promise<void> {
     },
     { updatedAt: freshAt }
   )
+  return queryClient
+}
+
+async function renderCreateDrawer(): Promise<void> {
+  const queryClient = createSeededQueryClient()
   renderedDrawer = { queryClient }
 
   render(
@@ -196,6 +212,7 @@ function selectComboboxOption(
 afterEach(() => {
   apiClient.get = originalGet
   apiClient.post = originalPost
+  apiClient.put = originalPut
   localStorage.clear()
   if (renderedDrawer) {
     renderedDrawer.queryClient.clear()
@@ -297,5 +314,209 @@ describe('API keys mutate drawer user quota query switch', () => {
     fireEvent.click(findButton('Save changes', true))
     await waitFor(() => expect(createdPayloads).toHaveLength(1))
     expect(createdPayloads[0]?.allow_user_quota_query).toBe(false)
+  })
+})
+
+// 2023-11-14 12:00 UTC: the same calendar day in every common time zone.
+const PAST_EXPIRY = 1699963200
+
+function apiKey(id: number, expiredTime: number): ApiKey {
+  return {
+    id,
+    name: `key-${id}`,
+    key: `sk-${id}`,
+    status: 1,
+    remain_quota: 0,
+    used_quota: 0,
+    unlimited_quota: true,
+    expired_time: expiredTime,
+    created_time: 1,
+    accessed_time: 1,
+    group: 'default',
+    auto_groups: null,
+    cross_group_retry: false,
+    model_limits_enabled: false,
+    model_limits: '',
+    allow_ips: '',
+    allow_user_quota_query: true,
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve
+  })
+  return { promise, resolve }
+}
+
+function installEditFixtures(
+  keysById: Map<number, Promise<ApiKey>>,
+  updates: Array<Record<string, unknown>>,
+  creates: Array<Record<string, unknown>> = []
+) {
+  installApiFixtures(creates)
+  const fixtureGet = apiClient.get
+  apiClient.get = async (url, data) => {
+    const id = Number(url.match(/^\/api\/token\/(\d+)$/)?.[1])
+    const key = keysById.get(id)
+    if (key) {
+      return { data: { success: true, data: await key } }
+    }
+    return fixtureGet(url, data)
+  }
+  apiClient.put = async (url, data) => {
+    expect(url).toBe('/api/token/')
+    expect(data && typeof data === 'object').toBeTruthy()
+    updates.push(data as Record<string, unknown>)
+    return { data: { success: true, data: {} } }
+  }
+}
+
+function keyDrawerTree(open: boolean, currentRow?: ApiKey) {
+  if (!renderedDrawer) {
+    throw new Error('Expected a seeded query client')
+  }
+  return (
+    <QueryClientProvider client={renderedDrawer.queryClient}>
+      <I18nextProvider i18n={i18n}>
+        <ApiKeysProvider>
+          <ApiKeysMutateDrawer
+            open={open}
+            onOpenChange={() => undefined}
+            currentRow={currentRow}
+          />
+        </ApiKeysProvider>
+      </I18nextProvider>
+    </QueryClientProvider>
+  )
+}
+
+function openKeyDrawer(currentRow?: ApiKey): void {
+  if (renderedDrawer?.result) {
+    renderedDrawer.result.rerender(keyDrawerTree(true, currentRow))
+    return
+  }
+  renderedDrawer = { queryClient: createSeededQueryClient() }
+  renderedDrawer.result = render(keyDrawerTree(true, currentRow))
+}
+
+// Closes the drawer the way a person does: the Close button, then the parent
+// clears the open state and the row.
+function closeKeyDrawer(): void {
+  fireEvent.click(findButton('Close', true))
+  renderedDrawer?.result?.rerender(keyDrawerTree(false))
+}
+
+async function waitForKeyForm(): Promise<void> {
+  await waitFor(() => expect(findButton('Save changes', true)).toBeEnabled(), {
+    timeout: 1500,
+  })
+}
+
+// The picker copies its value into local state in an effect, so wait for it.
+function findExpiryTrigger(name: string): Promise<HTMLButtonElement> {
+  return screen.findByRole<HTMLButtonElement>('button', { name })
+}
+
+describe('API keys mutate drawer expiry between records', () => {
+  test('a never-expiring key opened after a key with an expiry shows and saves never', async () => {
+    const withExpiry = apiKey(1, PAST_EXPIRY)
+    const neverExpires = apiKey(2, -1)
+    const neverExpiresRequest = deferred<ApiKey>()
+    const updates: Array<Record<string, unknown>> = []
+    installEditFixtures(
+      new Map([
+        [1, Promise.resolve(withExpiry)],
+        [2, neverExpiresRequest.promise],
+      ]),
+      updates
+    )
+
+    openKeyDrawer(withExpiry)
+    await waitForKeyForm()
+    expect(await findExpiryTrigger('2023-11-14')).toBeInTheDocument()
+    closeKeyDrawer()
+
+    openKeyDrawer(neverExpires)
+    neverExpiresRequest.resolve(neverExpires)
+    await waitForKeyForm()
+    expect(getControlByLabel('Name').value).toBe('key-2')
+    expect(await findExpiryTrigger('Never expires')).toBeInTheDocument()
+
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(updates).toHaveLength(1))
+    expect(updates[0]?.id).toBe(2)
+    expect(updates[0]?.expired_time).toBe(-1)
+  })
+
+  test('a key with an expiry opened after a never-expiring key shows and saves its expiry', async () => {
+    const neverExpires = apiKey(1, -1)
+    const withExpiry = apiKey(2, PAST_EXPIRY)
+    const withExpiryRequest = deferred<ApiKey>()
+    const updates: Array<Record<string, unknown>> = []
+    installEditFixtures(
+      new Map([
+        [1, Promise.resolve(neverExpires)],
+        [2, withExpiryRequest.promise],
+      ]),
+      updates
+    )
+
+    openKeyDrawer(neverExpires)
+    await waitForKeyForm()
+    closeKeyDrawer()
+
+    openKeyDrawer(withExpiry)
+    withExpiryRequest.resolve(withExpiry)
+    await waitForKeyForm()
+    expect(await findExpiryTrigger('2023-11-14')).toBeInTheDocument()
+
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(updates).toHaveLength(1))
+    expect(updates[0]?.expired_time).toBe(PAST_EXPIRY)
+  })
+
+  test('create after editing a key with an expiry starts blank and saves never', async () => {
+    const withExpiry = apiKey(1, PAST_EXPIRY)
+    const updates: Array<Record<string, unknown>> = []
+    const creates: Array<Record<string, unknown>> = []
+    installEditFixtures(
+      new Map([[1, Promise.resolve(withExpiry)]]),
+      updates,
+      creates
+    )
+
+    openKeyDrawer(withExpiry)
+    await waitForKeyForm()
+    closeKeyDrawer()
+
+    openKeyDrawer()
+    await waitForKeyForm()
+    expect(getControlByLabel('Name').value).toBe('')
+    expect(await findExpiryTrigger('Never expires')).toBeInTheDocument()
+
+    changeInput(getControlByLabel('Name'), 'fresh')
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(creates).toHaveLength(1))
+    expect(creates[0]?.expired_time).toBe(-1)
+    expect(updates).toEqual([])
+  })
+
+  test('the Never button clears a loaded expiry and saves never', async () => {
+    const withExpiry = apiKey(1, PAST_EXPIRY)
+    const updates: Array<Record<string, unknown>> = []
+    installEditFixtures(new Map([[1, Promise.resolve(withExpiry)]]), updates)
+
+    openKeyDrawer(withExpiry)
+    await waitForKeyForm()
+    expect(await findExpiryTrigger('2023-11-14')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Never' }))
+    expect(await findExpiryTrigger('Never expires')).toBeInTheDocument()
+
+    fireEvent.click(findButton('Save changes', true))
+    await waitFor(() => expect(updates).toHaveLength(1))
+    expect(updates[0]?.expired_time).toBe(-1)
   })
 })
