@@ -131,9 +131,24 @@ function sanitizeHtmlContent(
   return DOMPurify.sanitize(content)
 }
 
-function syncDarkClass(wrapper: HTMLElement): void {
-  const isDark = document.documentElement.classList.contains('dark')
-  wrapper.classList.toggle('dark', isDark)
+/**
+ * Mirror the page's theme and language onto the shadow root's wrapper. The
+ * isolated content cannot see `<html>`, so its own styles key on the wrapper:
+ * `.dark` for the theme, and `lang`/`dir` so `:lang()` and `[dir]` selectors
+ * follow the interface language (Firefox does not inherit the language across
+ * a shadow boundary).
+ */
+function syncDocumentState(wrapper: HTMLElement): void {
+  const root = document.documentElement
+  wrapper.classList.toggle('dark', root.classList.contains('dark'))
+  for (const name of ['lang', 'dir']) {
+    const value = root.getAttribute(name)
+    if (value) {
+      wrapper.setAttribute(name, value)
+    } else {
+      wrapper.removeAttribute(name)
+    }
+  }
 }
 
 function IsolatedHtmlContent(props: {
@@ -157,7 +172,7 @@ function IsolatedHtmlContent(props: {
     ].map((node) => node.cloneNode(true))
 
     const wrapper = document.createElement('div')
-    syncDarkClass(wrapper)
+    syncDocumentState(wrapper)
     wrapper.innerHTML = props.html
 
     const contentTemplate = document.createElement('template')
@@ -169,10 +184,10 @@ function IsolatedHtmlContent(props: {
       wrapper
     )
 
-    const observer = new MutationObserver(() => syncDarkClass(wrapper))
+    const observer = new MutationObserver(() => syncDocumentState(wrapper))
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class'],
+      attributeFilter: ['class', 'lang', 'dir'],
     })
 
     return () => observer.disconnect()
