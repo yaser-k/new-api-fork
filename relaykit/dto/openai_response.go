@@ -247,6 +247,12 @@ type Usage struct {
 
 	// OpenRouter Params
 	Cost any `json:"cost,omitempty"`
+
+	// InputVideoSeconds is the input video length an upstream reports billing,
+	// such as Bedrock's inputVideoSecond for TwelveLabs Pegasus. It is carried
+	// in memory only, and priced by a billing expression that names vid_sec:
+	// the seconds as reported, at a coefficient per 1M seconds.
+	InputVideoSeconds float64 `json:"-"`
 }
 
 type OpenAIVideoResponse struct {

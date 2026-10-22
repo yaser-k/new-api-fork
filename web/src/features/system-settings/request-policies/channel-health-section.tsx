@@ -85,8 +85,10 @@ const createChannelHealthSchema = (
       AutomaticDisableChannelEnabled: z.boolean(),
       AutomaticEnableChannelEnabled: z.boolean(),
       AutomaticDisableKeywords: z.string(),
+      AutomaticRetryKeywords: z.string(),
       AutomaticDisableStatusCodes: z.string(),
       monitor_setting: z.object({
+        auto_disable_error_codes: z.string(),
         auto_test_channel_enabled: z.boolean(),
         auto_test_channel_minutes: z.coerce
           .number()
@@ -135,7 +137,9 @@ type NormalizedChannelHealthValues = {
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
+  AutomaticRetryKeywords: string
   AutomaticDisableStatusCodes: string
+  'monitor_setting.auto_disable_error_codes': string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_concurrency': number
@@ -158,8 +162,14 @@ const buildFormDefaults = (
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
   ),
+  AutomaticRetryKeywords: normalizeLineEndings(
+    defaults.AutomaticRetryKeywords ?? ''
+  ),
   AutomaticDisableStatusCodes: defaults.AutomaticDisableStatusCodes ?? '',
   monitor_setting: {
+    auto_disable_error_codes: normalizeLineEndings(
+      defaults['monitor_setting.auto_disable_error_codes'] ?? ''
+    ),
     auto_test_channel_enabled:
       defaults['monitor_setting.auto_test_channel_enabled'],
     auto_test_channel_minutes:
@@ -181,9 +191,15 @@ const normalizeDefaults = (
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
   ),
+  AutomaticRetryKeywords: normalizeLineEndings(
+    defaults.AutomaticRetryKeywords ?? ''
+  ),
   AutomaticDisableStatusCodes: parseHttpStatusCodeRules(
     defaults.AutomaticDisableStatusCodes ?? ''
   ).normalized,
+  'monitor_setting.auto_disable_error_codes': normalizeLineEndings(
+    defaults['monitor_setting.auto_disable_error_codes'] ?? ''
+  ),
   'monitor_setting.auto_test_channel_enabled':
     defaults['monitor_setting.auto_test_channel_enabled'],
   'monitor_setting.auto_test_channel_minutes':
@@ -204,9 +220,13 @@ const normalizeFormValues = (
   AutomaticDisableKeywords: normalizeLineEndings(
     values.AutomaticDisableKeywords
   ),
+  AutomaticRetryKeywords: normalizeLineEndings(values.AutomaticRetryKeywords),
   AutomaticDisableStatusCodes: parseHttpStatusCodeRules(
     values.AutomaticDisableStatusCodes
   ).normalized,
+  'monitor_setting.auto_disable_error_codes': normalizeLineEndings(
+    values.monitor_setting.auto_disable_error_codes
+  ),
   'monitor_setting.auto_test_channel_enabled':
     values.monitor_setting.auto_test_channel_enabled,
   'monitor_setting.auto_test_channel_minutes':
@@ -549,6 +569,7 @@ export function ChannelHealthSection({
                     <FormLabel>{t('Auto-disable status codes')}</FormLabel>
                     <FormControl>
                       <Input
+                        dir='ltr'
                         placeholder={t('e.g. 401, 403, 429, 500-599')}
                         value={field.value}
                         onChange={(event) => field.onChange(event.target.value)}
@@ -573,6 +594,29 @@ export function ChannelHealthSection({
 
               <FormField
                 control={form.control}
+                name='monitor_setting.auto_disable_error_codes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Auto-disable error codes')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        placeholder='insufficient_user_quota'
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'One exact, case-sensitive error code per line. Empty by default. Status-code and failure-keyword rules still apply when no code matches.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='AutomaticDisableKeywords'
                 render={({ field }) => (
                   <FormItem>
@@ -588,6 +632,30 @@ export function ChannelHealthSection({
                     <FormDescription>
                       {t(
                         'If an upstream error contains any of these keywords (case insensitive), the channel will be disabled automatically.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='AutomaticRetryKeywords'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Retry keywords')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={6}
+                        placeholder={t('one keyword per line')}
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'If an upstream error contains any of these keywords (case insensitive), the request is retried on another channel even when its status code is outside the auto-retry rules.'
                       )}
                     </FormDescription>
                     <FormMessage />

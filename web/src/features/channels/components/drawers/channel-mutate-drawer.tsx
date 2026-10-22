@@ -108,6 +108,7 @@ import { SecureVerificationDialog } from '@/features/auth/secure-verification'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import { toIntlLocale } from '@/i18n/languages'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -117,6 +118,7 @@ import {
   parseChannelConnectionInfo,
   type ChannelConnectionInfo,
 } from '@/lib/channel-connection-info'
+import { formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { ROLE } from '@/lib/roles'
 import {
@@ -183,6 +185,7 @@ import {
   hasModelConfigChanged,
   findMissingModelsInMapping,
   validateModelMappingJson,
+  UPSTREAM_END_USER_ID_FIELDS,
 } from '../../lib'
 import {
   getChannelConfigurationSection,
@@ -309,10 +312,12 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_service_tier',
   'disable_store',
   'allow_safety_identifier',
+  'upstream_end_user_id_field',
   'allow_include_obfuscation',
   'allow_inference_geo',
   'allow_speed',
   'claude_beta_query',
+  'response_drop_fields',
   'ollama_openai_chat',
   'disable_task_polling_sleep',
   'upstream_model_update_check_enabled',
@@ -335,10 +340,10 @@ function parseSettingsRecord(
   return {}
 }
 
-function formatUnixTime(timestamp: unknown): string {
+function formatUnixTime(timestamp: unknown, locale?: string): string {
   const seconds = Number(timestamp)
   if (!Number.isFinite(seconds) || seconds <= 0) return '-'
-  return new Date(seconds * 1000).toLocaleString()
+  return formatTimestampToDate(seconds, 'seconds', locale)
 }
 
 function channelConfigurationBlockClassName(
@@ -407,7 +412,8 @@ export function ChannelMutateDrawer({
   onOpenChange,
   currentRow,
 }: ChannelMutateDrawerProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const queryClient = useQueryClient()
   const { setOpen } = useChannels()
   const currentUser = useAuthStore((s) => s.auth.user)
@@ -2388,7 +2394,7 @@ export function ChannelMutateDrawer({
             <span className='text-foreground font-medium'>
               {t('Last check time')}:
             </span>{' '}
-            {formatUnixTime(upstreamUpdateMeta.lastCheckTime)}
+            {formatUnixTime(upstreamUpdateMeta.lastCheckTime, locale)}
           </div>
           <div>
             <span className='text-foreground font-medium'>
@@ -2402,7 +2408,7 @@ export function ChannelMutateDrawer({
                   {upstreamDetectedModelsPreview.join(', ')}
                 </span>
                 {upstreamDetectedModelsOmittedCount > 0 && (
-                  <span className='ml-1'>
+                  <span className='ms-1'>
                     {t('({{total}} total, {{omit}} omitted)', {
                       total: upstreamUpdateMeta.detectedModels.length,
                       omit: upstreamDetectedModelsOmittedCount,
@@ -2726,7 +2732,7 @@ export function ChannelMutateDrawer({
                     size='sm'
                     onClick={() => setParamOverrideEditorOpen(true)}
                   >
-                    <Wand2 className='mr-2 h-4 w-4' />
+                    <Wand2 className='me-2 h-4 w-4' />
                     {t('Visual edit')}
                   </Button>
                   <Button
@@ -2759,7 +2765,7 @@ export function ChannelMutateDrawer({
                       )
                     }}
                   >
-                    <Code className='mr-2 h-4 w-4' />
+                    <Code className='me-2 h-4 w-4' />
                     {t('New Format Template')}
                   </Button>
                   <Button
@@ -3025,6 +3031,55 @@ export function ChannelMutateDrawer({
             </>
           )}
 
+          <FormField
+            control={form.control}
+            name='upstream_end_user_id_field'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-3 px-4 py-3'>
+                <div className='space-y-0.5'>
+                  <FormLabel className='text-sm'>
+                    {t('Send end-user identifier')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Writes an opaque hash of the requesting user into the chosen field. It needs a stable server secret (CRYPTO_SECRET or SESSION_SECRET).'
+                    )}
+                  </FormDescription>
+                </div>
+                <Select
+                  disabled={sensitiveLocked}
+                  items={[
+                    { value: 'none', label: t('None') },
+                    ...UPSTREAM_END_USER_ID_FIELDS.map((value) => ({
+                      value,
+                      label: value,
+                    })),
+                  ]}
+                  value={field.value || 'none'}
+                  onValueChange={(value) =>
+                    field.onChange(value === 'none' ? '' : value)
+                  }
+                >
+                  <FormControl>
+                    <SelectTrigger className='w-44 shrink-0'>
+                      <SelectValue />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectGroup>
+                      <SelectItem value='none'>{t('None')}</SelectItem>
+                      {UPSTREAM_END_USER_ID_FIELDS.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          {value}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </FormItem>
+            )}
+          />
+
           {CLAUDE_FIELD_PASSTHROUGH_TYPES.has(currentType) && (
             <>
               {currentType === 14 && (
@@ -3108,6 +3163,32 @@ export function ChannelMutateDrawer({
                   )}
                 />
               )}
+
+              <FormField
+                control={form.control}
+                name='response_drop_fields'
+                render={({ field }) => (
+                  <FormItem className='space-y-2 px-4 py-3'>
+                    <FormLabel className='text-sm'>
+                      {t('Response fields to remove')}
+                    </FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        placeholder={t('One JSON path per line')}
+                        {...field}
+                        disabled={sensitiveLocked}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Remove these JSON paths, such as billing or usage.some_field, from Claude-format answers forwarded to clients as they came'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </>
           )}
         </div>
@@ -3180,7 +3261,7 @@ export function ChannelMutateDrawer({
                         )
                       }
                     >
-                      <Settings className='mr-2 h-4 w-4' aria-hidden='true' />
+                      <Settings className='me-2 h-4 w-4' aria-hidden='true' />
                       {t('Configure Models')}
                     </Button>
                   </div>
@@ -3445,7 +3526,7 @@ export function ChannelMutateDrawer({
                   onClick={handleFillRelatedModels}
                   disabled={!basicModels.length}
                 >
-                  <FileText className='mr-2 h-4 w-4' aria-hidden='true' />
+                  <FileText className='me-2 h-4 w-4' aria-hidden='true' />
                   {t('Fill Related Models')}
                 </Button>
                 {MODEL_FETCHABLE_TYPES.has(currentType) && (
@@ -3459,7 +3540,7 @@ export function ChannelMutateDrawer({
                         !canDiscoverModels || discovery.status === 'loading'
                       }
                     >
-                      <Sparkles className='mr-2 h-4 w-4' aria-hidden='true' />
+                      <Sparkles className='me-2 h-4 w-4' aria-hidden='true' />
                       {t('Fetch from Upstream')}
                     </Button>
                     {!canDiscoverModels && (
@@ -3476,7 +3557,7 @@ export function ChannelMutateDrawer({
                   onClick={handleCopyModels}
                   disabled={currentModelsArray.length === 0}
                 >
-                  <Copy className='mr-2 h-4 w-4' aria-hidden='true' />
+                  <Copy className='me-2 h-4 w-4' aria-hidden='true' />
                   {t('Copy All')}
                 </Button>
                 <Button
@@ -3486,7 +3567,7 @@ export function ChannelMutateDrawer({
                   onClick={handleClearModels}
                   disabled={currentModelsArray.length === 0}
                 >
-                  <Eraser className='mr-2 h-4 w-4' aria-hidden='true' />
+                  <Eraser className='me-2 h-4 w-4' aria-hidden='true' />
                   {t('Clear All')}
                 </Button>
               </div>
@@ -4318,7 +4399,7 @@ export function ChannelMutateDrawer({
                         size='sm'
                         onClick={() => setAdvancedCustomEditorOpen(true)}
                       >
-                        <Route className='mr-2 h-4 w-4' />
+                        <Route className='me-2 h-4 w-4' />
                         {t('Configure routes')}
                       </Button>
                     </div>
@@ -4453,7 +4534,7 @@ export function ChannelMutateDrawer({
                               onClick={handleDeduplicateKeys}
                               className='w-fit'
                             >
-                              <Trash2 className='mr-2 h-4 w-4' />
+                              <Trash2 className='me-2 h-4 w-4' />
                               {t('Remove Duplicates')}
                             </Button>
                           )}
@@ -4484,9 +4565,9 @@ export function ChannelMutateDrawer({
                               >
                                 {isChannelKeyLoading ||
                                 verification.isActive ? (
-                                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                                  <Loader2 className='me-2 h-4 w-4 animate-spin' />
                                 ) : (
-                                  <Eye className='mr-2 h-4 w-4' />
+                                  <Eye className='me-2 h-4 w-4' />
                                 )}
                                 {t('Reveal key')}
                               </Button>
@@ -4501,7 +4582,7 @@ export function ChannelMutateDrawer({
                                 }}
                                 disabled={!channelKey}
                               >
-                                <Copy className='mr-2 h-4 w-4' />
+                                <Copy className='me-2 h-4 w-4' />
                                 {t('Copy')}
                               </Button>
                             </div>
@@ -4540,9 +4621,9 @@ export function ChannelMutateDrawer({
                           }
                         >
                           {isCodexCredentialRefreshing ? (
-                            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                            <Loader2 className='me-2 h-4 w-4 animate-spin' />
                           ) : (
-                            <RefreshCw className='mr-2 h-4 w-4' />
+                            <RefreshCw className='me-2 h-4 w-4' />
                           )}
                           {isCodexCredentialRefreshing
                             ? t('Refreshing...')
@@ -4820,7 +4901,7 @@ export function ChannelMutateDrawer({
           side={drawerSide}
           className={sideDrawerContentClassName('sm:max-w-7xl')}
         >
-          <SheetHeader className={sideDrawerHeaderClassName('pr-12 sm:pr-14')}>
+          <SheetHeader className={sideDrawerHeaderClassName('pe-12 sm:pe-14')}>
             <div className='flex flex-col gap-2'>
               <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <div className='flex min-w-0 items-center gap-2 sm:gap-3'>
@@ -5039,7 +5120,7 @@ export function ChannelMutateDrawer({
                 }
               >
                 {isSubmitting && (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  <Loader2 className='me-2 h-4 w-4 animate-spin' />
                 )}
                 {isEditing ? t('Update Channel') : t('Create Channel')}
               </Button>

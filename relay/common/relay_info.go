@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type ThinkingContentInfo struct {
@@ -161,6 +162,7 @@ type RelayInfo struct {
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
 	RuntimeHeadersOverride                map[string]any
+	RuntimeRemovedHeaders                 []string // removed by param override; never sent upstream
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
 
@@ -1235,6 +1237,27 @@ func hasRemovableDisabledField(jsonData []byte, channelOtherSettings dto.Channel
 		(channelOtherSettings.DisableStore && values[3].Exists()) ||
 		(!channelOtherSettings.AllowSafetyIdentifier && values[4].Exists()) ||
 		(!channelOtherSettings.AllowIncludeObfuscation && values[5].Exists())
+}
+
+// upstreamEndUserIDLabel keeps the upstream end-user id apart from every other
+// HMAC the gateway derives from CryptoSecret.
+const upstreamEndUserIDLabel = "upstream-end-user:"
+
+// SetUpstreamEndUserID writes an opaque, stable id of the requesting user into
+// the request field named by the channel's upstream_end_user_id_field,
+// replacing any value the client sent there. The id is the first 32 hex
+// characters of an HMAC-SHA256 of the user id under CryptoSecret, so an
+// upstream can tell users apart without learning who they are. Channel tests
+// and requests without a user get nothing.
+func SetUpstreamEndUserID(jsonData []byte, info *RelayInfo) ([]byte, error) {
+	if !info.HasChannelMeta() || info.ChannelOtherSettings.UpstreamEndUserIDField == "" {
+		return jsonData, nil
+	}
+	if info.UserId <= 0 || info.IsChannelTest {
+		return jsonData, nil
+	}
+	id := common.GenerateHMAC(upstreamEndUserIDLabel + strconv.Itoa(info.UserId))[:32]
+	return sjson.SetBytes(jsonData, info.ChannelOtherSettings.UpstreamEndUserIDField, id)
 }
 
 // RemoveGeminiDisabledFields removes disabled fields from Gemini request JSON data

@@ -238,9 +238,15 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(common.LogText("server forced to shutdown: %v", err))
 	}
+	// Refunds run after their handler returned, and batch mode only keeps
+	// deltas in memory: wait for the first, then write the second.
+	billingWaitTimeout := time.Duration(common.GetEnvOrDefault("SHUTDOWN_BILLING_WAIT_SECONDS", 5)) * time.Second
+	_ = service.ShutdownAccounting(billingWaitTimeout)
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {
+		dashboardStart := time.Now()
 		model.SaveQuotaDataCache()
+		common.SysLog(common.LogText("shutdown: saved dashboard data in %s", time.Since(dashboardStart)))
 	}
 	common.SysLog(common.LogText("server exited"))
 }

@@ -188,6 +188,35 @@ afterEach(() => {
 
 describe('request policy settings', () => {
   it.each([
+    ['', 'insufficient_user_quota\nprovider_quota_exhausted'],
+    ['insufficient_user_quota', ''],
+  ])(
+    'saves and clears error-code rules without changing legacy rules (%s)',
+    async (initial, edited) => {
+      settings['monitor_setting.auto_disable_error_codes'] = initial
+      settings.AutomaticDisableKeywords = '用户额度不足'
+      await renderPolicies('/system-settings/request-policies/health')
+      const codes = await screen.findByRole('textbox', {
+        name: 'Auto-disable error codes',
+      })
+      expect(codes).toHaveValue(initial)
+      fireEvent.change(codes, { target: { value: edited } })
+      expect(
+        screen.getByRole('textbox', { name: 'Failure keywords' })
+      ).toHaveValue('用户额度不足')
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Save Changes' })
+      )
+      await waitFor(() =>
+        expect(api.patch).toHaveBeenCalledExactlyOnceWith(
+          '/api/option/request_policy',
+          { options: { 'monitor_setting.auto_disable_error_codes': edited } }
+        )
+      )
+    }
+  )
+
+  it.each([
     ['retry', 'Save Changes'],
     ['health', 'Save Changes'],
     ['filtering', 'Save sensitive words'],
@@ -230,6 +259,29 @@ describe('request policy settings', () => {
       )
     }
   )
+
+  it('opening health shows the stored retry keywords', async () => {
+    settings.AutomaticRetryKeywords = 'cap reached\nkey suspended'
+    await renderPolicies('/system-settings/request-policies/health')
+    expect(
+      await screen.findByRole('textbox', { name: 'Retry keywords' })
+    ).toHaveValue('cap reached\nkey suspended')
+  })
+
+  it('saving edited retry keywords writes only that option key', async () => {
+    await renderPolicies('/system-settings/request-policies/health')
+    fireEvent.change(
+      await screen.findByRole('textbox', { name: 'Retry keywords' }),
+      { target: { value: 'cap reached\r\nkey suspended' } }
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledExactlyOnceWith(
+        '/api/option/request_policy',
+        { options: { AutomaticRetryKeywords: 'cap reached\nkey suspended' } }
+      )
+    )
+  })
 
   it('turning filtering off preserves the prompt switch and keyword list', async () => {
     await renderPolicies('/system-settings/request-policies/filtering')

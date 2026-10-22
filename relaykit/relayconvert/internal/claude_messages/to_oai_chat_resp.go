@@ -23,6 +23,9 @@ type ClaudeResponseInfo struct {
 	ToolUseCount int
 	Usage        *dto.Usage
 	Done         bool
+	// MessageStarted records that the upstream sent message_start, so the
+	// stream reached the upstream model even if it was cut before any output.
+	MessageStarted bool
 
 	// Only snapshots synthesized from partial display usage may be refreshed by
 	// later display deltas. Serialized BillingUsage always remains authoritative.
@@ -502,6 +505,7 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 		claudeInfo.Usage = &dto.Usage{}
 	}
 	if claudeResponse.Type == "message_start" {
+		claudeInfo.MessageStarted = true
 		if claudeResponse.Message != nil {
 			claudeInfo.ResponseId = claudeResponse.Message.Id
 			claudeInfo.Model = claudeResponse.Message.Model
@@ -548,7 +552,11 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 			if cacheCreation1h := claudeResponse.Usage.GetCacheCreation1hTokens(); cacheCreation1h > 0 {
 				claudeInfo.Usage.ClaudeCacheCreation1hTokens = cacheCreation1h
 			}
-			if claudeResponse.Usage.OutputTokens > 0 {
+			// A refusal reports its final output_tokens even when it is 0, which
+			// replaces the placeholder message_start counted.
+			refusal := claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil &&
+				*claudeResponse.Delta.StopReason == "refusal"
+			if claudeResponse.Usage.OutputTokens > 0 || refusal {
 				claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
 			}
 			claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens

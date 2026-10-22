@@ -2,6 +2,7 @@ package claude
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,20 +20,46 @@ import (
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func stopReasonClaude2OpenAI(reason string) string {
 	return relayconvert.StopReasonClaudeToOpenAI(reason)
 }
 
-func maybeMarkClaudeRefusal(c *gin.Context, info *relaycommon.RelayInfo, stopReason string) {
-	if c == nil {
+// maybeMarkClaudeRefusal records a refusal for the logs. A refusal that came
+// before any output (no output produced and a final output_tokens of 0) is
+// not billed by Anthropic unless its stop_details category is a billed one,
+// so it is marked to settle at zero; a mid-stream refusal stays billed.
+func maybeMarkClaudeRefusal(c *gin.Context, info *relaycommon.RelayInfo, stopReason string, stopDetails json.RawMessage, usage *dto.ClaudeUsage, outputProduced bool) {
+	if c == nil || !strings.EqualFold(stopReason, "refusal") {
 		return
 	}
-	if strings.EqualFold(stopReason, "refusal") {
-		info.PerformanceBusinessRejection = true
-		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "claude_stop_reason=refusal")
+	info.PerformanceBusinessRejection = true
+	common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "claude_stop_reason=refusal")
+
+	settings := model_setting.GetClaudeSettings()
+	if !settings.RefusalBillingWaiverEnabled || usage == nil || usage.OutputTokens != 0 || outputProduced {
+		return
 	}
+	// Without stop_details the category is unknown, so the refusal stays billed.
+	var details struct {
+		Category *string `json:"category"`
+	}
+	if common.GetJsonType(stopDetails) != "object" || common.Unmarshal(stopDetails, &details) != nil {
+		return
+	}
+	category := "null"
+	if details.Category != nil && *details.Category != "" {
+		category = *details.Category
+	}
+	if settings.IsRefusalCategoryBilled(category) {
+		return
+	}
+	reason := "claude_refusal_before_output category=" + category
+	common.SetContextKey(c, constant.ContextKeyBillingExemptReason, reason)
+	logger.LogInfo(c, common.LogText("Claude refusal before any output settles at 0: %s", reason))
 }
 
 func StreamResponseClaude2OpenAI(claudeResponse *dto.ClaudeResponse) *dto.ChatCompletionsStreamResponse {
@@ -82,6 +109,22 @@ func patchClaudeMessageDeltaUsageData(data string, usage *dto.ClaudeUsage) strin
 	return relayconvert.PatchClaudeMessageDeltaUsageData(data, usage)
 }
 
+// dropResponseFields removes the channel's response_drop_fields paths from a
+// Claude-format answer that is forwarded as it came. Data that holds none of
+// the paths is returned unchanged, without being re-encoded.
+func dropResponseFields(data string, paths []string) string {
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" || !gjson.Get(data, path).Exists() {
+			continue
+		}
+		if dropped, err := sjson.Delete(data, path); err == nil {
+			data = dropped
+		}
+	}
+	return data
+}
+
 func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *dto.ChatCompletionsStreamResponse, claudeInfo *ClaudeResponseInfo) bool {
 	return relayconvert.FormatClaudeResponseInfo(claudeResponse, oaiResponse, claudeInfo)
 }
@@ -99,11 +142,12 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if claudeResponse.Type == "message_start" && claudeResponse.Message != nil {
 		info.ObserveResponseModel(claudeResponse.Message.Model)
 	}
+	outputProduced := claudeInfo.ResponseText.Len() > 0 || claudeInfo.ToolUseCount > 0
 	if claudeResponse.StopReason != "" {
-		maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason)
+		maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason, claudeResponse.StopDetails, claudeResponse.Usage, outputProduced)
 	}
 	if claudeResponse.Delta != nil && claudeResponse.Delta.StopReason != nil {
-		maybeMarkClaudeRefusal(c, info, *claudeResponse.Delta.StopReason)
+		maybeMarkClaudeRefusal(c, info, *claudeResponse.Delta.StopReason, claudeResponse.Delta.StopDetails, claudeResponse.Usage, outputProduced)
 	}
 	if claudeResponse.Type == "message_stop" {
 		info.StreamStatus.MarkCompleted()
@@ -124,6 +168,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 			}
 		}
 		countClaudeStreamBillableTools(info, &claudeResponse)
+		if info.HasChannelMeta() {
+			data = dropResponseFields(data, info.ChannelOtherSettings.ResponseDropFields)
+		}
 		helper.ClaudeChunkData(c, claudeResponse, data)
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		state, err := claudeToChatStreamState(info)
@@ -273,13 +320,19 @@ func recordClaudeServerToolUse(info *relaycommon.RelayInfo, serverToolUse *dto.C
 }
 
 func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	// A stream that ended before message_start and before any output reached
+	// no billable upstream work, so its usage stays zero and nothing is billed.
+	outputProduced := claudeInfo.ResponseText.Len() > 0 || claudeInfo.ToolUseCount > 0
+	upstreamEventReceived := claudeInfo.MessageStarted || outputProduced
 	// Claude input_tokens excludes cache reads and writes, so a fully cached
-	// prompt reports zero input; the prompt is uncounted only when the total
-	// with cache is zero as well. Zero output is uncounted only when content
-	// was streamed, so a refusal before any output keeps its zeros.
+	// prompt reports zero input; prompt figures the upstream reported, cache
+	// included, are billed as reported, and the prompt is uncounted only when
+	// the total with cache is zero as well. Zero output is uncounted only when
+	// text or tool_use blocks were streamed, so a refusal before any output
+	// keeps its zeros.
 	missingInputUsage := buildOpenAIStyleUsageFromClaudeUsage(claudeInfo.Usage).PromptTokens == 0
-	missingOutputUsage := claudeInfo.Usage.CompletionTokens == 0 && claudeInfo.ResponseText.Len() > 0
-	if missingInputUsage || missingOutputUsage || !claudeInfo.Done {
+	missingOutputUsage := claudeInfo.Usage.CompletionTokens == 0 && outputProduced
+	if upstreamEventReceived && (missingInputUsage || missingOutputUsage || !claudeInfo.Done) {
 		if common.DebugEnabled {
 			common.SysLog(common.LogText("claude response usage is not complete, maybe upstream error"))
 		}
@@ -302,6 +355,10 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	}
 	relayconvert.FinalizeClaudeStreamBillingUsage(claudeInfo)
 
+	if helper.UpstreamStreamInterrupted(c, info) {
+		helper.SendStreamInterrupted(c, info)
+		return
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		//
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
@@ -365,7 +422,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		return types.WithClaudeError(*claudeError, http.StatusInternalServerError)
 	}
 	info.ObserveResponseModel(claudeResponse.Model)
-	maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason)
+	maybeMarkClaudeRefusal(c, info, claudeResponse.StopReason, claudeResponse.StopDetails, claudeResponse.Usage, len(claudeResponse.Content) > 0)
 	if claudeInfo.Usage == nil {
 		claudeInfo.Usage = &dto.Usage{}
 	}
@@ -410,6 +467,9 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	case types.RelayFormatClaude:
 		responseData = data
+		if info.HasChannelMeta() && len(info.ChannelOtherSettings.ResponseDropFields) > 0 {
+			responseData = []byte(dropResponseFields(string(data), info.ChannelOtherSettings.ResponseDropFields))
+		}
 	case types.RelayFormatGemini:
 		{
 			convertResult, convertErr := service.ConvertResponse(c, info, types.RelayFormatGemini, &claudeResponse)

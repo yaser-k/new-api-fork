@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -1064,13 +1065,30 @@ func (user *User) ValidateAndFill() (err error) {
 	if username == "" || password == "" {
 		return ErrUserEmptyCredentials
 	}
-	// find by username or email
-	err = DB.Where("username = ? OR email = ?", username, username).First(user).Error
+	// Find by username or email. An email typed in another case than the
+	// stored one (phone keyboards capitalize the field) is looked up through
+	// LOWER(email) when nothing matches as typed; MySQL's case-insensitive
+	// collation already matches it as typed. An account the text names exactly
+	// wins; otherwise the text must name a single account, so an email that
+	// several accounts share in different cases fails like a wrong password.
+	var candidates []User
+	err = DB.Where("username = ? OR email = ?", username, username).Order("id").Find(&candidates).Error
+	if err == nil && len(candidates) == 0 {
+		err = DB.Where("LOWER(email) = ?", NormalizeEmail(username)).Order("id").Limit(2).Find(&candidates).Error
+	}
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrInvalidCredentials
-		}
 		return fmt.Errorf("%w: %v", ErrDatabase, err)
+	}
+	exact := slices.IndexFunc(candidates, func(candidate User) bool {
+		return candidate.Username == username || candidate.Email == username
+	})
+	switch {
+	case exact >= 0:
+		*user = candidates[exact]
+	case len(candidates) == 1:
+		*user = candidates[0]
+	default:
+		return ErrInvalidCredentials
 	}
 	if user.Password == "" {
 		return ErrInvalidCredentials
@@ -1469,11 +1487,7 @@ func updateUserUsedQuotaAndRequestCount(id int, quota int, count int) {
 	//}
 }
 
-func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) {
-	if quota == 0 && usedQuota == 0 && requestCount == 0 {
-		return
-	}
-
+func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, requestCount int) error {
 	err := DB.Model(&User{}).Where("id = ?", id).Updates(
 		map[string]any{
 			"quota":         gorm.Expr("quota + ?", quota),
@@ -1484,6 +1498,7 @@ func updateUserQuotaUsedQuotaAndRequestCount(id int, quota int, usedQuota int, r
 	if err != nil {
 		common.SysLog(common.LogText("failed to batch update user quota, used quota and request count: %s", err.Error()))
 	}
+	return err
 }
 
 // GetUsernameById gets username from Redis first, falls back to DB if needed

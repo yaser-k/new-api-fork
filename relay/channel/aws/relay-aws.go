@@ -12,9 +12,11 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/relayconvert"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimeTypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/auth/bearer"
 )
 
@@ -35,6 +38,25 @@ func getAwsErrorStatusCode(err error) int {
 	var httpErr interface{ HTTPStatusCode() int }
 	if errors.As(err, &httpErr) {
 		return httpErr.HTTPStatusCode()
+	}
+	// An exception inside an event stream has no HTTP response; use the
+	// status Bedrock gives the same exception on a plain request.
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "ThrottlingException", "ServiceQuotaExceededException":
+			return http.StatusTooManyRequests
+		case "ValidationException":
+			return http.StatusBadRequest
+		case "AccessDeniedException":
+			return http.StatusForbidden
+		case "ResourceNotFoundException":
+			return http.StatusNotFound
+		case "ModelTimeoutException":
+			return http.StatusRequestTimeout
+		case "ServiceUnavailableException", "ModelNotReadyException":
+			return http.StatusServiceUnavailable
+		}
 	}
 	// Default to 500 if we can't determine the status code
 	return http.StatusInternalServerError
@@ -109,6 +131,19 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 		awsModelId = awsModelCrossRegion(awsModelId, awsRegionPrefix)
 	}
 
+	// Only ConvertOpenAIRequest builds a Pegasus body. Any other request (the
+	// Messages API, or a passed-through body) would be sent as Anthropic's.
+	if isPegasusModel(awsModelId) {
+		if !a.IsPegasus {
+			return nil, types.NewErrorWithStatusCode(errors.New("this request is not supported for TwelveLabs Pegasus on AWS Bedrock; use chat completions with one video_url part, without pass-through"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		a.AwsReq, err = newPegasusInput(awsModelId, requestBody, info.IsStream)
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
 	// init empty request.header
 	requestHeader := http.Header{}
 	a.SetupRequestHeader(c, &requestHeader, info)
@@ -117,10 +152,38 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 		return nil, err
 	}
 	for key, value := range headerOverride {
+		if value == "" {
+			requestHeader.Del(key)
+			continue
+		}
 		requestHeader.Set(key, value)
 	}
 
+	if a.IsConverse {
+		var converseReq converseRequest
+		if err := common.DecodeJson(requestBody, &converseReq); err != nil {
+			return nil, types.NewErrorWithStatusCode(errors.Wrap(err, "decode converse request fail"), types.ErrorCodeBadRequestBody, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		a.AwsReq, err = newConverseInput(awsModelId, &converseReq, info.IsStream)
+		if err != nil {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeBadRequestBody, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		return nil, nil
+	}
+	// Only ConvertOpenAIRequest builds a Converse body. Any other request (the
+	// Messages API, or a passed-through body) would go out in a shape these
+	// models do not read, or be answered in one this adaptor reads as zero usage.
+	if isConverseModel(awsModelId) {
+		return nil, types.NewErrorWithStatusCode(errors.New("this request is not supported for this model on AWS Bedrock; use chat completions without pass-through"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+
 	if isNovaModel(awsModelId) {
+		// Only ConvertOpenAIRequest builds a Nova body. Any other request (the
+		// Messages API, or a passed-through body) would be sent as one and its
+		// answer read as Anthropic's, billed as zero.
+		if !a.IsNova {
+			return nil, types.NewErrorWithStatusCode(errors.New("this request is not supported for Nova models on AWS Bedrock; use chat completions without pass-through"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
 		var novaReq *NovaRequest
 		err = common.DecodeJson(requestBody, &novaReq)
 		if err != nil {
@@ -137,6 +200,15 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 		reqBody, err := common.Marshal(novaReq)
 		if err != nil {
 			return nil, types.NewError(errors.Wrap(err, "marshal nova request"), types.ErrorCodeBadResponseBody)
+		}
+		if info.IsStream {
+			a.AwsReq = &bedrockruntime.InvokeModelWithResponseStreamInput{
+				ModelId:     awsReq.ModelId,
+				Accept:      awsReq.Accept,
+				ContentType: awsReq.ContentType,
+				Body:        reqBody,
+			}
+			return nil, nil
 		}
 		awsReq.Body = reqBody
 		a.AwsReq = awsReq
@@ -268,6 +340,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 	}
 	stream := awsResp.GetStream()
 	defer stream.Close()
+	info.StreamStatus = relaycommon.NewStreamStatus()
 
 	claudeInfo := &claude.ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -308,6 +381,16 @@ streamLoop:
 		}
 	}
 
+	switch {
+	case requestContext.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, requestContext.Err())
+	case ctx.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, ctx.Err())
+	case stream.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, stream.Err())
+	default:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	}
 	_ = stream.Close()
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
 	return nil, claudeInfo.Usage
@@ -344,6 +427,10 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 	if err := json.Unmarshal(awsResp.Body, &novaResp); err != nil {
 		return types.NewError(errors.Wrap(err, "unmarshal nova response"), types.ErrorCodeBadResponseBody), nil
 	}
+	text := strings.Builder{}
+	for _, block := range novaResp.Output.Message.Content {
+		text.WriteString(block.Text)
+	}
 
 	// 构造OpenAI格式响应
 	response := dto.OpenAITextResponse{
@@ -355,7 +442,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 			Index: 0,
 			Message: dto.Message{
 				Role:    "assistant",
-				Content: novaResp.Output.Message.Content[0].Text,
+				Content: text.String(),
 			},
 			FinishReason: "stop",
 		}},
@@ -368,4 +455,181 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 
 	c.JSON(http.StatusOK, response)
 	return nil, &response.Usage
+}
+
+// novaStreamEvent is one chunk of a Nova InvokeModelWithResponseStream answer:
+// a single event in the Converse stream shape, plus the invocation metrics
+// Bedrock adds to the last chunk.
+type novaStreamEvent struct {
+	MessageStart *struct {
+		Role string `json:"role"`
+	} `json:"messageStart"`
+	ContentBlockDelta *struct {
+		Delta struct {
+			Text string `json:"text"`
+		} `json:"delta"`
+	} `json:"contentBlockDelta"`
+	MessageStop *struct {
+		StopReason string `json:"stopReason"`
+	} `json:"messageStop"`
+	Metadata *struct {
+		Usage struct {
+			InputTokens  int `json:"inputTokens"`
+			OutputTokens int `json:"outputTokens"`
+		} `json:"usage"`
+	} `json:"metadata"`
+	InvocationMetrics *struct {
+		InputTokenCount  int `json:"inputTokenCount"`
+		OutputTokenCount int `json:"outputTokenCount"`
+	} `json:"amazon-bedrock-invocationMetrics"`
+}
+
+// novaFinishReason maps a Bedrock stop reason to an OpenAI finish reason.
+func novaFinishReason(stopReason string) string {
+	switch stopReason {
+	case "content_filtered", "guardrail_intervened":
+		return types.FinishReasonContentFilter
+	case "model_context_window_exceeded":
+		return types.FinishReasonLength
+	}
+	return relayconvert.StopReasonClaudeToOpenAI(stopReason)
+}
+
+// handleNovaStreamRequest relays a Nova event stream as OpenAI chat completion
+// chunks: the role, each text delta, the finish reason, then the usage Bedrock
+// reports for the stream.
+func handleNovaStreamRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types.NewAPIError, *dto.Usage) {
+	requestContext := c.Request.Context()
+	ctx, cancel := newAwsInvokeContext(requestContext)
+	defer cancel()
+
+	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))
+	if err != nil {
+		return newAwsInvokeError(requestContext, err, "InvokeModelWithResponseStream"), nil
+	}
+	stream := awsResp.GetStream()
+	defer stream.Close()
+	info.StreamStatus = relaycommon.NewStreamStatus()
+	info.StreamStatus.RequireTerminal()
+
+	id := helper.GetResponseID(c)
+	created := common.GetTimestamp()
+	model := info.UpstreamModelName
+	usage := &dto.Usage{}
+	responseText := strings.Builder{}
+	lastStreamData := ""
+
+	events := stream.Events()
+streamLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break streamLoop
+		case event, ok := <-events:
+			if !ok || ctx.Err() != nil {
+				break streamLoop
+			}
+			var eventErr error
+			var novaEvent novaStreamEvent
+			if chunk, ok := event.(*bedrockruntimeTypes.ResponseStreamMemberChunk); !ok {
+				eventErr = errors.New("unknown response type")
+			} else if err := common.Unmarshal(chunk.Value.Bytes, &novaEvent); err != nil {
+				eventErr = errors.Wrap(err, "unmarshal nova stream event")
+			}
+			if eventErr != nil {
+				// Once the client has part of the answer, the stream ends as cut
+				// short and what was delivered is billed; before that, the request
+				// fails and can be retried.
+				if info.SendResponseCount == 0 {
+					return newAwsInvokeError(requestContext, eventErr, "InvokeModelWithResponseStream"), nil
+				}
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, eventErr)
+				break streamLoop
+			}
+			info.SetFirstResponseTime()
+
+			if novaEvent.Metadata != nil {
+				usage.PromptTokens = novaEvent.Metadata.Usage.InputTokens
+				usage.CompletionTokens = novaEvent.Metadata.Usage.OutputTokens
+				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+			} else if novaEvent.InvocationMetrics != nil && usage.TotalTokens == 0 {
+				usage.PromptTokens = novaEvent.InvocationMetrics.InputTokenCount
+				usage.CompletionTokens = novaEvent.InvocationMetrics.OutputTokenCount
+				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+			}
+
+			var responses []*dto.ChatCompletionsStreamResponse
+			switch {
+			case novaEvent.ContentBlockDelta != nil && novaEvent.ContentBlockDelta.Delta.Text != "":
+				responseText.WriteString(novaEvent.ContentBlockDelta.Delta.Text)
+				response := &dto.ChatCompletionsStreamResponse{
+					Id:      id,
+					Object:  "chat.completion.chunk",
+					Created: created,
+					Model:   model,
+					Choices: []dto.ChatCompletionsStreamResponseChoice{{}},
+				}
+				response.Choices[0].Delta.SetContentString(novaEvent.ContentBlockDelta.Delta.Text)
+				// The role goes with the first chunk rather than on messageStart, so
+				// an exception right after messageStart still fails the request
+				// before anything reaches the client.
+				if info.SendResponseCount == 0 {
+					response.Choices[0].Delta.Role = "assistant"
+				}
+				responses = append(responses, response)
+			case novaEvent.MessageStop != nil:
+				info.StreamStatus.MarkCompleted()
+				if info.SendResponseCount == 0 {
+					responses = append(responses, helper.GenerateStartEmptyResponse(id, created, model, nil))
+				}
+				responses = append(responses, helper.GenerateStopResponse(id, created, model, novaFinishReason(novaEvent.MessageStop.StopReason)))
+			}
+			for _, response := range responses {
+				data, err := common.Marshal(response)
+				if err != nil {
+					return types.NewError(errors.Wrap(err, "marshal nova stream chunk"), types.ErrorCodeJsonMarshalFailed), nil
+				}
+				lastStreamData = string(data)
+				helper.SetEventStreamHeaders(c)
+				if err := openai.HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+					break streamLoop
+				}
+			}
+		}
+	}
+
+	// Nothing has reached the client yet, so the request fails cleanly, is
+	// refunded and can be retried instead of answering an empty stream.
+	if info.SendResponseCount == 0 && requestContext.Err() == nil {
+		streamErr := stream.Err()
+		if streamErr == nil {
+			streamErr = ctx.Err()
+		}
+		if streamErr == nil {
+			streamErr = errors.New("upstream stream ended before any content")
+		}
+		return newAwsInvokeError(requestContext, streamErr, "InvokeModelWithResponseStream"), nil
+	}
+	switch {
+	case requestContext.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, requestContext.Err())
+	case ctx.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, ctx.Err())
+	case stream.Err() != nil:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, stream.Err())
+	default:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+	}
+	_ = stream.Close()
+
+	if usage.TotalTokens == 0 {
+		usage = service.ResponseText2Usage(c, responseText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+	}
+	helper.SetEventStreamHeaders(c)
+	if helper.UpstreamStreamInterrupted(c, info) {
+		helper.SendStreamInterrupted(c, info)
+		return nil, usage
+	}
+	openai.HandleFinalResponse(c, info, lastStreamData, id, created, model, "", usage, false)
+	return nil, usage
 }

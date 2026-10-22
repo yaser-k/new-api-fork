@@ -31,7 +31,7 @@ import {
   MODEL_FETCHABLE_TYPES,
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
-import type { Channel } from '../types'
+import type { Channel, UpstreamEndUserIdField } from '../types'
 import {
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   advancedCustomConfigUsesRelativeUpstreamPath,
@@ -202,6 +202,13 @@ function addRequiredIssue(
   })
 }
 
+// Request fields that can carry the opaque id of the requesting user.
+export const UPSTREAM_END_USER_ID_FIELDS = [
+  'safety_identifier',
+  'user',
+  'metadata.user_id',
+] as const
+
 export const channelFormSchema = z
   .object({
     name: z.string().min(1, ERROR_MESSAGES.REQUIRED_NAME),
@@ -285,10 +292,14 @@ export const channelFormSchema = z
     allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
     disable_store: z.boolean().optional(), // OpenAI only
     allow_safety_identifier: z.boolean().optional(), // OpenAI only
+    upstream_end_user_id_field: z
+      .enum(['', ...UPSTREAM_END_USER_ID_FIELDS])
+      .optional(), // OpenAI/Anthropic: request field carrying an opaque id of the requesting user
     allow_include_obfuscation: z.boolean().optional(), // OpenAI: include usage obfuscation
     allow_inference_geo: z.boolean().optional(), // OpenAI/Anthropic: inference geography
     allow_speed: z.boolean().optional(), // Anthropic: speed mode control
     claude_beta_query: z.boolean().optional(), // Anthropic: beta query passthrough
+    response_drop_fields: z.string().optional(), // Anthropic: JSON paths removed from forwarded answers, one per line
     ollama_openai_chat: z.boolean().optional(), // Ollama: OpenAI-compatible /v1/chat/completions instead of native /api/chat
     disable_task_polling_sleep: z.boolean().optional(),
     // Upstream model update settings (stored in settings JSON)
@@ -479,10 +490,12 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   allow_service_tier: false,
   disable_store: false,
   allow_safety_identifier: false,
+  upstream_end_user_id_field: '',
   allow_include_obfuscation: false,
   allow_inference_geo: false,
   allow_speed: false,
   claude_beta_query: false,
+  response_drop_fields: '',
   ollama_openai_chat: false,
   disable_task_polling_sleep: false,
   upstream_model_update_check_enabled: false,
@@ -555,10 +568,12 @@ export function transformChannelToFormDefaults(
   let allowServiceTier = false
   let disableStore = false
   let allowSafetyIdentifier = false
+  let upstreamEndUserIdField: UpstreamEndUserIdField = ''
   let allowIncludeObfuscation = false
   let allowInferenceGeo = false
   let allowSpeed = false
   let claudeBetaQuery = false
+  let responseDropFields = ''
   let ollamaOpenAIChat = false
   let disableTaskPollingSleep = false
   let upstreamModelUpdateCheckEnabled = false
@@ -578,10 +593,18 @@ export function transformChannelToFormDefaults(
       allowServiceTier = parsed.allow_service_tier === true
       disableStore = parsed.disable_store === true
       allowSafetyIdentifier = parsed.allow_safety_identifier === true
+      upstreamEndUserIdField = UPSTREAM_END_USER_ID_FIELDS.includes(
+        parsed.upstream_end_user_id_field
+      )
+        ? parsed.upstream_end_user_id_field
+        : ''
       allowIncludeObfuscation = parsed.allow_include_obfuscation === true
       allowInferenceGeo = parsed.allow_inference_geo === true
       allowSpeed = parsed.allow_speed === true
       claudeBetaQuery = parsed.claude_beta_query === true
+      responseDropFields = Array.isArray(parsed.response_drop_fields)
+        ? parsed.response_drop_fields.join('\n')
+        : ''
       ollamaOpenAIChat = parsed.ollama_openai_chat === true
       disableTaskPollingSleep = parsed.disable_task_polling_sleep === true
       upstreamModelUpdateCheckEnabled =
@@ -643,9 +666,11 @@ export function transformChannelToFormDefaults(
     allow_inference_geo: allowInferenceGeo,
     allow_speed: allowSpeed,
     claude_beta_query: claudeBetaQuery,
+    response_drop_fields: responseDropFields,
     ollama_openai_chat: ollamaOpenAIChat,
     disable_task_polling_sleep: disableTaskPollingSleep,
     allow_safety_identifier: allowSafetyIdentifier,
+    upstream_end_user_id_field: upstreamEndUserIdField,
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
@@ -762,6 +787,16 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     delete settingsObj.allow_service_tier
   }
 
+  // Omit the default so unchanged channels keep equivalent JSON.
+  if (
+    FIELD_PASSTHROUGH_TYPES.has(formData.type) &&
+    formData.upstream_end_user_id_field
+  ) {
+    settingsObj.upstream_end_user_id_field = formData.upstream_end_user_id_field
+  } else {
+    delete settingsObj.upstream_end_user_id_field
+  }
+
   if (OPENAI_FIELD_PASSTHROUGH_TYPES.has(formData.type)) {
     settingsObj.disable_store = formData.disable_store === true
     settingsObj.allow_safety_identifier =
@@ -793,6 +828,19 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.allow_speed = formData.allow_speed === true
   } else if ('allow_speed' in settingsObj) {
     delete settingsObj.allow_speed
+  }
+
+  // Omit an empty list so unchanged channels keep equivalent JSON.
+  const responseDropFields = parseResponseDropFields(
+    formData.response_drop_fields
+  )
+  if (
+    CLAUDE_FIELD_PASSTHROUGH_TYPES.has(formData.type) &&
+    responseDropFields.length > 0
+  ) {
+    settingsObj.response_drop_fields = responseDropFields
+  } else {
+    delete settingsObj.response_drop_fields
   }
 
   // Only the Anthropic adaptor supports forcing the Claude beta query.
@@ -973,6 +1021,21 @@ export function transformFormDataToUpdatePayload(
 /**
  * Validate JSON string
  */
+/**
+ * Parse the response fields to remove, one JSON path per line, into the
+ * de-duplicated list stored in the channel settings.
+ */
+export function parseResponseDropFields(value: string | undefined): string[] {
+  return [
+    ...new Set(
+      String(value || '')
+        .split('\n')
+        .map((path) => path.trim())
+        .filter(Boolean)
+    ),
+  ]
+}
+
 export function validateJSON(value: string): boolean {
   if (!value || value.trim() === '') return true
   try {

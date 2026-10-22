@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -140,6 +141,7 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 		{name: "image quantity exceeds one-image wallet before submission", expression: `tier("image", fixed(0.04)) * image_count`, requestedImages: 4, wallet: 20000, insufficient: true},
 		{name: "image override reserves extra quantity", expression: `tier("image", fixed(0.04)) * image_count`, requestedImages: 1, outboundImages: 4, want: 80000, unit: billingexpr.BillingUnitRequest},
 		{name: "image override cannot exceed remaining wallet", expression: `tier("image", fixed(0.04)) * image_count`, requestedImages: 1, outboundImages: 4, wallet: 40000, reserveInsufficient: true, refund: true},
+		{name: "image override failure refunds both reservations", expression: `tier("image", fixed(0.04)) * image_count`, requestedImages: 1, outboundImages: 4, refund: true},
 		{name: "task retry holds a pricier channel and refunds all of it", expression: flat, retryReservation: 40000, refund: true},
 		{name: "task retry cannot exceed remaining wallet", expression: flat, retryReservation: 40000, wallet: 20000, reserveInsufficient: true, refund: true},
 	} {
@@ -202,7 +204,11 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 						assert.Equal(t, reservation, info.Billing.GetPreConsumedQuota())
 					} else {
 						require.Nil(t, reserveErr)
-						assert.Equal(t, tc.want, info.Billing.GetPreConsumedQuota())
+						reserved := reservation * tc.outboundImages / tc.requestedImages
+						assert.Equal(t, reserved, info.Billing.GetPreConsumedQuota())
+						held, err := model.GetUserQuota(user.Id, true)
+						require.NoError(t, err)
+						assert.Equal(t, quota-reserved, held, "the wallet holds the first reservation and the override's extra quantity")
 					}
 				}
 				if tc.retryReservation > 0 {
@@ -532,6 +538,30 @@ func TestCalculateTextQuotaSummaryUsesGeminiBillingUsageBeforeTopLevelUsage(t *t
 	require.Equal(t, 7, summary.CacheTokens)
 	require.Equal(t, 128, summary.TotalTokens)
 	require.Equal(t, 145, summary.Quota)
+}
+
+// A Gemini transcription answer's usage (the measured 10.85 s request: 272 audio prompt tokens and 18
+// text output tokens) is priced by the audio quota, its audio at the model's audio ratio. The ratios
+// are illustrative.
+func TestCalculateAudioQuotaPricesGeminiTranscriptionUsage(t *testing.T) {
+	savedAudio, savedCompletion := ratio_setting.AudioRatio2JSONString(), ratio_setting.CompletionRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateAudioRatioByJSONString(savedAudio))
+		require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(savedCompletion))
+	})
+	require.NoError(t, ratio_setting.UpdateAudioRatioByJSONString(`{"gemini-3.5-transcribe":4}`))
+	require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(`{"gemini-3.5-transcribe":4}`))
+
+	quota, clamp := calculateAudioQuota(QuotaInfo{
+		InputDetails:  TokenDetails{AudioTokens: 272},
+		OutputDetails: TokenDetails{TextTokens: 18},
+		ModelName:     "gemini-3.5-transcribe",
+		ModelRatio:    0.5,
+		GroupRatio:    1,
+	})
+	require.Nil(t, clamp)
+	// (0 text + 18 * 4 completion + 272 * 4 audio) * 0.5 model ratio
+	assert.Equal(t, 580, quota)
 }
 
 func TestCalculateTextQuotaSummaryUsesOpenAIBillingUsageBeforeTopLevelUsage(t *testing.T) {
@@ -1373,6 +1403,39 @@ func TestClaudeCacheOnlyUsageRemainsBillable(t *testing.T) {
 			assert.Equal(t, tc.wantQuota, summary.Quota)
 			assert.Equal(t, tc.wantQuota > 0, summary.hasBillableUsage())
 			t.Logf("input=%d output=%d quota=%d", summary.PromptTokens, summary.CompletionTokens, summary.Quota)
+		})
+	}
+}
+
+// The refusal waiver settles a refusal before any output at zero also when its
+// prompt was read from or written to the cache, which hasBillableUsage now
+// counts as billable on its own (TestClaudeCacheOnlyUsageRemainsBillable).
+func TestClaudeRefusalWaiverSettlesCacheOnlyUsageAtZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const reason = "claude_refusal_before_output category=cyber"
+	for _, tc := range []struct {
+		name  string
+		usage dto.ClaudeUsage
+	}{
+		{name: "one-hour cache write", usage: dto.ClaudeUsage{CacheCreationInputTokens: 20000, CacheCreation: &dto.ClaudeCacheCreationUsage{Ephemeral1hInputTokens: 20000}}},
+		{name: "cache read", usage: dto.ClaudeUsage{CacheReadInputTokens: 100}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			common.SetContextKey(ctx, constant.ContextKeyBillingExemptReason, reason)
+			info := &relaycommon.RelayInfo{
+				RelayFormat:     types.RelayFormatClaude,
+				OriginModelName: "claude-opus-4-8",
+				PriceData: hosttypes.PriceData{
+					ModelRatio: 2.5, CompletionRatio: 5, CacheRatio: 0.1,
+					CacheCreationRatio: 1.25, CacheCreation5mRatio: 1.25, CacheCreation1hRatio: 2,
+					GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+				},
+			}
+			usage := &dto.Usage{UsageSemantic: dto.BillingUsageSemanticAnthropic, BillingUsage: dto.NewClaudeMessagesBillingUsage(&tc.usage)}
+			summary := calculateTextQuotaSummary(ctx, info, effectiveBillingUsage(usage))
+			assert.Equal(t, reason, summary.BillingExemptReason)
+			assert.Zero(t, summary.Quota)
 		})
 	}
 }

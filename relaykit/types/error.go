@@ -76,6 +76,7 @@ const (
 	ErrorCodeEmptyResponse          ErrorCode = "empty_response"
 	ErrorCodeAwsInvokeError         ErrorCode = "aws_invoke_error"
 	ErrorCodeModelNotFound          ErrorCode = "model_not_found"
+	ErrorCodeModelRetired           ErrorCode = "model_retired"
 	ErrorCodePromptBlocked          ErrorCode = "prompt_blocked"
 
 	// sql error
@@ -94,6 +95,7 @@ type NewAPIError struct {
 	recordErrorLog *bool
 	errorType      ErrorType
 	errorCode      ErrorCode
+	upstreamCode   bool
 	StatusCode     int
 	Metadata       json.RawMessage
 }
@@ -111,6 +113,13 @@ func (e *NewAPIError) GetErrorCode() ErrorCode {
 		return ""
 	}
 	return e.errorCode
+}
+
+// HasUpstreamErrorCode reports whether GetErrorCode returns a code the upstream
+// supplied, not one new-api assigned such as bad_response_status_code or
+// unknown_error.
+func (e *NewAPIError) HasUpstreamErrorCode() bool {
+	return e != nil && e.upstreamCode
 }
 
 func (e *NewAPIError) GetErrorType() ErrorType {
@@ -290,7 +299,9 @@ func NewOpenAIError(err error, errorCode ErrorCode, statusCode int, ops ...NewAP
 		Type:    string(errorCode),
 		Code:    errorCode,
 	}
-	return WithOpenAIError(openaiError, statusCode, ops...)
+	e := WithOpenAIError(openaiError, statusCode, ops...)
+	e.upstreamCode = false
+	return e
 }
 
 func InitOpenAIError(errorCode ErrorCode, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
@@ -298,7 +309,9 @@ func InitOpenAIError(errorCode ErrorCode, statusCode int, ops ...NewAPIErrorOpti
 		Type: string(errorCode),
 		Code: errorCode,
 	}
-	return WithOpenAIError(openaiError, statusCode, ops...)
+	e := WithOpenAIError(openaiError, statusCode, ops...)
+	e.upstreamCode = false
+	return e
 }
 
 func NewErrorWithStatusCode(err error, errorCode ErrorCode, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
@@ -332,11 +345,12 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 		openAIError.Type = "upstream_error"
 	}
 	e := &NewAPIError{
-		RelayError: openAIError,
-		errorType:  ErrorTypeOpenAIError,
-		StatusCode: statusCode,
-		Err:        errors.New(openAIError.Message),
-		errorCode:  ErrorCode(code),
+		RelayError:   openAIError,
+		errorType:    ErrorTypeOpenAIError,
+		StatusCode:   statusCode,
+		Err:          errors.New(openAIError.Message),
+		errorCode:    ErrorCode(code),
+		upstreamCode: openAIError.Code != nil && code != "",
 	}
 	// OpenRouter
 	if len(openAIError.Metadata) > 0 {
@@ -352,15 +366,17 @@ func WithOpenAIError(openAIError OpenAIError, statusCode int, ops ...NewAPIError
 }
 
 func WithClaudeError(claudeError ClaudeError, statusCode int, ops ...NewAPIErrorOptions) *NewAPIError {
-	if claudeError.Type == "" {
+	upstreamCode := claudeError.Type != ""
+	if !upstreamCode {
 		claudeError.Type = "upstream_error"
 	}
 	e := &NewAPIError{
-		RelayError: claudeError,
-		errorType:  ErrorTypeClaudeError,
-		StatusCode: statusCode,
-		Err:        errors.New(claudeError.Message),
-		errorCode:  ErrorCode(claudeError.Type),
+		RelayError:   claudeError,
+		errorType:    ErrorTypeClaudeError,
+		StatusCode:   statusCode,
+		Err:          errors.New(claudeError.Message),
+		errorCode:    ErrorCode(claudeError.Type),
+		upstreamCode: upstreamCode,
 	}
 	for _, op := range ops {
 		op(e)
@@ -392,6 +408,14 @@ func ErrOptionWithSkipRetry() NewAPIErrorOptions {
 func ErrOptionWithNoRecordErrorLog() NewAPIErrorOptions {
 	return func(e *NewAPIError) {
 		e.recordErrorLog = kitutil.GetPointer(false)
+	}
+}
+
+// ErrOptionWithLocalErrorCode marks an error built with WithOpenAIError as
+// carrying a code new-api assigned rather than one from an upstream response.
+func ErrOptionWithLocalErrorCode() NewAPIErrorOptions {
+	return func(e *NewAPIError) {
+		e.upstreamCode = false
 	}
 }
 

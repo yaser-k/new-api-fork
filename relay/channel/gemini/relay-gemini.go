@@ -24,6 +24,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// geminiEstimatedImageOutputTokens estimates the output of one returned image when upstream
+// reports no completion count.
+const geminiEstimatedImageOutputTokens = 1400
+
+// geminiBlockingFinishReasons are the finish reasons with which Gemini withholds content.
+var geminiBlockingFinishReasons = []string{"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION"}
+
 func buildUsageFromGeminiMetadata(metadata *dto.GeminiUsageMetadata, fallbackPromptTokens int) dto.Usage {
 	usage := relayconvert.UsageFromGeminiMetadata(metadata, fallbackPromptTokens)
 	if usage == nil {
@@ -54,7 +61,7 @@ func patchGeminiZeroCompletionUsage(c *gin.Context, info *relaycommon.RelayInfo,
 	estimated := service.ResponseText2Usage(c, responseText, info.UpstreamModelName, usage.PromptTokens)
 	usage.CompletionTokens = estimated.CompletionTokens
 	if imageCount != 0 && usage.CompletionTokens == 0 {
-		usage.CompletionTokens = imageCount * 1400
+		usage.CompletionTokens = imageCount * geminiEstimatedImageOutputTokens
 	}
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	// Settlement prefers BillingUsage, so fill the missing completion in the
@@ -227,8 +234,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			if candidate.FinishReason == nil || *candidate.FinishReason == "" || *candidate.FinishReason == "FINISH_REASON_UNSPECIFIED" {
 				continue
 			}
-			switch *candidate.FinishReason {
-			case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
+			if slices.Contains(geminiBlockingFinishReasons, *candidate.FinishReason) {
 				info.PerformanceBusinessRejection = true
 			}
 			info.StreamStatus.MarkCompleted()
@@ -275,7 +281,7 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			usage = &dto.Usage{}
 		}
 		if imageCount != 0 && usage.CompletionTokens == 0 {
-			usage.CompletionTokens = imageCount * 1400
+			usage.CompletionTokens = imageCount * geminiEstimatedImageOutputTokens
 			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 			common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
 		}
@@ -395,6 +401,10 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 
 	if err != nil {
 		return usage, err
+	}
+	if helper.UpstreamStreamInterrupted(c, info) {
+		helper.SendStreamInterrupted(c, info)
+		return usage, nil
 	}
 
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)

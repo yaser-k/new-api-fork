@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,8 +15,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +27,93 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestShouldDisableChannelErrorCodesPreserveCompatibility(t *testing.T) {
+	previousAutoDisable := common.AutomaticDisableChannelEnabled
+	previousKeywords := operation_setting.AutomaticDisableKeywords
+	previousStatusCodes := operation_setting.AutomaticDisableStatusCodeRanges
+	previousDB := model.DB
+	previousOptionMap := common.OptionMap
+	previousOptions := model.CurrentRequestPolicy().Options
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, database.AutoMigrate(&model.Option{}))
+	model.DB = database
+	common.OptionMap = make(map[string]string)
+	t.Cleanup(func() {
+		require.NoError(t, model.UpdateRequestPolicyOptions(map[string]string{
+			"monitor_setting.auto_disable_error_codes": previousOptions["monitor_setting.auto_disable_error_codes"],
+		}))
+		common.OptionMap = previousOptionMap
+		model.DB = previousDB
+		require.NoError(t, sqlDB.Close())
+		common.AutomaticDisableChannelEnabled = previousAutoDisable
+		operation_setting.AutomaticDisableKeywords = previousKeywords
+		operation_setting.AutomaticDisableStatusCodeRanges = previousStatusCodes
+	})
+	common.AutomaticDisableChannelEnabled = true
+	operation_setting.AutomaticDisableKeywords = []string{"用户额度不足", "legacy provider failure"}
+	operation_setting.AutomaticDisableStatusCodeRanges = []operation_setting.StatusCodeRange{{Start: 401, End: 401}}
+
+	for _, tc := range []struct {
+		name   string
+		codes  string
+		body   string
+		status int
+		want   bool
+	}{
+		{"English message matches code", "insufficient_user_quota", `{"error":{"code":"insufficient_user_quota","message":"Insufficient user quota","type":"new_api_error"}}`, 403, true},
+		{"Chinese message matches code", "insufficient_user_quota", `{"error":{"code":"insufficient_user_quota","message":"余额已用完","type":"new_api_error"}}`, 403, true},
+		{"multiline codes trim whitespace", "other_code\r\n  insufficient_user_quota \r\n", `{"error":{"code":"insufficient_user_quota","message":"Quota exhausted"}}`, 403, true},
+		{"empty list preserves old behavior", "", `{"error":{"code":"insufficient_user_quota","message":"Insufficient user quota"}}`, 403, false},
+		{"code match is exact", "quota", `{"error":{"code":"insufficient_user_quota","message":"Quota exhausted"}}`, 403, false},
+		{"code match is case sensitive", "INSUFFICIENT_USER_QUOTA", `{"error":{"code":"insufficient_user_quota","message":"Quota exhausted"}}`, 403, false},
+		{"numeric provider code matches its string form", "20001", `{"error":{"code":20001,"message":"Quota exhausted"}}`, 403, true},
+		{"blank entries do not match an empty code", " \n\r\n", `{"error":{"code":"","message":"Unclassified failure"}}`, 400, false},
+		{"old upstream without code uses Chinese keyword", "insufficient_user_quota", `{"error":{"message":"用户额度不足, 剩余额度: 0"}}`, 403, true},
+		{"old upstream with empty code uses keyword", "insufficient_user_quota", `{"error":{"code":"","message":"用户额度不足, 剩余额度: 0"}}`, 403, true},
+		{"legacy message-only response uses keyword", "insufficient_user_quota", `{"message":"Legacy Provider Failure"}`, 400, true},
+		{"unknown code retains custom keyword", "insufficient_user_quota", `{"error":{"code":"provider_error","message":"Legacy Provider Failure"}}`, 400, true},
+		{"known unmatched code retains keyword", "other_code", `{"error":{"code":"insufficient_user_quota","message":"用户额度不足, 剩余额度: 0"}}`, 403, true},
+		{"message mentioning a code does not match it", "insufficient_user_quota", `{"error":{"code":"other_code","message":"insufficient_user_quota"}}`, 400, false},
+		{"message-only body does not match the code new-api assigns", "bad_response_status_code", `{"message":"Unclassified failure"}`, 400, false},
+		{"missing code does not match the unknown_error fallback", "unknown_error", `{"error":{"message":"Unclassified failure","type":"server_error"}}`, 400, false},
+		{"non-JSON body does not match the code new-api assigns", "bad_response_status_code", `<html>Bad Gateway</html>`, 502, false},
+		{"Anthropic error without code does not match unknown_error", "unknown_error", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, 529, false},
+		{"upstream's own bad_response_status_code matches", "bad_response_status_code", `{"error":{"code":"bad_response_status_code","message":"Upstream failed","type":"new_api_error"}}`, 502, true},
+		{"status rule remains effective", "", `{"error":{"code":"other_code","message":"Authentication failed"}}`, 401, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, model.UpdateRequestPolicyOptions(map[string]string{"monitor_setting.auto_disable_error_codes": tc.codes}))
+			response := &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body))}
+			apiErr := RelayErrorHandler(context.Background(), response, false)
+			require.NotNil(t, apiErr)
+			before := apiErr.ToOpenAIError()
+			assert.Equal(t, tc.want, ShouldDisableChannel(apiErr))
+			assert.Equal(t, before, apiErr.ToOpenAIError(), "older downstreams must receive the same error body")
+			assert.Equal(t, tc.status, apiErr.StatusCode)
+		})
+	}
+
+	require.NoError(t, model.UpdateRequestPolicyOptions(map[string]string{"monitor_setting.auto_disable_error_codes": "insufficient_user_quota"}))
+	var saved model.Option
+	require.NoError(t, database.Where("key = ?", "monitor_setting.auto_disable_error_codes").First(&saved).Error)
+	assert.Equal(t, "insufficient_user_quota", saved.Value)
+	localQuota := types.NewErrorWithStatusCode(errors.New("用户额度不足"), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	assert.False(t, ShouldDisableChannel(localQuota), "a local quota rejection must not disable an upstream")
+	overrideRejection := relaycommon.NewAPIErrorFromParamOverride(&relaycommon.ParamOverrideReturnError{Message: "Blocked by policy", StatusCode: http.StatusForbidden, Code: "insufficient_user_quota"})
+	assert.False(t, ShouldDisableChannel(overrideRejection), "a param override's configured code is not an upstream code")
+	assert.False(t, ShouldDisableChannel(nil))
+	channelError := types.NewError(errors.New("no available key"), types.ErrorCodeChannelNoAvailableKey)
+	assert.True(t, ShouldDisableChannel(channelError))
+	common.AutomaticDisableChannelEnabled = false
+	assert.False(t, ShouldDisableChannel(channelError), "global opt-out still wins")
+	upstreamQuota := types.WithOpenAIError(types.OpenAIError{Code: "insufficient_user_quota", Message: "Quota exhausted"}, http.StatusForbidden)
+	assert.False(t, ShouldDisableChannel(upstreamQuota), "configured error codes cannot override global opt-out")
+}
 
 func TestShouldRetryRelayErrorHonorsChannelPinOnChannelError(t *testing.T) {
 	err := types.NewError(errors.New("channel failed"), types.ErrorCodeChannelNoAvailableKey)
@@ -226,6 +317,52 @@ func TestDecideRelayRetryReasons(t *testing.T) {
 			}
 			decision := DecideRelayRetry(c, tc.err, tc.retries)
 			assert.Equal(t, tc.want, decision)
+			assert.Equal(t, tc.want.Action == "retry", ShouldRetryRelayError(c, tc.err, tc.retries))
+		})
+	}
+}
+
+func TestDecideRelayRetryKeywords(t *testing.T) {
+	const message = "Key monthly cap hit: this prompt could cost more than is left of this key's monthly cap on spend."
+	upstream := func(status int, message string) *types.NewAPIError {
+		return types.NewOpenAIError(errors.New(message), types.ErrorCodeBadResponseStatusCode, status)
+	}
+	matched := PolicyDecision{Action: "retry", Reason: "retry_keyword_matched", Source: "global"}
+	notRetryable := PolicyDecision{Action: "stop", Reason: "status_not_retryable", Source: "global"}
+	for _, tc := range []struct {
+		name     string
+		keywords string
+		err      *types.NewAPIError
+		retries  int
+		setup    func(*gin.Context)
+		want     PolicyDecision
+	}{
+		{name: "configured phrase retries a final status", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 1, want: matched},
+		{name: "empty list keeps the status final", err: upstream(http.StatusBadRequest, message), retries: 1, want: notRetryable},
+		{name: "match ignores case", keywords: "KEY Monthly CAP hit", err: upstream(http.StatusBadRequest, strings.ToUpper(message)), retries: 1, want: matched},
+		{name: "unmatched message keeps the status final", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, "unsupported parameter: foo"), retries: 1, want: notRetryable},
+		{name: "retry status keeps its own reason", keywords: "key monthly cap hit", err: upstream(http.StatusTooManyRequests, message), retries: 1, want: PolicyDecision{Action: "retry", Reason: "retry_status_matched", Source: "global"}},
+		{name: "always skipped status still stops", keywords: "key monthly cap hit", err: upstream(http.StatusGatewayTimeout, message), retries: 1, want: PolicyDecision{Action: "stop", Reason: "system_retry_exclusion", Source: "system"}},
+		{name: "success status still stops", keywords: "key monthly cap hit", err: upstream(http.StatusOK, message), retries: 1, want: PolicyDecision{Action: "stop", Reason: "system_retry_exclusion", Source: "system"}},
+		{name: "attempt budget still stops", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 0, want: PolicyDecision{Action: "stop", Reason: "attempt_budget_exhausted", Source: "global"}},
+		{name: "skip retry error still stops", keywords: "key monthly cap hit", err: types.NewErrorWithStatusCode(errors.New(message), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry()), retries: 1, want: PolicyDecision{Action: "stop", Reason: "non_retryable_error", Source: "system"}},
+		{name: "pinned channel still stops", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 1, setup: func(c *gin.Context) {
+			GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: 1, Source: dto.PinSourceToken, Rank: dto.PinRankToken, RetryMode: dto.PinRetrySingleAttempt})
+		}, want: PolicyDecision{Action: "stop", Reason: "pinned_channel", Source: "channel_constraint"}},
+		{name: "strict session still stops", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 1, setup: func(c *gin.Context) {
+			c.Set(ginKeyChannelAffinitySkipRetry, true)
+			RequestPolicy(c).SessionModeSource = "global"
+		}, want: PolicyDecision{Action: "stop", Reason: "strict_session", Source: "global"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := operation_setting.AutomaticRetryKeywordsToString()
+			operation_setting.AutomaticRetryKeywordsFromString(tc.keywords)
+			t.Cleanup(func() { operation_setting.AutomaticRetryKeywordsFromString(previous) })
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			if tc.setup != nil {
+				tc.setup(c)
+			}
+			assert.Equal(t, tc.want, DecideRelayRetry(c, tc.err, tc.retries))
 			assert.Equal(t, tc.want.Action == "retry", ShouldRetryRelayError(c, tc.err, tc.retries))
 		})
 	}

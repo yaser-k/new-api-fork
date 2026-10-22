@@ -74,6 +74,7 @@ import { createModel, updateModel, getModel, getVendors } from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
 import { modelsQueryKeys, vendorsQueryKeys } from '../../lib'
 import {
+  MODEL_FORM_DEFAULT_VALUES,
   modelFormSchema,
   transformModelToFormDefaults,
   transformFormDataToModelPayload,
@@ -115,12 +116,7 @@ export function ModelMutateDrawer(props: {
   const loadedKey = useRef('')
   const form = useForm({
     resolver: zodResolver(modelFormSchema),
-    defaultValues: transformModelToFormDefaults({
-      model_name: '',
-      status: 1,
-      sync_official: 1,
-      name_rule: 0,
-    } as Model),
+    defaultValues: MODEL_FORM_DEFAULT_VALUES,
   })
   const vendorsQuery = useQuery({
     queryKey: vendorsQueryKeys.list(),
@@ -165,6 +161,7 @@ export function ModelMutateDrawer(props: {
     if (!props.open) {
       setCreatedModel(null)
       loadedKey.current = ''
+      form.reset(MODEL_FORM_DEFAULT_VALUES)
       return
     }
     const key = currentRow?.id
@@ -172,16 +169,12 @@ export function ModelMutateDrawer(props: {
       : `channel:${currentRow?.model_name ?? ''}`
     if (loadedKey.current === key || (isEditing && !modelQuery.data)) return
     form.reset(
-      transformModelToFormDefaults(
-        (isEditing
-          ? modelQuery.data
-          : {
-              model_name: currentRow?.model_name ?? '',
-              status: 1,
-              sync_official: 1,
-              name_rule: 0,
-            }) as Model
-      )
+      isEditing && modelQuery.data
+        ? transformModelToFormDefaults(modelQuery.data)
+        : {
+            ...MODEL_FORM_DEFAULT_VALUES,
+            model_name: currentRow?.model_name ?? '',
+          }
     )
     loadedKey.current = key
   }, [props.open, currentRow, isEditing, modelQuery.data, form])
@@ -255,7 +248,7 @@ export function ModelMutateDrawer(props: {
           className={sideDrawerContentClassName('sm:max-w-[1280px]')}
         >
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle className='pr-6 break-all'>
+            <SheetTitle className='pe-6 break-all'>
               {hasModelName ? currentRow?.model_name : t('Create Model')}
             </SheetTitle>
             <SheetDescription>
@@ -401,7 +394,7 @@ export function ModelMutateDrawer(props: {
                                 }))}
                                 onValueChange={(value) =>
                                   field.onChange(
-                                    value ? Number.parseInt(value) : undefined
+                                    value ? Number.parseInt(value) : null
                                   )
                                 }
                                 value={field.value ? String(field.value) : null}

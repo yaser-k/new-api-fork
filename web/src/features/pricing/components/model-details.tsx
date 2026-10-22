@@ -57,6 +57,7 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { PluginIcon } from '@/features/task-plugins/components/plugin-icon'
 import { getLobeIcon } from '@/lib/lobe-icon'
+import { resolveLocalizedTextString } from '@/lib/localized-text-string'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -104,6 +105,7 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { RetiredModelNotice } from './retired-models'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -172,7 +174,7 @@ function UnconfiguredTaskPricingNotice(props: { model: PricingModel }) {
               <dt className='text-sm'>
                 <code>{field}</code>
               </dt>
-              <dd className='text-muted-foreground text-right text-xs'>
+              <dd className='text-muted-foreground text-end text-xs'>
                 {(definition.enum ?? []).join(', ')}
               </dd>
             </div>
@@ -595,11 +597,15 @@ function ModelBackendDetailsSection(props: { model: PricingModel }) {
 // ----------------------------------------------------------------------------
 
 function ModelHeader(props: { model: PricingModel }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const model = props.model
   const modelIconKey = model.icon || model.vendor_icon
   const modelIcon = modelIconKey ? getLobeIcon(modelIconKey, 20) : null
-  const description = model.description || model.vendor_description || null
+  const description =
+    resolveLocalizedTextString(
+      model.description || model.vendor_description,
+      i18n.language
+    ) || null
 
   return (
     <header className='pb-4'>
@@ -781,7 +787,7 @@ function PriceSection(props: {
                   </div>
                   <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
                     {entry.formattedRange ?? entry.formatted}
-                    <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                    <span className='text-muted-foreground/40 ms-1 text-xs font-normal'>
                       / {unitLabel}
                     </span>
                   </div>
@@ -816,7 +822,7 @@ function PriceSection(props: {
                     </span>
                     <span className='text-muted-foreground font-mono text-sm tabular-nums'>
                       {entry.formattedRange ?? entry.formatted}
-                      <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                      <span className='text-muted-foreground/40 ms-1 text-xs font-normal'>
                         / {unitLabel}
                       </span>
                     </span>
@@ -875,7 +881,7 @@ function PriceSection(props: {
         props.usdExchangeRate,
         baseGroupRatioMap
       )}
-      <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+      <span className='text-muted-foreground/40 ms-1 text-xs font-normal'>
         / {tokenUnitLabel}
       </span>
     </>
@@ -1275,8 +1281,8 @@ function ProviderGroupPricingSection(
                         ) : (
                           fieldLabel
                         ),
-                        className: `${thClass} text-right`,
-                        cellClassName: 'py-2.5 text-right font-mono',
+                        className: `${thClass} text-end`,
+                        cellClassName: 'py-2.5 text-end font-mono',
                         cell: (tier: (typeof dynamicTiers)[number]) =>
                           formattedPricesByTier
                             .get(tier)
@@ -1307,8 +1313,8 @@ function ProviderGroupPricingSection(
                         {
                           id: 'price',
                           header: t('Example price'),
-                          className: `${thClass} text-right`,
-                          cellClassName: 'py-2.5 text-right font-mono',
+                          className: `${thClass} text-end`,
+                          cellClassName: 'py-2.5 text-end font-mono',
                           cell: (row) =>
                             `≈ ${formatTaskUsageUnitPrice(row.total, {
                               tokenUnit: props.tokenUnit,
@@ -1403,22 +1409,22 @@ function ProviderGroupPricingSection(
                 {
                   id: 'input',
                   header: t('Input'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: (group: string) => renderGroupPrice(group, 'input'),
                 },
                 {
                   id: 'output',
                   header: t('Output'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: (group: string) => renderGroupPrice(group, 'output'),
                 },
                 ...extraPriceTypes.map((ep) => ({
                   id: ep.type,
                   header: ep.label,
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: (group: string) => renderGroupPrice(group, ep.type),
                 })),
               ]
@@ -1426,8 +1432,8 @@ function ProviderGroupPricingSection(
                 {
                   id: 'price',
                   header: t('Price'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: renderFixedGroupPrice,
                 },
               ]),
@@ -1607,6 +1613,7 @@ export function ModelDetails() {
     usableGroup,
     endpointMap,
     autoGroups,
+    retiredModels,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -1619,6 +1626,11 @@ export function ModelDetails() {
     if (!models || !modelId) return null
     return models.find((m) => m.model_name === modelId) || null
   }, [models, modelId])
+
+  const retiredModel = useMemo(
+    () => retiredModels.find((m) => m.model_name === modelId) || null,
+    [retiredModels, modelId]
+  )
 
   const handleBack = () => {
     navigate({ to: '/pricing', search })
@@ -1644,6 +1656,25 @@ export function ModelDetails() {
               <Skeleton key={`section-${key}`} className='h-24 w-full' />
             ))}
           </div>
+        </div>
+      </PublicLayout>
+    )
+  }
+
+  if (!model && retiredModel) {
+    return (
+      <PublicLayout>
+        <div className='mx-auto max-w-5xl px-4 sm:px-6'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={handleBack}
+            className='text-muted-foreground hover:text-foreground mb-4 h-auto gap-1 px-0 py-1 text-xs'
+          >
+            <ArrowLeft className='size-3.5' />
+            {t('Back')}
+          </Button>
+          <RetiredModelNotice model={retiredModel} />
         </div>
       </PublicLayout>
     )

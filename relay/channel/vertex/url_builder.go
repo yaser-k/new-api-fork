@@ -10,6 +10,7 @@ const (
 	OpenSourceAPIVersion = "v1beta1"
 	PublisherGoogle      = "google"
 	PublisherAnthropic   = "anthropic"
+	PublisherMistral     = "mistralai"
 )
 
 func normalizeVertexBaseURL(baseURL string) string {
@@ -35,6 +36,19 @@ func appendVertexAPIVersion(baseURL, version string) string {
 	return baseURL + "/" + version
 }
 
+// vertexAPIHost is the host that serves a location.
+func vertexAPIHost(region string) string {
+	region = normalizeVertexRegion(region)
+	switch region {
+	case "global":
+		return "aiplatform.googleapis.com"
+	case "us", "eu":
+		// The US and EU multi-regions are served from their own hostnames.
+		return "aiplatform." + region + ".rep.googleapis.com"
+	}
+	return region + "-aiplatform.googleapis.com"
+}
+
 func BuildAPIBaseURL(baseURL, version, projectID, region string) string {
 	if normalized := normalizeVertexBaseURL(baseURL); normalized != "" {
 		normalized = appendVertexAPIVersion(normalized, version)
@@ -47,14 +61,7 @@ func BuildAPIBaseURL(baseURL, version, projectID, region string) string {
 	}
 
 	region = normalizeVertexRegion(region)
-	host := region + "-aiplatform.googleapis.com"
-	switch region {
-	case "global":
-		host = "aiplatform.googleapis.com"
-	case "us", "eu":
-		// The US and EU multi-regions are served from their own hostnames.
-		host = "aiplatform." + region + ".rep.googleapis.com"
-	}
+	host := vertexAPIHost(region)
 	if strings.TrimSpace(projectID) == "" {
 		return fmt.Sprintf("https://%s/%s", host, version)
 	}
@@ -79,9 +86,25 @@ func BuildAnthropicModelURL(baseURL, version, projectID, region, modelName, acti
 	return BuildPublisherModelURL(baseURL, version, projectID, region, PublisherAnthropic, modelName, action)
 }
 
+func BuildMistralModelURL(baseURL, version, projectID, region, modelName, action string) string {
+	return BuildPublisherModelURL(baseURL, version, projectID, region, PublisherMistral, modelName, action)
+}
+
 func BuildOpenSourceChatCompletionsURL(baseURL, projectID, region string) string {
 	return fmt.Sprintf(
 		"%s/endpoints/openapi/chat/completions",
 		BuildAPIBaseURL(baseURL, OpenSourceAPIVersion, projectID, region),
 	)
+}
+
+// LiveAPIPath is the WebSocket path of the Live API's bidirectional generateContent.
+const LiveAPIPath = "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
+
+// BuildLiveURL is the Live API's WebSocket endpoint for a location, on the channel's base URL when it
+// has one. The scheme is https; the WebSocket dial turns it into wss.
+func BuildLiveURL(baseURL, region string) string {
+	if normalized := normalizeVertexBaseURL(baseURL); normalized != "" {
+		return normalized + LiveAPIPath
+	}
+	return "https://" + vertexAPIHost(region) + LiveAPIPath
 }

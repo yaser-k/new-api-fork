@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -28,9 +29,11 @@ const (
 type Adaptor struct {
 	ClientMode ClientMode
 	AwsClient  *bedrockruntime.Client
+	IsPegasus  bool
 	AwsModelId string
 	AwsReq     any
 	IsNova     bool
+	IsConverse bool
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
@@ -39,6 +42,9 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
+	if isConverseModel(getAwsModelID(request.Model)) {
+		return nil, newConverseUnsupportedError("model", "the Messages API is not supported for this model on AWS Bedrock; use chat completions")
+	}
 	claudeAdaptor := claude.Adaptor{}
 	if _, err := claudeAdaptor.ConvertClaudeRequest(c, info, request); err != nil {
 		return nil, err
@@ -122,11 +128,39 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	// Only TwelveLabs Pegasus takes a video; any other model refuses one.
+	if isPegasusModel(getAwsModelID(request.Model)) {
+		pegasusReq, err := convertToPegasusRequest(c, info, request)
+		if err != nil {
+			return nil, err
+		}
+		a.IsPegasus = true
+		return pegasusReq, nil
+	}
+	for i, message := range request.Messages {
+		for _, part := range awsContentParts(message) {
+			if part.Type == dto.ContentTypeVideoUrl {
+				return nil, newAwsVideoUnsupportedError(fmt.Sprintf("messages[%d].content", i), "video input is supported only for TwelveLabs Pegasus models on AWS Bedrock")
+			}
+		}
+	}
 	// 检查是否为Nova模型
 	if isNovaModel(request.Model) {
-		novaReq := convertToNovaRequest(request)
+		novaReq, err := convertToNovaRequest(c, request)
+		if err != nil {
+			return nil, err
+		}
 		a.IsNova = true
 		return novaReq, nil
+	}
+
+	if isConverseModel(getAwsModelID(request.Model)) {
+		converseReq, err := convertToConverseRequest(c, request)
+		if err != nil {
+			return nil, err
+		}
+		a.IsConverse = true
+		return converseReq, nil
 	}
 
 	// 原有的Claude模型处理逻辑
@@ -147,8 +181,7 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	return convertToAwsEmbeddingRequest(info.UpstreamModelName, request)
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
@@ -157,6 +190,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == relayconstant.RelayModeEmbeddings {
+		return nil, doAwsEmbeddingRequest(c, info, a, requestBody)
+	}
 	switch info.ChannelOtherSettings.AwsApiType {
 	case dto.AwsApiTypeMantle:
 		req, err := a.newMantleRequest(c, info, requestBody)
@@ -181,13 +217,39 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	// A Mantle channel answers in the Messages API for Claude models only;
+	// newMantleRequest refuses Nova and the Converse models before sending.
+	if a.IsConverse && a.ClientMode != ClientModeApiKey && info.ChannelOtherSettings.AwsApiType != dto.AwsApiTypeMantle {
+		if info.IsStream {
+			err, usage = converseStreamHandler(c, info, a)
+		} else {
+			err, usage = converseHandler(c, info, a)
+		}
+		return
+	}
 	if info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle || a.ClientMode == ClientModeApiKey {
 		claudeAdaptor := claude.Adaptor{}
 		usage, err = claudeAdaptor.DoResponse(c, resp, info)
 	} else {
+		if info.RelayMode == relayconstant.RelayModeEmbeddings {
+			err, usage = awsEmbeddingHandler(c, info, a)
+			return
+		}
 		if a.IsNova {
-			err, usage = handleNovaRequest(c, info, a)
+			if info.IsStream {
+				err, usage = handleNovaStreamRequest(c, info, a)
+			} else {
+				err, usage = handleNovaRequest(c, info, a)
+			}
 		} else {
+			if a.IsPegasus {
+				if info.IsStream {
+					err, usage = pegasusStreamHandler(c, info, a)
+				} else {
+					err, usage = pegasusHandler(c, info, a)
+				}
+				return
+			}
 			if info.IsStream {
 				err, usage = awsStreamHandler(c, info, a)
 			} else {

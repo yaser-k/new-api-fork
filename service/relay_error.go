@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -53,6 +54,11 @@ func DecideRelayRetry(c *gin.Context, err *types.NewAPIError, retryTimes int) Po
 	if operation_setting.ShouldRetryByStatusCode(code) {
 		return PolicyDecision{Action: "retry", Reason: "retry_status_matched", Source: "global"}
 	}
+	// Some upstreams refuse with a final status on purpose although another
+	// channel could serve the request; operators list those messages here.
+	if matched, _ := AcSearch(strings.ToLower(err.Error()), operation_setting.AutomaticRetryKeywords, true); matched {
+		return PolicyDecision{Action: "retry", Reason: "retry_keyword_matched", Source: "global"}
+	}
 	return PolicyDecision{Action: "stop", Reason: "status_not_retryable", Source: "global"}
 }
 
@@ -60,9 +66,18 @@ func ShouldRetryRelayError(c *gin.Context, openaiErr *types.NewAPIError, retryTi
 	return DecideRelayRetry(c, openaiErr, retryTimes).Action == "retry"
 }
 
+// ProcessChannelError handles a failed request to a channel and records its
+// error log row at once.
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
+	ProcessAttemptChannelError(c, channelError, err, relayInfo).Record(c, false)
+}
+
+// ProcessAttemptChannelError handles a failed relay attempt like
+// ProcessChannelError but returns its error log row unsaved, or nil when none
+// is due, so a retry loop can record it as retried once another attempt starts.
+func ProcessAttemptChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) *model.ErrorLog {
 	if err == nil {
-		return
+		return nil
 	}
 	upstreamURLs := common.UpstreamAddresses(c)
 	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
@@ -94,6 +109,7 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
-		model.RecordErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(upstreamURLs...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+		return model.NewErrorLog(c, userId, channelError.ChannelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(upstreamURLs...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
+	return nil
 }

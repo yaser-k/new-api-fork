@@ -52,6 +52,7 @@ await i18n.use(initReactI18next).init({
 type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
+  post: ApiMethod
   put: ApiMethod
 }
 type RenderedDrawer = {
@@ -64,6 +65,7 @@ type CurrencyFixture = {
 
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
+const originalPost = apiClient.post
 const originalPut = apiClient.put
 const originalConsoleLog = Reflect.get(console, 'log')
 let renderedDrawer: RenderedDrawer | null = null
@@ -93,12 +95,12 @@ function deferred<T>() {
   return { promise, reject, resolve }
 }
 
-function drawerTree(currentRow: Redemption) {
+function drawerTree(currentRow?: Redemption, open = true) {
   return (
     <I18nextProvider i18n={i18n}>
       <RedemptionsProvider>
         <RedemptionsMutateDrawer
-          open
+          open={open}
           currentRow={currentRow}
           onOpenChange={() => undefined}
         />
@@ -129,11 +131,26 @@ async function renderDrawer(
   renderedDrawer = { result: render(drawerTree(currentRow)) }
 }
 
-async function rerenderDrawer(currentRow: Redemption): Promise<void> {
+async function rerenderDrawer(
+  currentRow: Redemption | undefined,
+  open = true
+): Promise<void> {
   if (!renderedDrawer) {
     throw new Error('Expected a rendered redemption drawer')
   }
-  renderedDrawer.result.rerender(drawerTree(currentRow))
+  renderedDrawer.result.rerender(drawerTree(currentRow, open))
+}
+
+// Closes the drawer the way a person does: the Close button, then the parent
+// clears the open state and the row.
+async function closeDrawer(): Promise<void> {
+  fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0])
+  await rerenderDrawer(undefined, false)
+}
+
+// The picker copies its value into local state in an effect, so wait for it.
+function findExpiryTrigger(name: string): Promise<HTMLButtonElement> {
+  return screen.findByRole<HTMLButtonElement>('button', { name })
 }
 
 function getSaveButton(): HTMLButtonElement {
@@ -179,6 +196,7 @@ async function waitForLoadedForm(): Promise<void> {
 
 afterEach(() => {
   apiClient.get = originalGet
+  apiClient.post = originalPost
   apiClient.put = originalPut
   Reflect.set(console, 'log', originalConsoleLog)
   toast.dismiss()
@@ -187,6 +205,31 @@ afterEach(() => {
 })
 
 describe('redemption drawer', () => {
+  test('sends a default name without bidi isolates for a right-to-left currency symbol', async () => {
+    const creates: Array<Record<string, unknown>> = []
+    apiClient.post = async (_url, data) => {
+      creates.push(data as Record<string, unknown>)
+      return { data: { success: true, data: ['key-1'] } }
+    }
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        displayInCurrency: true,
+        quotaDisplayType: 'CUSTOM',
+        quotaPerUnit: 500000,
+        usdExchangeRate: 1,
+        customCurrencySymbol: 'تومان',
+        customCurrencyExchangeRate: 1,
+      },
+    })
+
+    render(drawerTree())
+    submitForm()
+    await waitFor(() => expect(creates).toHaveLength(1))
+
+    expect(creates[0]?.name).toContain('تومان')
+    expect(creates[0]?.name).not.toMatch(/[\u2068\u2069]/)
+  })
+
   test('shows the reported CNY quota without floating-point noise', async () => {
     const original = redemption(1, 13888889)
     apiClient.get = async () => ({ data: { success: true, data: original } })
@@ -314,5 +357,135 @@ describe('redemption drawer', () => {
 
     expect(updates[0]?.id).toBe(2)
     expect(updates[0]?.quota).toBe(1000001)
+  })
+})
+
+// Local noon, so the picker shows 2023-11-14 in every time zone.
+const PAST_EXPIRY = new Date(2023, 10, 14, 12).getTime() / 1000
+
+describe('redemption drawer expiry between records', () => {
+  function installEditFixtures(
+    redemptionsById: Map<number, Promise<Redemption>>,
+    updates: Array<Record<string, unknown>>,
+    creates: Array<Record<string, unknown>> = []
+  ): void {
+    apiClient.get = async (url) => {
+      const id = Number(url.match(/^\/api\/redemption\/(\d+)$/)?.[1])
+      const found = redemptionsById.get(id)
+      if (!found) throw new Error(`Unexpected GET ${url}`)
+      return { data: { success: true, data: await found } }
+    }
+    apiClient.put = async (url, data) => {
+      expect(url).toBe('/api/redemption/')
+      expect(data && typeof data === 'object').toBeTruthy()
+      updates.push(data as Record<string, unknown>)
+      return { data: { success: true } }
+    }
+    apiClient.post = async (url, data) => {
+      expect(url).toBe('/api/redemption/')
+      expect(data && typeof data === 'object').toBeTruthy()
+      creates.push(data as Record<string, unknown>)
+      return { data: { success: true, data: [] } }
+    }
+  }
+
+  test('a never-expiring code opened after a code with an expiry shows and saves never', async () => {
+    const withExpiry = { ...redemption(1), expired_time: PAST_EXPIRY }
+    const neverExpires = redemption(2)
+    const neverExpiresRequest = deferred<Redemption>()
+    const updates: Array<Record<string, unknown>> = []
+    installEditFixtures(
+      new Map([
+        [1, Promise.resolve(withExpiry)],
+        [2, neverExpiresRequest.promise],
+      ]),
+      updates
+    )
+
+    await renderDrawer(withExpiry)
+    await waitForLoadedForm()
+    expect(await findExpiryTrigger('2023-11-14')).toBeInTheDocument()
+    await closeDrawer()
+
+    await rerenderDrawer(neverExpires)
+    neverExpiresRequest.resolve(neverExpires)
+    await waitForLoadedForm()
+    expect(getControlByLabel('Name').value).toBe('code-2')
+    expect(await findExpiryTrigger('Never expires')).toBeInTheDocument()
+
+    submitForm()
+    await waitFor(() => expect(updates).toHaveLength(1))
+    expect(updates[0]?.id).toBe(2)
+    expect(updates[0]?.expired_time).toBe(0)
+  })
+
+  test('a code with an expiry opened after a never-expiring code shows and saves its expiry', async () => {
+    const neverExpires = redemption(1)
+    const withExpiry = { ...redemption(2), expired_time: PAST_EXPIRY }
+    const withExpiryRequest = deferred<Redemption>()
+    const updates: Array<Record<string, unknown>> = []
+    installEditFixtures(
+      new Map([
+        [1, Promise.resolve(neverExpires)],
+        [2, withExpiryRequest.promise],
+      ]),
+      updates
+    )
+
+    await renderDrawer(neverExpires)
+    await waitForLoadedForm()
+    await closeDrawer()
+
+    await rerenderDrawer(withExpiry)
+    withExpiryRequest.resolve(withExpiry)
+    await waitForLoadedForm()
+    expect(await findExpiryTrigger('2023-11-14')).toBeInTheDocument()
+
+    submitForm()
+    await waitFor(() => expect(updates).toHaveLength(1))
+    expect(updates[0]?.expired_time).toBe(PAST_EXPIRY)
+  })
+
+  test('create after editing a code with an expiry starts blank and saves never', async () => {
+    const withExpiry = { ...redemption(1), expired_time: PAST_EXPIRY }
+    const updates: Array<Record<string, unknown>> = []
+    const creates: Array<Record<string, unknown>> = []
+    installEditFixtures(
+      new Map([[1, Promise.resolve(withExpiry)]]),
+      updates,
+      creates
+    )
+
+    await renderDrawer(withExpiry)
+    await waitForLoadedForm()
+    await closeDrawer()
+
+    await rerenderDrawer(undefined)
+    await waitForLoadedForm()
+    expect(getControlByLabel('Name').value).toBe('')
+    expect(await findExpiryTrigger('Never expires')).toBeInTheDocument()
+
+    changeInput(getControlByLabel('Name'), 'fresh')
+    submitForm()
+    await waitFor(() => expect(creates).toHaveLength(1))
+    expect(creates[0]?.expired_time).toBe(0)
+    expect(updates).toEqual([])
+  })
+
+  test('the Never button clears a loaded expiry and saves never', async () => {
+    const withExpiry = { ...redemption(1), expired_time: PAST_EXPIRY }
+    const updates: Array<Record<string, unknown>> = []
+    installEditFixtures(new Map([[1, Promise.resolve(withExpiry)]]), updates)
+
+    await renderDrawer(withExpiry)
+    await waitForLoadedForm()
+    expect(await findExpiryTrigger('2023-11-14')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Never' }))
+    expect(await findExpiryTrigger('Never expires')).toBeInTheDocument()
+
+    submitForm()
+    await waitFor(() => expect(updates).toHaveLength(1))
+    expect(updates[0]?.expired_time).toBe(0)
   })
 })

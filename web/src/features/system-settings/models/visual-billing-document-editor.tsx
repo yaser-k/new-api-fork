@@ -34,7 +34,10 @@ import {
   formatPricingAmount,
   type PricingCurrency,
 } from '@/features/model-pricing/currency'
-import { BILLING_VARS } from '@/features/pricing/lib/billing-expr'
+import {
+  BILLING_VARS,
+  billingVarUnitPrice,
+} from '@/features/pricing/lib/billing-expr'
 import { formatBillingCondition } from '@/features/pricing/lib/billing-expression/condition-display'
 import {
   visualConditionExpression,
@@ -231,7 +234,7 @@ function PricingRuleCard(
       <div className='flex items-start gap-1 p-3'>
         <CollapsibleTrigger
           aria-label={t('Edit pricing rule {{name}}', { name })}
-          className='flex min-w-0 flex-1 items-start gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2'
+          className='flex min-w-0 flex-1 items-start gap-3 rounded-md text-start focus-visible:outline-2 focus-visible:outline-offset-2'
         >
           <Badge variant='secondary' className='mt-0.5 shrink-0 tabular-nums'>
             {props.number}
@@ -257,18 +260,27 @@ function PricingRuleCard(
                   </span>
                 ) : (
                   <>
-                    {tier.prices.map((price) => (
-                      <span key={price.variable}>
-                        {t(
-                          BILLING_VARS.find(
-                            (variable) => variable.key === price.variable
-                          )?.shortLabel ?? price.variable
-                        )}
-                        :{' '}
-                        {formatPricingAmount(price.value, props.currency) ||
-                          '—'}
-                      </span>
-                    ))}
+                    {tier.prices.map((price) => {
+                      const variable = BILLING_VARS.find(
+                        (entry) => entry.key === price.variable
+                      )
+                      // A second-unit coefficient is shown as its per-second price.
+                      const perSecond = variable?.unit === 'second'
+                      const amount =
+                        perSecond && price.value !== ''
+                          ? billingVarUnitPrice(
+                              price.variable,
+                              Number(price.value)
+                            )
+                          : price.value
+                      return (
+                        <span key={price.variable}>
+                          {t(variable?.shortLabel ?? price.variable)}:{' '}
+                          {formatPricingAmount(amount, props.currency) || '—'}
+                          {perSecond && `/${t('second')}`}
+                        </span>
+                      )
+                    })}
                     <span className='text-muted-foreground'>
                       /{t('1M token')}
                     </span>
@@ -319,7 +331,7 @@ function PricingRuleCard(
               }
             />
           ) : (
-            <div className='space-y-3 border-l-2 pl-3'>
+            <div className='space-y-3 border-s-2 ps-3'>
               <p className='text-sm font-medium'>
                 {t('When conditions match')}
               </p>

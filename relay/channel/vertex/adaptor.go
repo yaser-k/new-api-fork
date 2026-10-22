@@ -27,7 +27,27 @@ const (
 	RequestModeClaude     = 1
 	RequestModeGemini     = 2
 	RequestModeOpenSource = 3
+	RequestModeMistral    = 4
 )
+
+// Mistral's chat models on Vertex AI take an OpenAI chat body through rawPredict on the
+// mistralai publisher. Mistral's OCR model takes a document body and is not one of them.
+var mistralChatModelPrefixes = []string{"mistral-", "codestral-"}
+
+// mistralChatModelID reports whether an upstream model name is one of Mistral's chat models
+// and returns its bare id, without a "mistralai/" publisher prefix.
+func mistralChatModelID(upstreamModelName string) (string, bool) {
+	id := strings.TrimPrefix(upstreamModelName, PublisherMistral+"/")
+	if strings.HasPrefix(id, "mistral-ocr") {
+		return "", false
+	}
+	for _, prefix := range mistralChatModelPrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return id, true
+		}
+	}
+	return "", false
+}
 
 var claudeModelMap = map[string]string{
 	"claude-3-sonnet-20240229":   "claude-3-sonnet@20240229",
@@ -50,8 +70,13 @@ var claudeModelMap = map[string]string{
 const anthropicVersion = "vertex-2023-10-16"
 
 type Adaptor struct {
+	// transcription is set by ConvertAudioRequest for a Gemini transcription model; its answer follows it.
+	transcription *gemini.TranscriptionRequest
+
 	RequestMode        int
 	AccountCredentials Credentials
+	// embeddingEncodingFormat is the encoding_format of an embeddings request, applied to its answer.
+	embeddingEncodingFormat string
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
@@ -94,6 +119,34 @@ func removeFunctionCallIDs(request *dto.GeminiChatRequest) {
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
+	// The URL follows the model (Init), so the body must too: only Claude models take
+	// Anthropic's rawPredict body.
+	switch a.RequestMode {
+	case RequestModeGemini:
+		result, err := service.ConvertRequest(c, info, types.RelayFormatGemini, request)
+		if err != nil {
+			return nil, err
+		}
+		geminiRequest, ok := result.Value.(*dto.GeminiChatRequest)
+		if !ok {
+			return nil, fmt.Errorf("expected Gemini generateContent request, got %T", result.Value)
+		}
+		if model_setting.GetGeminiSettings().RemoveFunctionResponseIdEnabled {
+			removeFunctionCallIDs(geminiRequest)
+		}
+		c.Set("request_model", request.Model)
+		return geminiRequest, nil
+	case RequestModeOpenSource:
+		result, err := service.ConvertRequest(c, info, types.RelayFormatOpenAI, request)
+		if err != nil {
+			return nil, err
+		}
+		openAIRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+		if !ok {
+			return nil, fmt.Errorf("expected OpenAI chat completions request, got %T", result.Value)
+		}
+		return openAIRequest, nil
+	}
 	claudeAdaptor := claude.Adaptor{}
 	if _, err := claudeAdaptor.ConvertClaudeRequest(c, info, request); err != nil {
 		return nil, err
@@ -107,12 +160,42 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	return vertexClaudeReq, nil
 }
 
+// isGeminiTranscriptionModel reports whether a model is one of Gemini's transcription models, which
+// transcribe audio through generateContent.
+func isGeminiTranscriptionModel(upstreamModelName string) bool {
+	return strings.HasPrefix(upstreamModelName, "gemini-") && strings.Contains(upstreamModelName, "transcribe")
+}
+
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	if info.RelayMode != constant.RelayModeAudioTranscription || a.RequestMode != RequestModeGemini || !isGeminiTranscriptionModel(info.UpstreamModelName) {
+		return nil, errors.New("not implemented")
+	}
+	transcription, body, err := gemini.ConvertTranscriptionRequest(c, info)
+	if err != nil {
+		return nil, err
+	}
+	a.transcription = transcription
+	return body, nil
+}
+
+// isGeminiImageModel reports whether a model is one of Gemini's image models, which generate images
+// through generateContent, not through Imagen's predict.
+func isGeminiImageModel(upstreamModelName string) bool {
+	return strings.HasPrefix(upstreamModelName, "gemini-") &&
+		(strings.Contains(upstreamModelName, "-image") || strings.Contains(upstreamModelName, "nano-banana"))
 }
 
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if a.RequestMode == RequestModeGemini && isGeminiImageModel(info.UpstreamModelName) {
+		if info.RelayMode != constant.RelayModeImagesGenerations {
+			return nil, types.NewErrorWithStatusCode(errors.New("gemini image models take image generation requests only"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		geminiRequest, err := gemini.ConvertImageGenerationRequest(request)
+		if err != nil {
+			return nil, err
+		}
+		return geminiRequest, nil
+	}
 	geminiAdaptor := gemini.Adaptor{}
 	return geminiAdaptor.ConvertImageRequest(c, info, request)
 }
@@ -124,6 +207,8 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 		// open source models
 		strings.Contains(info.UpstreamModelName, "-maas") {
 		a.RequestMode = RequestModeOpenSource
+	} else if _, ok := mistralChatModelID(info.UpstreamModelName); ok {
+		a.RequestMode = RequestModeMistral
 	} else {
 		a.RequestMode = RequestModeGemini
 	}
@@ -144,8 +229,13 @@ func (a *Adaptor) getRequestUrl(info *relaycommon.RelayInfo, modelName, suffix s
 			return BuildAnthropicModelURL(info.ChannelBaseUrl, DefaultAPIVersion, adc.ProjectID, region, modelName, suffix), nil
 		} else if a.RequestMode == RequestModeOpenSource {
 			return BuildOpenSourceChatCompletionsURL(info.ChannelBaseUrl, adc.ProjectID, region), nil
+		} else if a.RequestMode == RequestModeMistral {
+			return BuildMistralModelURL(info.ChannelBaseUrl, DefaultAPIVersion, adc.ProjectID, region, modelName, suffix), nil
 		}
 	} else {
+		if a.RequestMode == RequestModeMistral {
+			return "", errors.New("vertex mistral models need a service account key, not an API key")
+		}
 		var keyPrefix string
 		if strings.HasSuffix(suffix, "?alt=sse") {
 			keyPrefix = "&"
@@ -176,6 +266,9 @@ func (a *Adaptor) getRequestUrl(info *relaycommon.RelayInfo, modelName, suffix s
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	suffix := ""
+	if info.RelayMode == constant.RelayModeRealtime {
+		return a.liveRequestURL(info)
+	}
 	if a.RequestMode == RequestModeGemini {
 		if info.IsStream {
 			suffix = "streamGenerateContent?alt=sse"
@@ -185,6 +278,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 		if strings.HasPrefix(info.UpstreamModelName, "imagen") {
 			suffix = "predict"
+		}
+		if info.RelayMode == constant.RelayModeEmbeddings {
+			suffix = "embedContent"
 		}
 		return a.getRequestUrl(info, info.UpstreamModelName, suffix)
 	} else if a.RequestMode == RequestModeClaude {
@@ -200,12 +296,24 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		return a.getRequestUrl(info, model, suffix)
 	} else if a.RequestMode == RequestModeOpenSource {
 		return a.getRequestUrl(info, "", "")
+	} else if a.RequestMode == RequestModeMistral {
+		if info.IsStream {
+			suffix = "streamRawPredict"
+		} else {
+			suffix = "rawPredict"
+		}
+		modelID, _ := mistralChatModelID(info.UpstreamModelName)
+		return a.getRequestUrl(info, modelID, suffix)
 	}
 	return "", errors.New("unsupported request mode")
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	if a.transcription != nil {
+		// The transcription body is JSON, not the client's multipart upload.
+		req.Set("Content-Type", "application/json")
+	}
 	if info.ChannelOtherSettings.VertexKeyType != dto.VertexKeyTypeAPIKey {
 		accessToken, err := getAccessToken(a, info)
 		if err != nil {
@@ -309,6 +417,10 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		return geminiRequest, nil
 	} else if a.RequestMode == RequestModeOpenSource {
 		return request, nil
+	} else if a.RequestMode == RequestModeMistral {
+		// rawPredict takes Mistral's own chat body, which names the model by its bare id.
+		request.Model, _ = mistralChatModelID(info.UpstreamModelName)
+		return request, nil
 	}
 	return nil, errors.New("unsupported request mode")
 }
@@ -318,8 +430,40 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	// Gemini embedding models are the ones that answer embedContent here.
+	if a.RequestMode != RequestModeGemini || !strings.HasPrefix(info.UpstreamModelName, "gemini-embedding") {
+		return nil, errors.New("not implemented")
+	}
+
+	var inputs []string
+	switch input := request.Input.(type) {
+	case string:
+		inputs = []string{input}
+	case []any:
+		for _, item := range input {
+			text, ok := item.(string)
+			if !ok {
+				return nil, types.NewErrorWithStatusCode(errors.New("vertex embeddings take text inputs, not token arrays"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
+			inputs = append(inputs, text)
+		}
+	}
+	if len(inputs) == 0 {
+		return nil, types.NewErrorWithStatusCode(errors.New("input is empty"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if len(inputs) > maxEmbedContentInputs {
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("vertex embeddings take at most %d inputs in one request, got %d", maxEmbedContentInputs, len(inputs)), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+
+	batch := embedContentBatch{Requests: make([]embedContentRequest, 0, len(inputs))}
+	for _, text := range inputs {
+		batch.Requests = append(batch.Requests, embedContentRequest{
+			Content:              dto.GeminiChatContent{Parts: []dto.GeminiPart{{Text: text}}},
+			OutputDimensionality: request.Dimensions,
+		})
+	}
+	a.embeddingEncodingFormat = request.EncodingFormat
+	return batch, nil
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
@@ -328,10 +472,23 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		conn, err := channel.DoWssRequest(a, c, info, requestBody)
+		if err != nil {
+			return nil, err
+		}
+		return conn, nil
+	}
+	if info.RelayMode == constant.RelayModeEmbeddings {
+		return a.doEmbedContentCalls(c, info, requestBody)
+	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayMode == constant.RelayModeEmbeddings {
+		return embedContentHandler(c, info, resp, a.embeddingEncodingFormat)
+	}
 	claudeAdaptor := claude.Adaptor{}
 	if info.IsStream {
 		switch a.RequestMode {
@@ -343,23 +500,33 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			} else {
 				return gemini.GeminiChatStreamHandler(c, info, resp)
 			}
-		case RequestModeOpenSource:
+		case RequestModeOpenSource, RequestModeMistral:
 			return openai.OaiStreamHandler(c, info, resp)
 		}
 	} else {
+		// A realtime session is not a stream until its handler runs.
+		if info.RelayMode == constant.RelayModeRealtime {
+			return a.liveTranscriptionHandler(c, info)
+		}
 		switch a.RequestMode {
 		case RequestModeClaude:
 			return claudeAdaptor.DoResponse(c, resp, info)
 		case RequestModeGemini:
+			if a.transcription != nil {
+				return gemini.GeminiTranscriptionHandler(c, info, resp, a.transcription)
+			}
 			if info.RelayMode == constant.RelayModeGemini {
 				return gemini.GeminiTextGenerationHandler(c, info, resp)
 			} else {
+				if info.RelayMode == constant.RelayModeImagesGenerations && isGeminiImageModel(info.UpstreamModelName) {
+					return gemini.GeminiImageGenerationHandler(c, info, resp)
+				}
 				if strings.HasPrefix(info.UpstreamModelName, "imagen") {
 					return gemini.GeminiImageHandler(c, info, resp)
 				}
 				return gemini.GeminiChatHandler(c, info, resp)
 			}
-		case RequestModeOpenSource:
+		case RequestModeOpenSource, RequestModeMistral:
 			return openai.OpenaiHandler(c, info, resp)
 		}
 	}

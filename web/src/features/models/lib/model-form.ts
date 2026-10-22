@@ -34,7 +34,9 @@ export const modelFormSchema = z.object({
   description: z.string().default(''),
   icon: z.string().default(''),
   tags: z.array(z.string()).default([]),
-  vendor_id: z.number().optional(),
+  // null means no vendor. A controlled field must not be undefined:
+  // react-hook-form would bring back the value the field mounted with.
+  vendor_id: z.number().nullable(),
   endpoints: z.string().default(''),
   name_rule: z.number().min(0).max(3).default(0),
   status: z.boolean().default(true),
@@ -44,6 +46,20 @@ export const modelFormSchema = z.object({
 })
 
 export type ModelFormValues = z.infer<typeof modelFormSchema>
+
+export const MODEL_FORM_DEFAULT_VALUES: ModelFormValues = {
+  model_name: '',
+  description: '',
+  icon: '',
+  tags: [],
+  vendor_id: null,
+  endpoints: '',
+  name_rule: 0,
+  status: true,
+  sync_official: true,
+  enable_groups: [],
+  quota_types: [],
+}
 
 // ============================================================================
 // Vendor Form Schema
@@ -76,7 +92,7 @@ export function transformModelToFormDefaults(model: Model): ModelFormValues {
     description: model.description || '',
     icon: model.icon || '',
     tags: parseTagsFromUtils(model.tags),
-    vendor_id: model.vendor_id,
+    vendor_id: model.vendor_id ?? null,
     endpoints: model.endpoints || '',
     name_rule: model.name_rule || 0,
     status: model.status === 1,
@@ -98,7 +114,7 @@ export function transformFormDataToModelPayload(
     description: formData.description || '',
     icon: formData.icon || '',
     tags: formatTagsArray(formData.tags),
-    vendor_id: formData.vendor_id,
+    vendor_id: formData.vendor_id ?? undefined,
     endpoints: formData.endpoints || '',
     name_rule: formData.name_rule,
     status: formData.status ? 1 : 0,

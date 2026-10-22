@@ -33,9 +33,11 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { useState } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import ru from '@/i18n/locales/ru.json'
 import { api } from '@/lib/api'
 import { createAppQueryClient } from '@/lib/query-client'
 import { ROLE } from '@/lib/roles'
@@ -2864,6 +2866,39 @@ test('a New API channel binds upstream task plugins and publishes their models',
 })
 
 test.each([
+  { language: 'en', tab: 'Other Settings' },
+  { language: 'ru', tab: 'Другие настройки' },
+])(
+  'the last upstream model check time reads YYYY-MM-DD HH:mm:ss in the $language interface',
+  async ({ language, tab }) => {
+    editingChannel = {
+      ...editingChannel,
+      settings: JSON.stringify({
+        // Local time keeps the expected text independent of the time zone.
+        upstream_model_update_last_check_time:
+          new Date(2026, 9, 3, 9, 30).getTime() / 1000,
+      }),
+    }
+    i18next.addResourceBundle('ru', 'translation', ru.translation, true, true)
+    await act(() => i18next.changeLanguage(language))
+    try {
+      const user = userEvent.setup()
+      render(<ConfigurationHarness currentRow={editingChannel} />)
+      await user.click(
+        await screen.findByRole('tab', { name: new RegExp(tab) })
+      )
+
+      expect(
+        screen.getByText('2026-10-03 09:30:00', { exact: false })
+      ).toBeInTheDocument()
+    } finally {
+      await act(() => i18next.changeLanguage('en'))
+      i18next.removeResourceBundle('ru', 'translation')
+    }
+  }
+)
+
+test.each([
   {
     saved: undefined,
     shown: 'InvokeModel (legacy)',
@@ -2932,4 +2967,130 @@ test('AWS interface selection is disabled without sensitive channel write permis
   expect(
     await screen.findByRole('combobox', { name: 'AWS API' })
   ).toBeDisabled()
+})
+
+test('a Claude channel shows its saved response fields to remove and saves the edited list one path per entry', async () => {
+  editingChannel = {
+    ...editingChannel,
+    type: 14,
+    settings: '{"response_drop_fields":["billing","request_id"]}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  expect(requestTab).toHaveAccessibleName(/Configured/)
+  await user.click(requestTab)
+  const paths = screen.getByRole('textbox', {
+    name: 'Response fields to remove',
+  })
+  expect(paths).toHaveValue('billing\nrequest_id')
+  fireEvent.change(paths, {
+    target: {
+      value: ' billing\n\namazon-bedrock-invocationMetrics\nusage.x\nbilling',
+    },
+  })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings).response_drop_fields).toEqual([
+    'billing',
+    'amazon-bedrock-invocationMetrics',
+    'usage.x',
+  ])
+})
+
+test('clearing the response fields to remove saves the settings without the list', async () => {
+  editingChannel = {
+    ...editingChannel,
+    type: 14,
+    settings: '{"response_drop_fields":["billing"]}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  await user.click(requestTab)
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Response fields to remove' }),
+    { target: { value: '  \n' } }
+  )
+  expect(requestTab).not.toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings)).not.toHaveProperty(
+    'response_drop_fields'
+  )
+})
+
+test('a channel without Claude-format answers does not offer response fields to remove', async () => {
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Request & Response/ }))
+  expect(
+    screen.queryByRole('textbox', { name: 'Response fields to remove' })
+  ).not.toBeInTheDocument()
+})
+
+test('a saved end-user identifier field loads, marks Request & Response and saves the chosen field', async () => {
+  editingChannel = {
+    ...editingChannel,
+    settings: '{"upstream_end_user_id_field":"safety_identifier"}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  expect(requestTab).toHaveAccessibleName(/Configured/)
+  await user.click(requestTab)
+  const select = screen.getByRole('combobox', {
+    name: 'Send end-user identifier',
+  })
+  expect(select).toHaveTextContent('safety_identifier')
+  await user.click(select)
+  await user.click(screen.getByRole('option', { name: 'metadata.user_id' }))
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings)).toMatchObject({
+    upstream_end_user_id_field: 'metadata.user_id',
+  })
+})
+
+test('choosing no end-user identifier saves the settings without the field', async () => {
+  editingChannel = {
+    ...editingChannel,
+    type: 14,
+    settings: '{"upstream_end_user_id_field":"metadata.user_id"}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  await user.click(requestTab)
+  await user.click(
+    screen.getByRole('combobox', { name: 'Send end-user identifier' })
+  )
+  await user.click(screen.getByRole('option', { name: 'None' }))
+  expect(requestTab).not.toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings)).not.toHaveProperty(
+    'upstream_end_user_id_field'
+  )
 })

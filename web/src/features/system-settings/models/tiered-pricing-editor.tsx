@@ -92,6 +92,7 @@ import {
   createDefaultVisualConfig,
   evalExprLocally,
   buildEstimatorTokens,
+  estimatorStateKey,
   exprUsesExtraVars,
   generateExprFromVisualConfig,
 } from '@/features/pricing/lib/tier-expr'
@@ -317,7 +318,7 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
             {t('Variables')}: <code>len</code>, <code>p</code>, <code>c</code>,{' '}
             <code>cr</code>, <code>cc</code>, <code>cc1h</code>,{' '}
             <code>img</code>, <code>img_cr</code>, <code>img_o</code>,{' '}
-            <code>ai</code>, <code>ao</code>
+            <code>ai</code>, <code>ao</code>, <code>vid_sec</code>
           </div>
           <div>
             {t('Functions')}: <code>tier(name, value)</code>,{' '}
@@ -331,9 +332,15 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
               'Use tier(name, fixed(amount)) for a USD price per request. Group and request multipliers still apply.'
             )}
           </div>
+          <div>
+            {t(
+              'vid_sec counts input video seconds, not tokens: write its price per second times 1,000,000 (USD 0.00049 a second is vid_sec * 490).'
+            )}
+          </div>
         </AlertDescription>
       </Alert>
       <Textarea
+        dir='ltr'
         aria-label={t('Billing expression')}
         value={exprString}
         onChange={(event) => onChange(event.target.value)}
@@ -530,7 +537,7 @@ function RuleConditionRow({
         size='icon'
         onClick={onRemove}
         aria-label={t('Remove condition')}
-        className='ml-auto'
+        className='ms-auto'
       >
         <Trash2 className='text-destructive h-4 w-4' />
       </Button>
@@ -620,7 +627,7 @@ function RuleGroupCard({
             size='sm'
             onClick={() => handleAddCondition(false)}
           >
-            <Plus className='mr-1 h-3 w-3' />
+            <Plus className='me-1 h-3 w-3' />
             {t('Add param/header')}
           </Button>
           <Button
@@ -628,7 +635,7 @@ function RuleGroupCard({
             size='sm'
             onClick={() => handleAddCondition(true)}
           >
-            <Plus className='mr-1 h-3 w-3' />
+            <Plus className='me-1 h-3 w-3' />
             {t('Add time condition')}
           </Button>
         </div>
@@ -738,6 +745,7 @@ function CostEstimator({ effectiveExpr, fullExpr, currency }: EstimatorProps) {
     imageOutputTokens: 0,
     audioInputTokens: 0,
     audioOutputTokens: 0,
+    videoSeconds: 0,
   })
 
   const usesExtras = useMemo(
@@ -822,14 +830,8 @@ function CostEstimator({ effectiveExpr, fullExpr, currency }: EstimatorProps) {
       {usesExtras && (
         <div className='grid grid-cols-2 gap-3'>
           {BILLING_EXTRA_VARS.map((variable) => {
-            // BILLING_EXTRA_VARS only contains pricing variables; they are
-            // guaranteed to have a non-null `field` (the `len` condition-only
-            // variable is filtered out). Narrow the type here for safety.
-            if (!variable.field) return null
-            const stateKey = variable.field.replace(
-              'Price',
-              'Tokens'
-            ) as keyof ExtraTokenValues
+            const stateKey = estimatorStateKey(variable.key)
+            if (!stateKey) return null
             return (
               <div key={variable.key} className='space-y-1'>
                 <Label className='text-xs'>{t(variable.shortLabel)}</Label>
@@ -912,6 +914,9 @@ Output side:
 - img_cr — image cache input tokens; deducted from img and cr only when the upstream reports a valid image cache breakdown
 - ao — audio output token count
 
+Not a token count:
+- vid_sec — input video seconds the upstream reports. Never deducted from p or c and never part of len. Like every coefficient it is a price per 1M units, so $0.00049 per second is vid_sec * 490. Use ceil(vid_sec) to bill whole seconds
+
 ### p/c Auto-exclusion
 
 p and c are fallback variables representing all tokens not separately priced in the expression. If the expression uses a sub-category variable (e.g., cr), those tokens are deducted from p to avoid double-billing. Unused sub-category tokens remain in p/c at base price.
@@ -931,7 +936,7 @@ Important: len is NOT affected by auto-exclusion. Tier conditions should use len
 
 ### Price Coefficients
 
-Numbers in the expression are $/1M tokens prices. For example, p * 2.5 means input $2.50/1M tokens.
+Numbers in the expression are $/1M tokens prices. For example, p * 2.5 means input $2.50/1M tokens. vid_sec is the exception in unit only: its coefficient is $ per 1M seconds, i.e. the per-second price times 1,000,000.
 
 ## Expression Examples
 
@@ -1001,7 +1006,7 @@ function LlmPromptHelper({ modelName }: LlmPromptHelperProps) {
           <Button variant='ghost' size='sm' className='h-7 px-2 text-xs' />
         }
       >
-        <Copy className='mr-1.5 h-3 w-3' />
+        <Copy className='me-1.5 h-3 w-3' />
         {t('LLM prompt helper')}
       </CollapsibleTrigger>
       <CollapsibleContent className='mt-2'>
@@ -1015,14 +1020,15 @@ function LlmPromptHelper({ modelName }: LlmPromptHelperProps) {
             <Button
               variant='outline'
               size='sm'
-              className='ml-3 shrink-0'
+              className='ms-3 shrink-0'
               onClick={handleCopy}
             >
-              <Copy className='mr-1.5 h-3 w-3' />
+              <Copy className='me-1.5 h-3 w-3' />
               {t('Copy prompt')}
             </Button>
           </div>
           <Textarea
+            dir='ltr'
             value={prompt}
             readOnly
             rows={8}
@@ -1294,7 +1300,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
                     ])
                   }
                 >
-                  <Plus className='mr-2 h-4 w-4' />
+                  <Plus className='me-2 h-4 w-4' />
                   {t('Add rule group')}
                 </Button>
               </>

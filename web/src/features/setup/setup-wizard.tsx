@@ -37,6 +37,8 @@ import {
 import { Form } from '@/components/ui/form'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { accountPasswordSchema } from '@/lib/password-policy'
 import { requireServerSuccess } from '@/lib/server-error-message'
@@ -77,7 +79,8 @@ const DEFAULT_FORM_VALUES: SetupFormValues = {
 }
 
 export function SetupWizard() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { systemName, logo, loading: systemConfigLoading } = useSystemConfig()
@@ -284,7 +287,7 @@ export function SetupWizard() {
 
   return (
     <div className='bg-muted/40 relative min-h-svh py-10'>
-      <div className='absolute top-4 right-4 sm:top-6 sm:right-6'>
+      <div className='absolute end-4 top-4 sm:end-6 sm:top-6'>
         <LanguageSwitcher />
       </div>
       <div className='container mx-auto flex max-w-5xl flex-col gap-8 px-4 sm:px-6'>
@@ -348,7 +351,7 @@ export function SetupWizard() {
                             : 'border-muted-foreground/40 text-muted-foreground'
                         )}
                       >
-                        {index + 1}
+                        {formatNumber(index + 1, locale)}
                       </span>
                       <div className='space-y-1'>
                         <p className='text-sm font-semibold'>
