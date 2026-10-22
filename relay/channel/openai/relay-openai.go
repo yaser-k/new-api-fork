@@ -175,6 +175,17 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		}
 	}
 
+	// An upstream that closes the body after only role or usage frames generated
+	// nothing: no text, reasoning or tool call delta, no finish_reason and no
+	// completion tokens. Fail the attempt so the controller can retry it instead
+	// of billing the prompt. A stream that delivered output and then hit EOF
+	// without [DONE] is still a success.
+	if info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF &&
+		info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeUnknown) &&
+		responseTextBuilder.Len() == 0 && toolCount == 0 && usage.CompletionTokens == 0 {
+		return nil, types.NewOpenAIError(fmt.Errorf("upstream stream ended without generating any output"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	}
+
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
 			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
