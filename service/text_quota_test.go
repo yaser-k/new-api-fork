@@ -1377,6 +1377,39 @@ func TestClaudeCacheOnlyUsageRemainsBillable(t *testing.T) {
 	}
 }
 
+// The refusal waiver settles a refusal before any output at zero also when its
+// prompt was read from or written to the cache, which hasBillableUsage now
+// counts as billable on its own (TestClaudeCacheOnlyUsageRemainsBillable).
+func TestClaudeRefusalWaiverSettlesCacheOnlyUsageAtZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const reason = "claude_refusal_before_output category=cyber"
+	for _, tc := range []struct {
+		name  string
+		usage dto.ClaudeUsage
+	}{
+		{name: "one-hour cache write", usage: dto.ClaudeUsage{CacheCreationInputTokens: 20000, CacheCreation: &dto.ClaudeCacheCreationUsage{Ephemeral1hInputTokens: 20000}}},
+		{name: "cache read", usage: dto.ClaudeUsage{CacheReadInputTokens: 100}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			common.SetContextKey(ctx, constant.ContextKeyBillingExemptReason, reason)
+			info := &relaycommon.RelayInfo{
+				RelayFormat:     types.RelayFormatClaude,
+				OriginModelName: "claude-opus-4-8",
+				PriceData: hosttypes.PriceData{
+					ModelRatio: 2.5, CompletionRatio: 5, CacheRatio: 0.1,
+					CacheCreationRatio: 1.25, CacheCreation5mRatio: 1.25, CacheCreation1hRatio: 2,
+					GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1},
+				},
+			}
+			usage := &dto.Usage{UsageSemantic: dto.BillingUsageSemanticAnthropic, BillingUsage: dto.NewClaudeMessagesBillingUsage(&tc.usage)}
+			summary := calculateTextQuotaSummary(ctx, info, effectiveBillingUsage(usage))
+			assert.Equal(t, reason, summary.BillingExemptReason)
+			assert.Zero(t, summary.Quota)
+		})
+	}
+}
+
 func TestCalculateTextQuotaSummaryDoesNotApplyRequestMultipliersToToolSurcharge(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
