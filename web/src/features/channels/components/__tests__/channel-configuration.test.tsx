@@ -3039,3 +3039,58 @@ test('a channel without Claude-format answers does not offer response fields to 
     screen.queryByRole('textbox', { name: 'Response fields to remove' })
   ).not.toBeInTheDocument()
 })
+
+test('a saved end-user identifier field loads, marks Request & Response and saves the chosen field', async () => {
+  editingChannel = {
+    ...editingChannel,
+    settings: '{"upstream_end_user_id_field":"safety_identifier"}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  expect(requestTab).toHaveAccessibleName(/Configured/)
+  await user.click(requestTab)
+  const select = screen.getByRole('combobox', {
+    name: 'Send end-user identifier',
+  })
+  expect(select).toHaveTextContent('safety_identifier')
+  await user.click(select)
+  await user.click(screen.getByRole('option', { name: 'metadata.user_id' }))
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings)).toMatchObject({
+    upstream_end_user_id_field: 'metadata.user_id',
+  })
+})
+
+test('choosing no end-user identifier saves the settings without the field', async () => {
+  editingChannel = {
+    ...editingChannel,
+    type: 14,
+    settings: '{"upstream_end_user_id_field":"metadata.user_id"}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  await user.click(requestTab)
+  await user.click(
+    screen.getByRole('combobox', { name: 'Send end-user identifier' })
+  )
+  await user.click(screen.getByRole('option', { name: 'None' }))
+  expect(requestTab).not.toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings)).not.toHaveProperty(
+    'upstream_end_user_id_field'
+  )
+})
