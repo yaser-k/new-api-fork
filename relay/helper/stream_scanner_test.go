@@ -272,6 +272,141 @@ func TestStreamScannerHandler_SkipsNonDataLines(t *testing.T) {
 	assert.Equal(t, int64(100), count.Load())
 }
 
+func TestStreamScannerHandler_RelaysUpstreamCommentAfterData(t *testing.T) {
+	tests := []struct {
+		name        string
+		disablePing bool
+		wantPing    bool
+	}{
+		{name: "relayed as a ping", wantPing: true},
+		// Formats that disable pings (native Gemini streaming) must not
+		// receive comment lines.
+		{name: "dropped when pings are disabled", disablePing: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pr, pw := io.Pipe()
+			t.Cleanup(func() {
+				_ = pr.Close()
+				_ = pw.Close()
+			})
+
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+			resp := &http.Response{Body: pr}
+			info := &relaycommon.RelayInfo{
+				DisablePing: tt.disablePing,
+				ChannelMeta: &relaycommon.ChannelMeta{},
+			}
+
+			firstHandled := make(chan struct{})
+			done := make(chan struct{})
+			var writeErr error
+			go func() {
+				StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+					writeErr = StringData(c, data)
+					if data == "first" {
+						close(firstHandled)
+					}
+				})
+				close(done)
+			}()
+
+			_, err := fmt.Fprint(pw, "data: first\n")
+			require.NoError(t, err)
+
+			select {
+			case <-firstHandled:
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for first data frame")
+			}
+
+			_, err = fmt.Fprint(pw, ": upstream-private-heartbeat\n\ndata: [DONE]\n")
+			require.NoError(t, err)
+			require.NoError(t, pw.Close())
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for stream to finish")
+			}
+
+			require.NoError(t, writeErr)
+			want := "data: first\n\n"
+			if tt.wantPing {
+				want += ": PING\n\n"
+			}
+			assert.Equal(t, want, recorder.Body.String())
+			assert.Equal(t, 1, info.ReceivedResponseCount)
+			require.NotNil(t, info.StreamStatus)
+			assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+		})
+	}
+}
+
+func TestStreamScannerHandler_SkipsUpstreamCommentBeforeData(t *testing.T) {
+	body := ": upstream-private-heartbeat\n\ndata: [DONE]\n"
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		_ = StringData(c, data)
+	})
+
+	assert.False(t, c.Writer.Written(), "a heartbeat must not commit the response before the first data frame")
+	assert.Equal(t, 0, info.ReceivedResponseCount)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
+func TestStreamScannerHandler_PriorPingDoesNotUnlockUpstreamComment(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	require.NoError(t, PingData(c))
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), ": PING\n\n"))
+
+	body := ": upstream-private-heartbeat\n\ndata: [DONE]\n"
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		_ = StringData(c, data)
+	})
+
+	assert.Equal(t, 1, strings.Count(recorder.Body.String(), ": PING\n\n"),
+		"a periodic ping must not make an upstream comment look like post-data traffic")
+	assert.NotContains(t, recorder.Body.String(), "upstream-private-heartbeat")
+	assert.Equal(t, 0, info.ReceivedResponseCount)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
+func TestStreamScannerHandler_HeaderOnlyFlushDoesNotUnlockUpstreamComment(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+	body := "data: first\n\n: upstream-private-heartbeat\n\ndata: [DONE]\n"
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		_ = FlushWriter(c)
+	})
+
+	assert.NotContains(t, recorder.Body.String(), ": PING\n\n",
+		"a header-only flush must not count as a downstream data frame")
+	assert.Equal(t, 1, info.ReceivedResponseCount)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+}
+
 func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 	t.Parallel()
 
@@ -657,4 +792,136 @@ func TestNewStreamScannerCallerLimit(t *testing.T) {
 	require.True(t, scanner.Scan())
 	assert.Equal(t, "data: ok", scanner.Text())
 	require.NoError(t, scanner.Err())
+}
+
+// ---------- Write deadlines ----------
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (r *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	r.deadlines = append(r.deadlines, deadline)
+	return nil
+}
+
+func TestStreamWriteBudget(t *testing.T) {
+	start := time.Unix(1_800_000_000, 0)
+	var budget StreamWriteBudget
+	steps := []struct {
+		name  string
+		at    time.Duration
+		bytes int
+		want  time.Duration
+	}{
+		{"small event", 0, 8 << 10, 31 * time.Second},
+		{"image event gets the time a slow client needs", 0, 3600 << 10, 481 * time.Second},
+		{"next write keeps the image budget", 60 * time.Second, 8 << 10, 482 * time.Second},
+		{"budget starts over once it ran out", 600 * time.Second, 8 << 10, 631 * time.Second},
+	}
+	for _, step := range steps {
+		assert.Equal(t, start.Add(step.want), budget.Deadline(start.Add(step.at), step.bytes), step.name)
+	}
+}
+
+func TestSetEventStreamHeadersBoundsStreamWritesByBudget(t *testing.T) {
+	recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	SetEventStreamHeaders(c)
+
+	before := time.Now()
+	require.NoError(t, StringData(c, strings.Repeat("A", 3600<<10)))
+
+	require.NotEmpty(t, recorder.deadlines)
+	assert.False(t, recorder.deadlines[0].Before(before.Add(streamWriteTimeout+450*time.Second)))
+	assert.Contains(t, recorder.Body.String(), "data: AAAA")
+}
+
+// slowClientRecorder models a client that reads at rate bytes per second: a
+// write returns once the client has drained it, and is refused when that is
+// past the write deadline in force.
+type slowClientRecorder struct {
+	*httptest.ResponseRecorder
+	rate     int
+	deadline time.Time
+	fresh    bool
+	drainAt  time.Time
+	writes   []slowClientWrite
+}
+
+type slowClientWrite struct {
+	data     string
+	deadline time.Time
+	// fresh is set when a deadline was set for this write, not left over
+	// from an earlier one.
+	fresh   bool
+	refused bool
+}
+
+func (r *slowClientRecorder) SetWriteDeadline(deadline time.Time) error {
+	r.deadline = deadline
+	r.fresh = true
+	return nil
+}
+
+func (r *slowClientRecorder) Write(p []byte) (int, error) {
+	now := time.Now()
+	if r.drainAt.Before(now) {
+		r.drainAt = now
+	}
+	r.drainAt = r.drainAt.Add(time.Duration(len(p)) * time.Second / time.Duration(r.rate))
+	refused := r.drainAt.After(r.deadline)
+	r.writes = append(r.writes, slowClientWrite{data: string(p), deadline: r.deadline, fresh: r.fresh, refused: refused})
+	r.fresh = false
+	if refused {
+		return 0, fmt.Errorf("write deadline exceeded")
+	}
+	return r.ResponseRecorder.Write(p)
+}
+
+func (r *slowClientRecorder) WriteString(s string) (int, error) {
+	return r.Write([]byte(s))
+}
+
+func TestStreamScannerHandler_HeartbeatAfterSlowDataWriteUsesWriteBudget(t *testing.T) {
+	// A 3.6 MB event takes 360 s to reach a client reading at 10 KiB/s. The
+	// relayed upstream heartbeat behind it must not carry a fixed 30 s
+	// deadline, which the earlier event's backlog would exceed.
+	recorder := &slowClientRecorder{ResponseRecorder: httptest.NewRecorder(), rate: 10 << 10}
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	payload := strings.Repeat("A", 3600<<10)
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(
+		"data: " + payload + "\n\n: upstream-heartbeat\n\ndata: [DONE]\n",
+	))}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	var writeErr error
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		writeErr = StringData(c, data)
+	})
+
+	require.NoError(t, writeErr)
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonDone, info.StreamStatus.EndReason)
+	assert.True(t, strings.HasSuffix(recorder.Body.String(), payload+"\n\n: PING\n\n"))
+
+	var dataDeadline time.Time
+	var ping *slowClientWrite
+	for i := range recorder.writes {
+		write := &recorder.writes[i]
+		assert.False(t, write.refused, "write %d refused", i)
+		if strings.Contains(write.data, payload) {
+			dataDeadline = write.deadline
+		}
+		if write.data == ": PING\n\n" {
+			ping = write
+		}
+	}
+	require.NotNil(t, ping)
+	require.False(t, dataDeadline.IsZero())
+	assert.True(t, ping.fresh, "heartbeat written under a stale deadline")
+	assert.False(t, ping.deadline.Before(dataDeadline))
 }
