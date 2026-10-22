@@ -208,7 +208,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		})
 	}
 
-	dataChan := make(chan string, 10)
+	type streamEvent struct {
+		data      string
+		heartbeat bool
+	}
+	streamChan := make(chan streamEvent, 10)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -221,13 +225,43 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			wg.Done()
 		}()
 		sr := newStreamResult(info.StreamStatus)
-		for data := range dataChan {
+		downstreamDataWritten := false
+		for event := range streamChan {
+			if event.heartbeat {
+				var err error
+				func() {
+					writeMutex.Lock()
+					defer writeMutex.Unlock()
+					// A generated ping may have committed the response already. Only a write
+					// from the data handler should unlock upstream heartbeat forwarding.
+					if !downstreamDataWritten {
+						return
+					}
+					ExtendWriteDeadline(c)
+					err = PingData(c)
+				}()
+				if err != nil {
+					logger.LogError(c, "upstream heartbeat relay error: "+err.Error())
+					if c.Request.Context().Err() != nil {
+						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, c.Request.Context().Err())
+					} else {
+						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, err)
+					}
+					return
+				}
+				continue
+			}
+
 			sr.reset()
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()
 				ExtendWriteDeadline(c)
-				dataHandler(data, sr)
+				writtenBefore := c.Writer.Size()
+				dataHandler(event.data, sr)
+				writtenAfter := c.Writer.Size()
+				downstreamDataWritten = downstreamDataWritten ||
+					(writtenAfter > 0 && writtenAfter > writtenBefore)
 			}()
 			if sr.IsStopped() {
 				return
@@ -239,7 +273,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
 		defer func() {
-			close(dataChan)
+			close(streamChan)
 			if r := recover(); r != nil {
 				logger.LogError(c, common.LogText("scanner goroutine panic: %v", r))
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPanic, fmt.Errorf("scanner panic: %v", r))
@@ -263,6 +297,21 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
 
+			if strings.HasPrefix(data, ":") {
+				// Formats that disable pings must not receive comment lines either.
+				if info.DisablePing {
+					continue
+				}
+				select {
+				case streamChan <- streamEvent{heartbeat: true}:
+				case <-ctx.Done():
+					return
+				case <-stopChan:
+					return
+				}
+				continue
+			}
+
 			if len(data) < 6 {
 				continue
 			}
@@ -279,7 +328,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				info.ReceivedResponseCount++
 
 				select {
-				case dataChan <- data:
+				case streamChan <- streamEvent{data: data}:
 				case <-ctx.Done():
 					return
 				case <-stopChan:
