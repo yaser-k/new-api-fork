@@ -71,7 +71,15 @@ type ClaudeConvertInfo struct {
 	Index            int
 	Usage            *dto.Usage
 	FinishReason     string
-	Done             bool
+	// MessageStarted records that message_start was sent, so it is sent
+	// exactly once whatever the number of upstream frames.
+	MessageStarted bool
+	// MoreFramesPending is set by a host that knows another upstream frame
+	// follows the one being converted. The converter then defers the final
+	// message_delta and message_stop, because some providers send the final
+	// usage (with cached tokens) in a frame after the finish_reason frame.
+	MoreFramesPending bool
+	Done              bool
 
 	ToolCallBaseIndex      int
 	ToolCallMaxIndexOffset int
