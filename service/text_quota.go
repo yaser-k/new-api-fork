@@ -45,6 +45,7 @@ type textQuotaSummary struct {
 	CacheCreationTokens1h  int
 	ImageTokens            int
 	AudioTokens            int
+	VideoSeconds           float64 // input video seconds, set only when the expression prices vid_sec
 	ModelName              string
 	TokenName              string
 	UseTimeSeconds         int64
@@ -73,9 +74,10 @@ type textQuotaSummary struct {
 // Claude reports cache tokens separately from ordinary input and output.
 // A request can carry zero ordinary tokens yet still be billable via cache or a tool-call
 // surcharge (e.g. /v1/alpha/search returns no usage but bills one web_search
-// call), so token count alone is not sufficient to decide.
+// call), so token count alone is not sufficient to decide. Input video seconds
+// an expression prices are billable on their own.
 func (s *textQuotaSummary) hasBillableUsage() bool {
-	return s.FixedPriceBilling || s.TotalTokens > 0 ||
+	return s.FixedPriceBilling || s.TotalTokens > 0 || s.VideoSeconds > 0 ||
 		(s.IsClaudeUsageSemantic && (s.CacheTokens > 0 || s.CacheCreationTokens > 0 ||
 			s.CacheCreationTokens5m > 0 || s.CacheCreationTokens1h > 0)) ||
 		!s.ToolCallSurchargeQuota.IsZero()
@@ -263,6 +265,10 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
+	if snap := relayInfo.TieredBillingSnapshot; snap != nil && snap.BillingMode == "tiered_expr" &&
+		billingexpr.UsedVarsByHash(snap.ExprString, snap.ExprHash)["vid_sec"] {
+		summary.VideoSeconds = billableVideoSeconds(usage)
+	}
 	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&

@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createContext, useContext } from 'react'
 
-import { BILLING_PRICING_VARS, splitBillingExprAndRequestRules } from '@/features/pricing/lib/billing-expr'
+import { BILLING_PRICING_VARS, billingVarUnitPrice, splitBillingExprAndRequestRules } from '@/features/pricing/lib/billing-expr'
 import { tryParseVisualConfig } from '@/features/pricing/lib/tier-expr'
 
 import type { PricingSyncValues } from '../types'
@@ -147,10 +147,17 @@ export function getSyncExpressionPricing(expression: string, t: (key: string) =>
       condition: tier.conditions.map((condition) =>
         `${conditionLabels[condition.var]} ${condition.op} ${Number(condition.value).toLocaleString()}`
       ).join(' ∧ '),
-      lines: fields.map((field) => ({
-        label: t(field.shortLabel),
-        value: `$${formatPricingNumber(Number(tier[field.tierField!]))}`,
-      })),
+      lines: fields.map((field) => {
+        const coefficient = Number(tier[field.tierField!])
+        // A second-unit price (vid_sec) is per second, not per 1M tokens.
+        return {
+          label: t(field.shortLabel),
+          value:
+            field.unit === 'second'
+              ? `$${formatPricingNumber(billingVarUnitPrice(field.key, coefficient))}/${t('second')}`
+              : `$${formatPricingNumber(coefficient)}`,
+        }
+      }),
     })),
   }
 }
