@@ -317,8 +317,8 @@ describe('API keys mutate drawer user quota query switch', () => {
   })
 })
 
-// 2023-11-14 12:00 UTC: the same calendar day in every common time zone.
-const PAST_EXPIRY = 1699963200
+// Local noon, so the picker shows 2023-11-14 in every time zone.
+const PAST_EXPIRY = new Date(2023, 10, 14, 12).getTime() / 1000
 
 function apiKey(id: number, expiredTime: number): ApiKey {
   return {
