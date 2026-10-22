@@ -54,6 +54,7 @@ import {
   formatQuotaWithCurrency,
   getCurrencyDisplay,
   getCurrencyLabel,
+  stripCurrencyIsolates,
 } from '@/lib/currency'
 import {
   formatQuota,
@@ -207,9 +208,11 @@ export function RedemptionsMutateDrawer({
             setCreatedCodes({
               keys: result.data,
               name: basePayload.name,
-              quota: formatQuotaWithCurrency(basePayload.quota, {
-                abbreviate: false,
-              }),
+              quota: stripCurrencyIsolates(
+                formatQuotaWithCurrency(basePayload.quota, {
+                  abbreviate: false,
+                })
+              ),
             })
           }
           onOpenChange(false)
@@ -230,7 +233,9 @@ export function RedemptionsMutateDrawer({
       const name = form.getValues('name')
       if (!name?.trim()) {
         const quota = parseQuotaFromDollars(form.getValues('quota_dollars'))
-        form.setValue('name', formatQuota(quota), { shouldValidate: true })
+        form.setValue('name', stripCurrencyIsolates(formatQuota(quota)), {
+          shouldValidate: true,
+        })
       }
     }
 
