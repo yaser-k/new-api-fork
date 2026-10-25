@@ -170,8 +170,7 @@ func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dt
 }
 
 func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.EmbeddingRequest) (any, error) {
-	//TODO implement me
-	return nil, errors.New("not implemented")
+	return convertToAwsEmbeddingRequest(info.UpstreamModelName, request)
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
@@ -186,6 +185,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	}
 	if _, ok := novaSonicModels[getAwsModelID(info.UpstreamModelName)]; ok {
 		return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is a speech-to-speech model served only on the realtime route (/v1/realtime)", info.UpstreamModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if info.RelayMode == relayconstant.RelayModeEmbeddings {
+		return nil, doAwsEmbeddingRequest(c, info, a, requestBody)
 	}
 	switch info.ChannelOtherSettings.AwsApiType {
 	case dto.AwsApiTypeMantle:
@@ -228,6 +230,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		claudeAdaptor := claude.Adaptor{}
 		usage, err = claudeAdaptor.DoResponse(c, resp, info)
 	} else {
+		if info.RelayMode == relayconstant.RelayModeEmbeddings {
+			err, usage = awsEmbeddingHandler(c, info, a)
+			return
+		}
 		if a.IsNova {
 			if info.IsStream {
 				err, usage = handleNovaStreamRequest(c, info, a)
