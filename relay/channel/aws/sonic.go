@@ -248,9 +248,11 @@ func (r *pcm16Resampler) resample(chunk []byte) []byte {
 }
 
 type novaSonicSession struct {
-	client    *websocket.Conn
-	stream    *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
-	model     novaSonicModel
+	client *websocket.Conn
+	stream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+	model  novaSonicModel
+	// modelName is the model the client asked for, the one it is shown; the stream is opened on the
+	// Bedrock id the channel maps it to.
 	modelName string
 	// ctx is the stream's; clientCtx bounds the client reader's sends and is cancelled when the session ends.
 	ctx          context.Context
@@ -759,7 +761,7 @@ func (a *Adaptor) openNovaSonicSession(c *gin.Context, info *relaycommon.RelayIn
 	modelID := getAwsModelID(info.UpstreamModelName)
 	model, ok := novaSonicModels[modelID]
 	if !ok {
-		return types.NewErrorWithStatusCode(fmt.Errorf("model %s does not serve the realtime route on AWS: only Nova Sonic models do", info.UpstreamModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return types.NewErrorWithStatusCode(fmt.Errorf("model %s does not serve the realtime route on AWS: only Nova Sonic models do", info.OriginModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	client, err := newAwsClient(c, info)
 	if err != nil {
@@ -790,7 +792,7 @@ func (a *Adaptor) novaSonicHandler(c *gin.Context, info *relaycommon.RelayInfo) 
 		client:       info.ClientWs,
 		stream:       a.sonicStream,
 		model:        a.sonicModel,
-		modelName:    info.UpstreamModelName,
+		modelName:    info.OriginModelName,
 		ctx:          c.Request.Context(),
 		cancel:       a.sonicCancel,
 		clientCtx:    clientCtx,

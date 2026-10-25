@@ -153,22 +153,24 @@ func useStubSonicStream(t *testing.T, stream *stubSonicStream) *[]string {
 	return &modelIDs
 }
 
-func sonicRelayInfo(model string, relayMode int) *relaycommon.RelayInfo {
+// sonicRelayInfo is a request for originModel on a channel that maps it to upstreamModel.
+func sonicRelayInfo(originModel, upstreamModel string, relayMode int) *relaycommon.RelayInfo {
 	return &relaycommon.RelayInfo{
 		RelayMode:       relayMode,
 		RelayFormat:     relaytypes.RelayFormatOpenAIRealtime,
-		OriginModelName: model,
+		OriginModelName: originModel,
 		ChannelMeta: &relaycommon.ChannelMeta{
 			ChannelId:         9301,
 			ApiKey:            "AKIDEXAMPLE|secret|us-east-1",
-			UpstreamModelName: model,
+			UpstreamModelName: upstreamModel,
+			IsModelMapped:     originModel != upstreamModel,
 		},
 	}
 }
 
 // newSonicGateway serves the realtime route as the relay does: the client's WebSocket, the adaptor's
 // request, then its response handler, whose usage the relay settles.
-func newSonicGateway(t *testing.T, model string) (string, chan sonicGatewayResult) {
+func newSonicGateway(t *testing.T, originModel, upstreamModel string) (string, chan sonicGatewayResult) {
 	results := make(chan sonicGatewayResult, 1)
 	upgrader := websocket.Upgrader{}
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +181,7 @@ func newSonicGateway(t *testing.T, model string) (string, chan sonicGatewayResul
 		defer clientConn.Close()
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = r
-		info := sonicRelayInfo(model, relayconstant.RelayModeRealtime)
+		info := sonicRelayInfo(originModel, upstreamModel, relayconstant.RelayModeRealtime)
 		info.ClientWs = clientConn
 
 		adaptor := &Adaptor{}
@@ -196,7 +198,7 @@ func newSonicGateway(t *testing.T, model string) (string, chan sonicGatewayResul
 		results <- result
 	}))
 	t.Cleanup(gateway.Close)
-	return "ws" + strings.TrimPrefix(gateway.URL, "http") + "/v1/realtime?model=" + model, results
+	return "ws" + strings.TrimPrefix(gateway.URL, "http") + "/v1/realtime?model=" + originModel, results
 }
 
 func dialSonicGateway(t *testing.T, gatewayURL string) *websocket.Conn {
@@ -256,7 +258,7 @@ func TestNovaSonicRefusesNonRealtimeRequests(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-			info := sonicRelayInfo(model, relayconstant.RelayModeChatCompletions)
+			info := sonicRelayInfo(model, model, relayconstant.RelayModeChatCompletions)
 			_, err := (&Adaptor{}).DoRequest(c, info, nil)
 			apiErr := relaytypes.NewError(err, relaytypes.ErrorCodeDoRequestFailed)
 			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
@@ -266,12 +268,77 @@ func TestNovaSonicRefusesNonRealtimeRequests(t *testing.T) {
 	t.Run("a realtime request for a model that is not Nova Sonic", func(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
-		_, err := (&Adaptor{}).DoRequest(c, sonicRelayInfo("nova-pro-v1:0", relayconstant.RelayModeRealtime), nil)
+		_, err := (&Adaptor{}).DoRequest(c, sonicRelayInfo("nova-pro-v1:0", "nova-pro-v1:0", relayconstant.RelayModeRealtime), nil)
 		apiErr := relaytypes.NewError(err, relaytypes.ErrorCodeDoRequestFailed)
 		assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
 		assert.Equal(t, "model nova-pro-v1:0 does not serve the realtime route on AWS: only Nova Sonic models do", apiErr.Error())
 	})
 	assert.Empty(t, *modelIDs)
+}
+
+// A channel that maps the client's model name to a Bedrock id shows the client its own name only: in the
+// session, in its errors and in the refusals, while the stream is opened on the Bedrock id.
+func TestNovaSonicShowsTheClientItsModelName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const origin, upstream = "nova-2-sonic", "amazon.nova-2-sonic-v1:0"
+
+	t.Run("refusals", func(t *testing.T) {
+		tests := []struct {
+			origin, upstream string
+			relayMode        int
+			wantError        string
+		}{
+			{origin, upstream, relayconstant.RelayModeChatCompletions, "model nova-2-sonic is a speech-to-speech model served only on the realtime route (/v1/realtime)"},
+			{"voice-chat", "amazon.nova-pro-v1:0", relayconstant.RelayModeRealtime, "model voice-chat does not serve the realtime route on AWS: only Nova Sonic models do"},
+		}
+		for _, tt := range tests {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+			_, err := (&Adaptor{}).DoRequest(c, sonicRelayInfo(tt.origin, tt.upstream, tt.relayMode), nil)
+			apiErr := relaytypes.NewError(err, relaytypes.ErrorCodeDoRequestFailed)
+			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+			assert.Equal(t, tt.wantError, apiErr.Error())
+		}
+	})
+
+	t.Run("session", func(t *testing.T) {
+		stream := newStubSonicStream()
+		modelIDs := useStubSonicStream(t, stream)
+		gatewayURL, results := newSonicGateway(t, origin, upstream)
+		client, _, err := websocket.DefaultDialer.Dial(gatewayURL, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = client.Close() })
+
+		var received []string
+		read := func() map[string]any {
+			require.NoError(t, client.SetReadDeadline(time.Now().Add(5*time.Second)))
+			_, message, err := client.ReadMessage()
+			require.NoError(t, err)
+			received = append(received, string(message))
+			var event map[string]any
+			require.NoError(t, common.Unmarshal(message, &event))
+			return event
+		}
+		created := read()
+		assert.Equal(t, "session.created", created["type"])
+		assert.Equal(t, origin, created["session"].(map[string]any)["model"])
+		sendSonicEvent(t, client, `{"type":"session.update","session":{"instructions":"Answer briefly."}}`)
+		updated := read()
+		assert.Equal(t, "session.updated", updated["type"])
+		assert.Equal(t, origin, updated["session"].(map[string]any)["model"])
+		sendSonicEvent(t, client, `{"event_id":"evt_1","type":"conversation.item.create","item":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}`)
+		refused := read()
+		assert.Equal(t, "text_input_not_supported", refused["error"].(map[string]any)["code"])
+		assert.Equal(t, "nova-2-sonic takes audio input only", refused["error"].(map[string]any)["message"])
+		_ = client.Close()
+
+		result := awaitSonicResult(t, results)
+		require.Nil(t, result.apiErr)
+		assert.Equal(t, []string{upstream}, *modelIDs)
+		for _, message := range received {
+			assert.NotContains(t, message, upstream)
+		}
+	})
 }
 
 func TestNovaSonicSessionRefusals(t *testing.T) {
@@ -298,7 +365,7 @@ func TestNovaSonicSessionRefusals(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			stream := newStubSonicStream()
 			useStubSonicStream(t, stream)
-			gatewayURL, results := newSonicGateway(t, tt.model)
+			gatewayURL, results := newSonicGateway(t, tt.model, tt.model)
 			client := dialSonicGateway(t, gatewayURL)
 
 			sendSonicEvent(t, client, tt.event)
@@ -319,7 +386,7 @@ func TestNovaSonicSessionRefusals(t *testing.T) {
 	t.Run("an upstream error mid-session ends both sides", func(t *testing.T) {
 		stream := newStubSonicStream()
 		useStubSonicStream(t, stream)
-		gatewayURL, results := newSonicGateway(t, "nova-2-sonic-v1:0")
+		gatewayURL, results := newSonicGateway(t, "nova-2-sonic-v1:0", "nova-2-sonic-v1:0")
 		client := dialSonicGateway(t, gatewayURL)
 
 		sendSonicEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+base64.StdEncoding.EncodeToString(sonicTone(24000, 2400))+`"}`)
@@ -358,7 +425,7 @@ func TestNovaSonicSession(t *testing.T) {
 			}
 		}
 		modelIDs := useStubSonicStream(t, stream)
-		gatewayURL, results := newSonicGateway(t, "nova-2-5-sonic")
+		gatewayURL, results := newSonicGateway(t, "nova-2-5-sonic", "nova-2-5-sonic")
 		client := dialSonicGateway(t, gatewayURL)
 
 		sendSonicEvent(t, client, `{"type":"session.update","session":{"instructions":"Answer briefly.","voice":"tiffany","temperature":0.6,"max_response_output_tokens":512,`+
@@ -521,7 +588,7 @@ func TestNovaSonicSessionLimit(t *testing.T) {
 		// Bedrock does not end its output by itself: the session closes it when the grace period ends.
 		stream := newStubSonicStream()
 		useStubSonicStream(t, stream)
-		gatewayURL, results := newSonicGateway(t, "nova-2-sonic-v1:0")
+		gatewayURL, results := newSonicGateway(t, "nova-2-sonic-v1:0", "nova-2-sonic-v1:0")
 		client := dialSonicGateway(t, gatewayURL)
 		sendSonicEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+base64.StdEncoding.EncodeToString(sonicTone(24000, 2400))+`"}`)
 
