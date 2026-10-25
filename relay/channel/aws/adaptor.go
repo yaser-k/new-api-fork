@@ -201,7 +201,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		return nil, a.openNovaSonicSession(c, info)
 	}
 	if _, ok := novaSonicModels[getAwsModelID(info.UpstreamModelName)]; ok {
-		return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is a speech-to-speech model served only on the realtime route (/v1/realtime)", info.UpstreamModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is a speech-to-speech model served only on the realtime route (/v1/realtime)", info.OriginModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	if info.RelayMode == relayconstant.RelayModeEmbeddings {
 		return nil, doAwsEmbeddingRequest(c, info, a, requestBody)

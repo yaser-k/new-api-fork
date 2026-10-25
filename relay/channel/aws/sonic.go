@@ -40,8 +40,14 @@ var novaSonicSessionLimit = 8*time.Minute - 15*time.Second
 // it has not reported yet. A variable so that tests can shorten it.
 var novaSonicUsageGrace = 10 * time.Second
 
-// openNovaSonicStream opens the bidirectional stream of a session. A variable so that tests can stub it.
-var openNovaSonicStream = func(ctx context.Context, client *bedrockruntime.Client, modelID string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
+// novaSonicOpenLimit bounds the opening of the stream. The SDK returns the stream as its request is about
+// to be sent, within milliseconds; a call that fails before that (it cannot build, sign or resolve the
+// request) is reported to no one and never returns. A variable so that tests can shorten it.
+var novaSonicOpenLimit = 10 * time.Second
+
+// OpenNovaSonicStream opens the bidirectional stream of a session. A variable so that tests, here and of
+// the realtime route, can stub it.
+var OpenNovaSonicStream = func(ctx context.Context, client *bedrockruntime.Client, modelID string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
 	output, err := client.InvokeModelWithBidirectionalStream(ctx, &bedrockruntime.InvokeModelWithBidirectionalStreamInput{ModelId: aws.String(modelID)})
 	if err != nil {
 		return nil, err
@@ -55,6 +61,9 @@ const (
 	// novaSonicInputSampleRate is the rate of the LPCM audio sent upstream.
 	novaSonicInputSampleRate = 16000
 	novaSonicDefaultVoice    = "matthew"
+	// novaSonicDefaultInstructions is the system prompt of a session whose client sets no instructions:
+	// Bedrock refuses a prompt whose first content is not a SYSTEM one.
+	novaSonicDefaultInstructions = "You are a helpful voice assistant. Keep answers short."
 )
 
 // novaSonicSettings are the client's session settings that open the prompt.
@@ -248,9 +257,11 @@ func (r *pcm16Resampler) resample(chunk []byte) []byte {
 }
 
 type novaSonicSession struct {
-	client    *websocket.Conn
-	stream    *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
-	model     novaSonicModel
+	client *websocket.Conn
+	stream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+	model  novaSonicModel
+	// modelName is the model the client asked for, the one it is shown; the stream is opened on the
+	// Bedrock id the channel maps it to.
 	modelName string
 	// ctx is the stream's; clientCtx bounds the client reader's sends and is cancelled when the session ends.
 	ctx          context.Context
@@ -336,7 +347,8 @@ func (s *novaSonicSession) sendTextContent(ctx context.Context, role, text strin
 }
 
 // startPrompt sends the events that open the session, from the client's settings: the session, the
-// prompt, the instructions as its system content, and the user audio content kept open for the session.
+// prompt, the instructions (or the default) as its first, system content, and the user audio content kept
+// open for the session.
 func (s *novaSonicSession) startPrompt(ctx context.Context) error {
 	inference := map[string]any{}
 	if s.settings.maxTokens != nil {
@@ -372,10 +384,8 @@ func (s *novaSonicSession) startPrompt(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if s.settings.instructions != "" {
-		if err := s.sendTextContent(ctx, "SYSTEM", s.settings.instructions, false); err != nil {
-			return err
-		}
+	if err := s.sendTextContent(ctx, "SYSTEM", s.instructions(), false); err != nil {
+		return err
 	}
 	if err := s.sendUpstream(ctx, "contentStart", map[string]any{
 		"promptName":  s.promptName,
@@ -429,6 +439,14 @@ func (s *novaSonicSession) sendError(code, message, clientEventID string) {
 	s.sendLocked(novaSonicServerEvent{Type: "error", Error: &novaSonicError{Type: errorType, Code: code, Message: message, EventId: clientEventID}})
 }
 
+// instructions is the session's system prompt: the client's instructions, or the default when it set none.
+func (s *novaSonicSession) instructions() string {
+	if s.settings.instructions == "" {
+		return novaSonicDefaultInstructions
+	}
+	return s.settings.instructions
+}
+
 // sessionObject is the OpenAI Realtime session the client's settings make.
 func (s *novaSonicSession) sessionObject() map[string]any {
 	voice := s.settings.voice
@@ -439,7 +457,7 @@ func (s *novaSonicSession) sessionObject() map[string]any {
 		"object":              "realtime.session",
 		"model":               s.modelName,
 		"modalities":          []string{"text", "audio"},
-		"instructions":        s.settings.instructions,
+		"instructions":        s.instructions(),
 		"voice":               voice,
 		"input_audio_format":  "pcm16",
 		"output_audio_format": "pcm16",
@@ -759,14 +777,42 @@ func (a *Adaptor) openNovaSonicSession(c *gin.Context, info *relaycommon.RelayIn
 	modelID := getAwsModelID(info.UpstreamModelName)
 	model, ok := novaSonicModels[modelID]
 	if !ok {
-		return types.NewErrorWithStatusCode(fmt.Errorf("model %s does not serve the realtime route on AWS: only Nova Sonic models do", info.UpstreamModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		return types.NewErrorWithStatusCode(fmt.Errorf("model %s does not serve the realtime route on AWS: only Nova Sonic models do", info.OriginModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 	client, err := newAwsClient(c, info)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelAwsClientError)
 	}
+	// The SDK signs every event of the stream with SigV4 and refuses a call without SigV4 credentials,
+	// which a Bedrock API key's bearer token is not. The channel's other models are unaffected, so the
+	// error neither disables it nor stops another channel from being tried.
+	if client.Options().BearerAuthTokenProvider != nil {
+		return types.NewErrorWithStatusCode(errors.New("Nova Sonic on the realtime route needs an AWS channel keyed with an access key (AK|SK|region): Bedrock's bidirectional stream signs every event with SigV4, which a Bedrock API key cannot"), types.ErrorCodeAwsInvokeError, http.StatusInternalServerError)
+	}
+	type openedStream struct {
+		stream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+		err    error
+	}
 	ctx, cancel := context.WithCancel(c.Request.Context())
-	stream, err := openNovaSonicStream(ctx, client, modelID)
+	opened := make(chan openedStream, 1)
+	go func() {
+		stream, err := OpenNovaSonicStream(ctx, client, modelID)
+		// A stream that opens after the session gave up on it is closed.
+		if stream != nil && ctx.Err() != nil {
+			_ = stream.Close()
+		}
+		opened <- openedStream{stream, err}
+	}()
+	limit := time.NewTimer(novaSonicOpenLimit)
+	defer limit.Stop()
+	var stream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+	select {
+	case result := <-opened:
+		stream, err = result.stream, result.err
+	case <-limit.C:
+		// The SDK's call is left blocked; the session ends with an error instead of hanging with it.
+		err = fmt.Errorf("the stream did not open within %s", novaSonicOpenLimit)
+	}
 	if err != nil {
 		cancel()
 		return newAwsInvokeError(c.Request.Context(), err, "InvokeModelWithBidirectionalStream")
@@ -790,7 +836,7 @@ func (a *Adaptor) novaSonicHandler(c *gin.Context, info *relaycommon.RelayInfo) 
 		client:       info.ClientWs,
 		stream:       a.sonicStream,
 		model:        a.sonicModel,
-		modelName:    info.UpstreamModelName,
+		modelName:    info.OriginModelName,
 		ctx:          c.Request.Context(),
 		cancel:       a.sonicCancel,
 		clientCtx:    clientCtx,
