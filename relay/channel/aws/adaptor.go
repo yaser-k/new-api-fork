@@ -30,6 +30,7 @@ const (
 type Adaptor struct {
 	ClientMode ClientMode
 	AwsClient  *bedrockruntime.Client
+	IsPegasus  bool
 	AwsModelId string
 	AwsReq     any
 	IsNova     bool
@@ -132,6 +133,22 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
 	if request == nil {
 		return nil, errors.New("request is nil")
+	}
+	// Only TwelveLabs Pegasus takes a video; any other model refuses one.
+	if isPegasusModel(getAwsModelID(request.Model)) {
+		pegasusReq, err := convertToPegasusRequest(c, info, request)
+		if err != nil {
+			return nil, err
+		}
+		a.IsPegasus = true
+		return pegasusReq, nil
+	}
+	for i, message := range request.Messages {
+		for _, part := range awsContentParts(message) {
+			if part.Type == dto.ContentTypeVideoUrl {
+				return nil, newAwsVideoUnsupportedError(fmt.Sprintf("messages[%d].content", i), "video input is supported only for TwelveLabs Pegasus models on AWS Bedrock")
+			}
+		}
 	}
 	// 检查是否为Nova模型
 	if isNovaModel(request.Model) {
@@ -241,6 +258,14 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 				err, usage = handleNovaRequest(c, info, a)
 			}
 		} else {
+			if a.IsPegasus {
+				if info.IsStream {
+					err, usage = pegasusStreamHandler(c, info, a)
+				} else {
+					err, usage = pegasusHandler(c, info, a)
+				}
+				return
+			}
 			if info.IsStream {
 				err, usage = awsStreamHandler(c, info, a)
 			} else {

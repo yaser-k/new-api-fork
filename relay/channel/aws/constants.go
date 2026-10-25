@@ -162,6 +162,11 @@ var awsModelCanCrossRegionMap = map[string]map[string]bool{
 		"eu":   true,
 		"apac": true,
 	},
+	// TwelveLabs Pegasus is served through profiles only; global. is set by
+	// the channel's model mapping.
+	"twelvelabs.pegasus-1-5-v1:0": {
+		"us": true,
+	},
 }
 
 var awsRegionCrossModelPrefixMap = map[string]string{
