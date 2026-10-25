@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/pkg/wsmanager"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -17,6 +18,9 @@ import (
 
 func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
+	if err := helper.ModelMappedHelper(c, info, nil); err != nil {
+		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
 
 	adaptor := GetAdaptor(info.ApiType)
 	if adaptor == nil {
