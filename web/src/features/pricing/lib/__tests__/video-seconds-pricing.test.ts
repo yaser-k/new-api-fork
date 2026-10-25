@@ -40,6 +40,7 @@ const noExtras: ExtraTokenValues = {
   cacheReadTokens: 0,
   cacheCreateTokens: 0,
   cacheCreate1hTokens: 0,
+  cacheCreate12hTokens: 0,
   imageTokens: 0,
   imageOutputTokens: 0,
   imageCacheTokens: 0,
@@ -72,7 +73,9 @@ describe('vid_sec in billing expressions', () => {
     expect(
       evalExprLocally('tier("base", c * 7.5)', 108, 18, extras)
     ).toMatchObject({ cost: 135, error: null })
-    expect(buildEstimatorTokens(108, 18, extras)).toMatchObject({
+    expect(
+      buildEstimatorTokens(108, 18, extras, videoExpression)
+    ).toMatchObject({
       len: 108,
       vid_sec: 2,
     })
