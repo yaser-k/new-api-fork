@@ -263,12 +263,23 @@ const ESTIMATOR_VARS = [
   { var: 'img_o', stateKey: 'imageOutputTokens' },
   { var: 'ai', stateKey: 'audioInputTokens' },
   { var: 'ao', stateKey: 'audioOutputTokens' },
+  // Seconds of input video, not tokens: never part of len.
+  { var: 'vid_sec', stateKey: 'videoSeconds' },
 ] as const
 
 export type ExtraTokenValues = Record<
   (typeof ESTIMATOR_VARS)[number]['stateKey'],
   number
 >
+
+/** The estimator value that feeds an expression variable. */
+export function estimatorStateKey(
+  variable: string
+): keyof ExtraTokenValues | null {
+  return (
+    ESTIMATOR_VARS.find((field) => field.var === variable)?.stateKey ?? null
+  )
+}
 
 export type EvalResult = {
   cost: number
