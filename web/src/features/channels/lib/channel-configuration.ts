@@ -25,7 +25,11 @@ import {
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
 import { CHANNEL_TYPE_ADVANCED_CUSTOM } from './advanced-custom'
-import { channelFormSchema, type ChannelFormValues } from './channel-form'
+import {
+  channelFormSchema,
+  parseResponseDropFields,
+  type ChannelFormValues,
+} from './channel-form'
 import { supportsResponsesWebSocket } from './responses-websocket'
 
 export type ChannelProviderTarget =
@@ -76,6 +80,7 @@ const CONFIGURATION_BLOCKS = {
       'allow_inference_geo',
       'allow_speed',
       'claude_beta_query',
+      'response_drop_fields',
     ],
   },
   extraSettings: {
@@ -170,7 +175,8 @@ export function getChannelConfigurationState(
           values.allow_include_obfuscation)) ||
       (claudePassthrough &&
         (values.allow_speed ||
-          (values.type === 14 && values.claude_beta_query)))
+          (values.type === 14 && values.claude_beta_query) ||
+          parseResponseDropFields(values.response_drop_fields).length > 0))
     ),
     extraSettings: Boolean(
       values.proxy?.trim() ||
