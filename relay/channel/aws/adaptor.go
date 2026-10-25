@@ -203,7 +203,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		usage, err = claudeAdaptor.DoResponse(c, resp, info)
 	} else {
 		if a.IsNova {
-			err, usage = handleNovaRequest(c, info, a)
+			if info.IsStream {
+				err, usage = handleNovaStreamRequest(c, info, a)
+			} else {
+				err, usage = handleNovaRequest(c, info, a)
+			}
 		} else {
 			if info.IsStream {
 				err, usage = awsStreamHandler(c, info, a)
