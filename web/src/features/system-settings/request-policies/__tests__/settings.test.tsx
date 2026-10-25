@@ -260,6 +260,29 @@ describe('request policy settings', () => {
     }
   )
 
+  it('opening health shows the stored retry keywords', async () => {
+    settings.AutomaticRetryKeywords = 'cap reached\nkey suspended'
+    await renderPolicies('/system-settings/request-policies/health')
+    expect(
+      await screen.findByRole('textbox', { name: 'Retry keywords' })
+    ).toHaveValue('cap reached\nkey suspended')
+  })
+
+  it('saving edited retry keywords writes only that option key', async () => {
+    await renderPolicies('/system-settings/request-policies/health')
+    fireEvent.change(
+      await screen.findByRole('textbox', { name: 'Retry keywords' }),
+      { target: { value: 'cap reached\r\nkey suspended' } }
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledExactlyOnceWith(
+        '/api/option/request_policy',
+        { options: { AutomaticRetryKeywords: 'cap reached\nkey suspended' } }
+      )
+    )
+  })
+
   it('turning filtering off preserves the prompt switch and keyword list', async () => {
     await renderPolicies('/system-settings/request-policies/filtering')
     await userEvent.click(
