@@ -162,7 +162,24 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	return nil, errors.New("not implemented")
 }
 
+// isGeminiImageModel reports whether a model is one of Gemini's image models, which generate images
+// through generateContent, not through Imagen's predict.
+func isGeminiImageModel(upstreamModelName string) bool {
+	return strings.HasPrefix(upstreamModelName, "gemini-") &&
+		(strings.Contains(upstreamModelName, "-image") || strings.Contains(upstreamModelName, "nano-banana"))
+}
+
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
+	if a.RequestMode == RequestModeGemini && isGeminiImageModel(info.UpstreamModelName) {
+		if info.RelayMode != constant.RelayModeImagesGenerations {
+			return nil, types.NewErrorWithStatusCode(errors.New("gemini image models take image generation requests only"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		geminiRequest, err := gemini.ConvertImageGenerationRequest(request)
+		if err != nil {
+			return nil, err
+		}
+		return geminiRequest, nil
+	}
 	geminiAdaptor := gemini.Adaptor{}
 	return geminiAdaptor.ConvertImageRequest(c, info, request)
 }
@@ -464,6 +481,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			if info.RelayMode == constant.RelayModeGemini {
 				return gemini.GeminiTextGenerationHandler(c, info, resp)
 			} else {
+				if info.RelayMode == constant.RelayModeImagesGenerations && isGeminiImageModel(info.UpstreamModelName) {
+					return gemini.GeminiImageGenerationHandler(c, info, resp)
+				}
 				if strings.HasPrefix(info.UpstreamModelName, "imagen") {
 					return gemini.GeminiImageHandler(c, info, resp)
 				}
