@@ -396,6 +396,10 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	if err != nil {
 		return usage, err
 	}
+	if helper.UpstreamStreamInterrupted(c, info) {
+		helper.SendStreamInterrupted(c, info)
+		return usage, nil
+	}
 
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil && !info.ClaudeConvertInfo.Done {
