@@ -567,3 +567,168 @@ describe('metadata editing', () => {
     client.clear()
   })
 })
+
+describe('metadata vendor between records', () => {
+  const vendorlessModel = {
+    ...model,
+    id: 8,
+    model_name: 'vendorless-model',
+    description: 'No vendor',
+    vendor_id: undefined,
+  }
+
+  function installVendorFixtures(details: Map<string, Promise<Model>>) {
+    useAuthStore.getState().auth.setUser({ id: 2, username: 'admin', role: 10 })
+    vi.spyOn(api, 'get').mockImplementation(async (url) => {
+      const detail = details.get(String(url))
+      if (detail) return { data: { success: true, data: await detail } }
+      if (url === '/api/vendors/') {
+        return {
+          data: {
+            success: true,
+            data: { items: [{ id: 3, name: 'Existing vendor' }] },
+          },
+        }
+      }
+      return { data: { success: false, message: 'Root only' } }
+    })
+    return {
+      put: vi
+        .spyOn(api, 'put')
+        .mockResolvedValue({ data: { success: true, data: model } }),
+      post: vi
+        .spyOn(api, 'post')
+        .mockResolvedValue({ data: { success: true, data: model } }),
+    }
+  }
+
+  function renderSwitchableDrawer() {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    const tree = (open: boolean, currentRow?: Model | null) => (
+      <QueryClientProvider client={client}>
+        <ModelsProvider>
+          <ModelMutateDrawer
+            open={open}
+            onOpenChange={() => {}}
+            currentRow={currentRow}
+          />
+        </ModelsProvider>
+      </QueryClientProvider>
+    )
+    const result = render(tree(false, null))
+    return {
+      client,
+      open: (currentRow?: Model) => result.rerender(tree(true, currentRow)),
+      // The Close button, then the parent clears the open state and the row.
+      close: async (user: ReturnType<typeof userEvent.setup>) => {
+        await user.click(screen.getAllByRole('button', { name: 'Close' })[0])
+        result.rerender(tree(false, null))
+      },
+    }
+  }
+
+  it('shows and saves no vendor for a model opened after a model with a vendor', async () => {
+    let resolveVendorless!: (value: Model) => void
+    const { put } = installVendorFixtures(
+      new Map([
+        ['/api/models/7', Promise.resolve(model)],
+        [
+          '/api/models/8',
+          new Promise<Model>((resolve) => {
+            resolveVendorless = resolve
+          }),
+        ],
+      ])
+    )
+    const drawer = renderSwitchableDrawer()
+    const user = userEvent.setup()
+
+    drawer.open(model)
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Vendor' })).toHaveValue(
+        'Existing vendor'
+      )
+    )
+    await drawer.close(user)
+
+    drawer.open(vendorlessModel)
+    await act(async () => resolveVendorless(vendorlessModel))
+    expect(await screen.findByLabelText('Description')).toHaveValue('No vendor')
+    expect(screen.getByRole('combobox', { name: 'Vendor' })).toHaveValue('')
+
+    await user.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
+    expect(put.mock.calls[0][1]).toMatchObject({ id: 8 })
+    expect(put.mock.calls[0][1]).toHaveProperty('vendor_id', undefined)
+    drawer.client.clear()
+  })
+
+  it('shows and saves the vendor of a model opened after a model without one', async () => {
+    let resolveWithVendor!: (value: Model) => void
+    const { put } = installVendorFixtures(
+      new Map([
+        ['/api/models/8', Promise.resolve(vendorlessModel)],
+        [
+          '/api/models/7',
+          new Promise<Model>((resolve) => {
+            resolveWithVendor = resolve
+          }),
+        ],
+      ])
+    )
+    const drawer = renderSwitchableDrawer()
+    const user = userEvent.setup()
+
+    drawer.open(vendorlessModel)
+    expect(await screen.findByLabelText('Description')).toHaveValue('No vendor')
+    await drawer.close(user)
+
+    drawer.open(model)
+    await act(async () => resolveWithVendor(model))
+    expect(await screen.findByLabelText('Description')).toHaveValue('Original')
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Vendor' })).toHaveValue(
+        'Existing vendor'
+      )
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
+    expect(put.mock.calls[0][1]).toMatchObject({ id: 7, vendor_id: 3 })
+    drawer.client.clear()
+  })
+
+  it('starts a model created after editing one with a vendor blank', async () => {
+    const { put, post } = installVendorFixtures(
+      new Map([['/api/models/7', Promise.resolve(model)]])
+    )
+    const drawer = renderSwitchableDrawer()
+    const user = userEvent.setup()
+
+    drawer.open(model)
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Vendor' })).toHaveValue(
+        'Existing vendor'
+      )
+    )
+    await drawer.close(user)
+
+    drawer.open()
+    expect(await screen.findByLabelText('Model Name *')).toHaveValue('')
+    expect(screen.getByLabelText('Description')).toHaveValue('')
+    expect(screen.getByRole('combobox', { name: 'Vendor' })).toHaveValue('')
+
+    await user.type(screen.getByLabelText('Model Name *'), 'fresh-model')
+    await user.click(screen.getByRole('button', { name: 'Save metadata' }))
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(post.mock.calls[0][1]).toMatchObject({ model_name: 'fresh-model' })
+    expect(post.mock.calls[0][1]).toHaveProperty('vendor_id', undefined)
+    expect(put).not.toHaveBeenCalled()
+    drawer.client.clear()
+  })
+})
