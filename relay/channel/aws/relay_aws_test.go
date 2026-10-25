@@ -302,6 +302,8 @@ func TestAwsHandlersCancelSdkRequestAndSkipRetry(t *testing.T) {
 		request any
 		handle  func(*gin.Context, *relaycommon.RelayInfo, *Adaptor) (*relaytypes.NewAPIError, *dto.Usage)
 	}{
+		{name: "converse", request: newConverseTestInput(), handle: converseHandler},
+		{name: "converse stream", request: newConverseTestStreamInput(), handle: converseStreamHandler},
 		{name: "non-stream", request: newAwsInvokeModelInput(), handle: awsHandler},
 		{name: "stream", request: newAwsStreamInput(), handle: awsStreamHandler},
 		{name: "nova", request: newAwsInvokeModelInput(), handle: handleNovaRequest},
@@ -1176,6 +1178,8 @@ func TestMantleRejectsInvalidRequestsAndPreservesExplicitModelIDs(t *testing.T) 
 		{name: "explicit regional model", model: "us.anthropic.claude-opus-4-7", body: `{"messages":[]}`},
 		{name: "explicit model", model: "anthropic.claude-opus-4-7", body: `{"messages":[]}`},
 		{name: "Nova requires legacy", model: "nova-pro-v1:0", body: `{"messages":[]}`, invalid: true},
+		{name: "other providers require legacy", model: "mistral.pixtral-large-2502-v1:0", body: `{"messages":[]}`, invalid: true},
+		{name: "other providers' inference profiles require legacy", model: "us.meta.llama3-3-70b-instruct-v1:0", body: `{"messages":[]}`, invalid: true},
 		{name: "null body", model: "claude-opus-4-7", body: `null`, invalid: true},
 		{name: "malformed JSON", model: "claude-opus-4-7", body: `{`, invalid: true},
 	} {
