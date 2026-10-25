@@ -39,6 +39,7 @@ Powered by [expr-lang/expr](https://github.com/expr-lang/expr). Expressions are 
 | `img` | 图片输入 token 数 |
 | `img_cr` | 图片缓存读取 token 数；只有表达式显式引用且上游提供有效缓存模态明细时才单独拆分 |
 | `ai` | 音频输入 token 数 |
+| `vid_sec` | 上游报告的输入视频秒数（`Usage.InputVideoSeconds`）；单位是秒，不是 token（见下方说明） |
 
 **输出侧变量：**
 
@@ -47,6 +48,16 @@ Powered by [expr-lang/expr](https://github.com/expr-lang/expr). Expressions are 
 | `c` | 输出 token 数。**自动排除**表达式中单独计价的子类别（见下方说明） |
 | `img_o` | 图片输出 token 数 |
 | `ao` | 音频输出 token 数 |
+
+#### 输入视频秒数 `vid_sec`
+
+`vid_sec` 是上游按秒计费的输入视频时长（例如 Bedrock TwelveLabs Pegasus 的 `inputVideoSecond`），
+任何设置 `Usage.InputVideoSeconds` 的适配器都按同一方式计价。它不是 token：不会从 `p` 或 `c` 中扣除，
+也不改变 `len`。与其他变量一样，系数是**每 100 万单位的价格**（token 表达式的结果除以 1,000,000），
+因此每秒 USD 0.00049 写作 `vid_sec * 490`。数值不取整，需要按整秒计费时写 `ceil(vid_sec)`；
+负数、NaN 或无穷读作 0。秒数只在上游回包中出现，预扣阶段为 0，结算时按实际秒数计费。
+不引用 `vid_sec` 的表达式、倍率计费和按次计费不受影响。表达式引用 `vid_sec` 时，
+消费日志的 `billing_tokens` 记录本次计费的秒数（键 `vid_sec`）。
 
 #### `p` 和 `c` 的自动排除机制
 
@@ -204,6 +215,10 @@ tier("base", p * 2 + c * 8 + img * 2.5)
 
 # Multimodal with audio
 tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)
+
+# Video input billed per second ($0.00049/s is vid_sec * 490) plus output tokens;
+# p is left unpriced by not naming it
+tier("base", c * 7.5 + vid_sec * 490)
 ```
 
 ### Fixed Request Prices
