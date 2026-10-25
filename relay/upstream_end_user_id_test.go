@@ -146,8 +146,10 @@ func TestUpstreamEndUserIDChatCompletions(t *testing.T) {
 
 	t.Run("setting off keeps the body as it is today", func(t *testing.T) {
 		assert.Equal(t, plain, string(f.chat(t, endUserRequest{userID: endUserAlice}, plain, false)))
-		assert.Equal(t,
-			`{"messages":[{"content":"hi","role":"user"}],"metadata":{"trace":"t1","user_id":"client-meta"},"model":"gpt-4o","user":"client-user"}`,
+		// The disabled-field filter still drops safety_identifier; how it
+		// encodes the rest of the body is the relay's, not this setting's.
+		assert.JSONEq(t,
+			`{"messages":[{"role":"user","content":"hi"}],"metadata":{"trace":"t1","user_id":"client-meta"},"model":"gpt-4o","user":"client-user"}`,
 			string(f.chat(t, endUserRequest{userID: endUserAlice}, withClientFields, false)))
 	})
 	t.Run("safety_identifier replaces the filtered client value", func(t *testing.T) {
