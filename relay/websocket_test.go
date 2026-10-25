@@ -126,6 +126,8 @@ func TestWssHelperSettlesAtTheBillingModelRatios(t *testing.T) {
 	assert.Equal(t, 2750, log.Quota)
 	var other map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+	// The log shows the ratios the quota was computed with.
 	assert.Equal(t, float64(2), other["completion_ratio"])
+	assert.Equal(t, float64(3), other["audio_ratio"])
 	assert.Equal(t, float64(4), other["audio_completion_ratio"])
 }
