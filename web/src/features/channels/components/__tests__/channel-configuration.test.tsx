@@ -3064,3 +3064,74 @@ test('AWS interface selection is disabled without sensitive channel write permis
     await screen.findByRole('combobox', { name: 'AWS API' })
   ).toBeDisabled()
 })
+
+test('a Claude channel shows its saved response fields to remove and saves the edited list one path per entry', async () => {
+  editingChannel = {
+    ...editingChannel,
+    type: 14,
+    settings: '{"response_drop_fields":["billing","request_id"]}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  expect(requestTab).toHaveAccessibleName(/Configured/)
+  await user.click(requestTab)
+  const paths = screen.getByRole('textbox', {
+    name: 'Response fields to remove',
+  })
+  expect(paths).toHaveValue('billing\nrequest_id')
+  fireEvent.change(paths, {
+    target: {
+      value: ' billing\n\namazon-bedrock-invocationMetrics\nusage.x\nbilling',
+    },
+  })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings).response_drop_fields).toEqual([
+    'billing',
+    'amazon-bedrock-invocationMetrics',
+    'usage.x',
+  ])
+})
+
+test('clearing the response fields to remove saves the settings without the list', async () => {
+  editingChannel = {
+    ...editingChannel,
+    type: 14,
+    settings: '{"response_drop_fields":["billing"]}',
+  }
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const requestTab = screen.getByRole('tab', { name: /Request & Response/ })
+  await user.click(requestTab)
+  fireEvent.change(
+    screen.getByRole('textbox', { name: 'Response fields to remove' }),
+    { target: { value: '  \n' } }
+  )
+  expect(requestTab).not.toHaveAccessibleName(/Configured/)
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  const payload = put.mock.calls[0]?.[1] as { settings: string }
+  expect(JSON.parse(payload.settings)).not.toHaveProperty(
+    'response_drop_fields'
+  )
+})
+
+test('a channel without Claude-format answers does not offer response fields to remove', async () => {
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Request & Response/ }))
+  expect(
+    screen.queryByRole('textbox', { name: 'Response fields to remove' })
+  ).not.toBeInTheDocument()
+})
