@@ -61,6 +61,9 @@ const (
 	// novaSonicInputSampleRate is the rate of the LPCM audio sent upstream.
 	novaSonicInputSampleRate = 16000
 	novaSonicDefaultVoice    = "matthew"
+	// novaSonicDefaultInstructions is the system prompt of a session whose client sets no instructions:
+	// Bedrock refuses a prompt whose first content is not a SYSTEM one.
+	novaSonicDefaultInstructions = "You are a helpful voice assistant. Keep answers short."
 )
 
 // novaSonicSettings are the client's session settings that open the prompt.
@@ -344,7 +347,8 @@ func (s *novaSonicSession) sendTextContent(ctx context.Context, role, text strin
 }
 
 // startPrompt sends the events that open the session, from the client's settings: the session, the
-// prompt, the instructions as its system content, and the user audio content kept open for the session.
+// prompt, the instructions (or the default) as its first, system content, and the user audio content kept
+// open for the session.
 func (s *novaSonicSession) startPrompt(ctx context.Context) error {
 	inference := map[string]any{}
 	if s.settings.maxTokens != nil {
@@ -380,10 +384,8 @@ func (s *novaSonicSession) startPrompt(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-	if s.settings.instructions != "" {
-		if err := s.sendTextContent(ctx, "SYSTEM", s.settings.instructions, false); err != nil {
-			return err
-		}
+	if err := s.sendTextContent(ctx, "SYSTEM", s.instructions(), false); err != nil {
+		return err
 	}
 	if err := s.sendUpstream(ctx, "contentStart", map[string]any{
 		"promptName":  s.promptName,
@@ -437,6 +439,14 @@ func (s *novaSonicSession) sendError(code, message, clientEventID string) {
 	s.sendLocked(novaSonicServerEvent{Type: "error", Error: &novaSonicError{Type: errorType, Code: code, Message: message, EventId: clientEventID}})
 }
 
+// instructions is the session's system prompt: the client's instructions, or the default when it set none.
+func (s *novaSonicSession) instructions() string {
+	if s.settings.instructions == "" {
+		return novaSonicDefaultInstructions
+	}
+	return s.settings.instructions
+}
+
 // sessionObject is the OpenAI Realtime session the client's settings make.
 func (s *novaSonicSession) sessionObject() map[string]any {
 	voice := s.settings.voice
@@ -447,7 +457,7 @@ func (s *novaSonicSession) sessionObject() map[string]any {
 		"object":              "realtime.session",
 		"model":               s.modelName,
 		"modalities":          []string{"text", "audio"},
-		"instructions":        s.settings.instructions,
+		"instructions":        s.instructions(),
 		"voice":               voice,
 		"input_audio_format":  "pcm16",
 		"output_audio_format": "pcm16",

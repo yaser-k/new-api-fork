@@ -390,7 +390,7 @@ func TestNovaSonicSessionRefusals(t *testing.T) {
 		client := dialSonicGateway(t, gatewayURL)
 
 		sendSonicEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+base64.StdEncoding.EncodeToString(sonicTone(24000, 2400))+`"}`)
-		stream.awaitInputs(t, 4)
+		stream.awaitInputs(t, 7)
 		stream.push("usageEvent", `{"details":{"total":{"input":{"speechTokens":7,"textTokens":0},"output":{"speechTokens":0,"textTokens":0}}}}`)
 		stream.end(errors.New("ModelStreamErrorException: the model stream failed"))
 
@@ -405,7 +405,7 @@ func TestNovaSonicSessionRefusals(t *testing.T) {
 		// The usage reported before the error is billed.
 		assert.Equal(t, dto.RealtimeUsage{TotalTokens: 7, InputTokens: 7, InputTokenDetails: dto.InputTokenDetails{AudioTokens: 7}}, *result.usage)
 		// The upstream has ended, so no closing event is sent to it.
-		assert.Equal(t, []string{"sessionStart", "promptStart", "contentStart", "audioInput"}, stream.inputNames())
+		assert.Equal(t, []string{"sessionStart", "promptStart", "contentStart", "textInput", "contentEnd", "contentStart", "audioInput"}, stream.inputNames())
 	})
 
 	awaitGoroutines(t, baseline)
@@ -603,6 +603,40 @@ func TestNovaSonicStreamThatNeverOpensEndsTheSession(t *testing.T) {
 	require.Eventually(t, stream.isClosed, 5*time.Second, 5*time.Millisecond, "the late stream is closed")
 }
 
+// Bedrock refuses a prompt whose first content is not a SYSTEM one. A client that never sets instructions
+// still gets a session: its prompt opens with the default system prompt, and its audio follows.
+func TestNovaSonicSessionWithoutInstructionsOpensWithTheDefaultSystemPrompt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	baseline := runtime.NumGoroutine()
+
+	t.Run("no session.update before the audio", func(t *testing.T) {
+		stream := newStubSonicStream()
+		stream.onInput = func(stream *stubSonicStream, name string) {
+			if name == "sessionEnd" {
+				stream.end(nil)
+			}
+		}
+		useStubSonicStream(t, stream)
+		gatewayURL, results := newSonicGateway(t, "nova-2-5-sonic", "nova-2-5-sonic")
+		client := dialSonicGateway(t, gatewayURL)
+		sendSonicEvent(t, client, `{"type":"input_audio_buffer.append","audio":"`+base64.StdEncoding.EncodeToString(sonicTone(24000, 2400))+`"}`)
+		stream.awaitInputs(t, 7)
+		_ = client.Close()
+		require.Nil(t, awaitSonicResult(t, results).apiErr)
+
+		names := stream.inputNames()
+		require.GreaterOrEqual(t, len(names), 7)
+		assert.Equal(t, []string{"sessionStart", "promptStart", "contentStart", "textInput", "contentEnd", "contentStart", "audioInput"}, names[:7])
+		promptName := stream.input(1).Get("promptStart.promptName").Str
+		systemName := stream.input(2).Get("contentStart.contentName").Str
+		assert.JSONEq(t, `{"promptName":"`+promptName+`","contentName":"`+systemName+`","type":"TEXT","interactive":false,"role":"SYSTEM","textInputConfiguration":{"mediaType":"text/plain"}}`, stream.input(2).Get("contentStart").Raw)
+		assert.JSONEq(t, `{"promptName":"`+promptName+`","contentName":"`+systemName+`","content":"You are a helpful voice assistant. Keep answers short."}`, stream.input(3).Get("textInput").Raw)
+		assert.Equal(t, "USER", stream.input(5).Get("contentStart.role").Str)
+	})
+
+	awaitGoroutines(t, baseline)
+}
+
 func TestNovaSonicSessionLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	baseline := runtime.NumGoroutine()
@@ -626,7 +660,7 @@ func TestNovaSonicSessionLimit(t *testing.T) {
 		assert.Equal(t, "session_expired", expired["error"].(map[string]any)["code"])
 		result := awaitSonicResult(t, results)
 		require.Nil(t, result.apiErr)
-		assert.Equal(t, []string{"sessionStart", "promptStart", "contentStart", "audioInput", "contentEnd", "promptEnd", "sessionEnd"}, stream.inputNames())
+		assert.Equal(t, []string{"sessionStart", "promptStart", "contentStart", "textInput", "contentEnd", "contentStart", "audioInput", "contentEnd", "promptEnd", "sessionEnd"}, stream.inputNames())
 		assert.True(t, stream.isClosed())
 
 	})
