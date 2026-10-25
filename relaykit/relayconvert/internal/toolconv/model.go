@@ -3,6 +3,7 @@ package toolconv
 import (
 	"encoding/json"
 
+	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -31,32 +32,23 @@ const (
 type Function struct {
 	Name        string
 	Description string
-	Parameters  any
-	Strict      *bool
+	// Parameters is the schema as the client wrote it, nil when absent.
+	// Upstreams generate arguments in schema property order, so it is not
+	// re-encoded from a decoded map, which would sort the properties.
+	Parameters json.RawMessage
+	Strict     *bool
 	// OpenAPISchema marks Parameters written in Gemini's OpenAPI schema
 	// subset (uppercase type names, nullable, propertyOrdering) rather than
 	// JSON Schema.
 	OpenAPISchema bool
 }
 
-type ApproximateLocation struct {
-	City     string
-	Region   string
-	Country  string
-	Timezone string
-}
-
-type WebSearch struct {
-	Location          *ApproximateLocation
-	AllowedDomains    []string
-	BlockedDomains    []string
-	SearchContextSize string
-	MaxUses           *int
-	AllowedCallers    []string
-	ResponseInclusion string
-	ExternalWebAccess *bool
-	ReturnTokenBudget json.RawMessage
-}
+// ApproximateLocation and WebSearch are the convmeta types, so a host
+// web-search encoder receives the decoded specification unchanged.
+type (
+	ApproximateLocation = convmeta.ApproximateLocation
+	WebSearch           = convmeta.WebSearch
+)
 
 type Definition struct {
 	Kind       Kind
@@ -102,6 +94,9 @@ type Set struct {
 	// Diagnostics reports losses found while extracting the definitions; they
 	// are returned with the attach diagnostics.
 	Diagnostics []types.ConversionDiagnostic
+	// Model is the upstream model the definitions are attached for; target
+	// capability checks read it. The caller of AttachRequest sets it.
+	Model string
 }
 
 func (s Set) Empty() bool {

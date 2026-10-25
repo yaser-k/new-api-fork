@@ -23,6 +23,12 @@ type Options struct {
 	// it from the channel type.
 	OpenRouterDialect bool
 
+	// WebSearch encodes hosted web search for the upstream dialect. Nil, or a
+	// nil result, keeps the default: web_search_options on Chat and the native
+	// hosted tool on Responses, Claude, and Gemini. The host sets it from the
+	// channel adaptor's Init.
+	WebSearch WebSearchEncoder
+
 	// PreserveThinkingSuffix reports models whose -thinking/-nothinking/effort
 	// suffix must be kept on the outgoing model name (host blacklist lookup).
 	// Nil means "never preserve".
@@ -77,6 +83,12 @@ type GeminiOptions struct {
 	// SupportsImagine reports whether the model supports image generation
 	// (switches response modalities). Nil means "never".
 	SupportsImagine func(modelName string) bool
+	// SupportsJSONSchema reports whether the upstream accepts JSON Schema in
+	// parametersJsonSchema and responseJsonSchema for the model. A schema that
+	// Gemini's typed Schema cannot hold without loss is then sent there
+	// unchanged; otherwise it is cleaned to the typed Schema and the loss is
+	// reported as a diagnostic. Nil means "never".
+	SupportsJSONSchema func(modelName string) bool
 	// SafetySetting returns the harm threshold for a category. Nil or empty
 	// return means no safetySettings are attached.
 	SafetySetting func(category string) string
@@ -91,6 +103,10 @@ func (o *ClaudeOptions) DefaultMaxTokensFor(modelName string) (int, bool) {
 
 func (o *GeminiOptions) SupportsImagineModel(modelName string) bool {
 	return o != nil && o.SupportsImagine != nil && o.SupportsImagine(modelName)
+}
+
+func (o *GeminiOptions) SupportsJSONSchemaModel(modelName string) bool {
+	return o != nil && o.SupportsJSONSchema != nil && o.SupportsJSONSchema(modelName)
 }
 
 func (o *GeminiOptions) SafetySettingFor(category string) string {
