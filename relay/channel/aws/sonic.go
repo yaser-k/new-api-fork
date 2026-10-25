@@ -40,8 +40,14 @@ var novaSonicSessionLimit = 8*time.Minute - 15*time.Second
 // it has not reported yet. A variable so that tests can shorten it.
 var novaSonicUsageGrace = 10 * time.Second
 
-// openNovaSonicStream opens the bidirectional stream of a session. A variable so that tests can stub it.
-var openNovaSonicStream = func(ctx context.Context, client *bedrockruntime.Client, modelID string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
+// novaSonicOpenLimit bounds the opening of the stream. The SDK returns the stream as its request is about
+// to be sent, within milliseconds; a call that fails before that (it cannot build, sign or resolve the
+// request) is reported to no one and never returns. A variable so that tests can shorten it.
+var novaSonicOpenLimit = 10 * time.Second
+
+// OpenNovaSonicStream opens the bidirectional stream of a session. A variable so that tests, here and of
+// the realtime route, can stub it.
+var OpenNovaSonicStream = func(ctx context.Context, client *bedrockruntime.Client, modelID string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
 	output, err := client.InvokeModelWithBidirectionalStream(ctx, &bedrockruntime.InvokeModelWithBidirectionalStreamInput{ModelId: aws.String(modelID)})
 	if err != nil {
 		return nil, err
@@ -767,8 +773,36 @@ func (a *Adaptor) openNovaSonicSession(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelAwsClientError)
 	}
+	// The SDK signs every event of the stream with SigV4 and refuses a call without SigV4 credentials,
+	// which a Bedrock API key's bearer token is not. The channel's other models are unaffected, so the
+	// error neither disables it nor stops another channel from being tried.
+	if client.Options().BearerAuthTokenProvider != nil {
+		return types.NewErrorWithStatusCode(errors.New("Nova Sonic on the realtime route needs an AWS channel keyed with an access key (AK|SK|region): Bedrock's bidirectional stream signs every event with SigV4, which a Bedrock API key cannot"), types.ErrorCodeAwsInvokeError, http.StatusInternalServerError)
+	}
+	type openedStream struct {
+		stream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+		err    error
+	}
 	ctx, cancel := context.WithCancel(c.Request.Context())
-	stream, err := openNovaSonicStream(ctx, client, modelID)
+	opened := make(chan openedStream, 1)
+	go func() {
+		stream, err := OpenNovaSonicStream(ctx, client, modelID)
+		// A stream that opens after the session gave up on it is closed.
+		if stream != nil && ctx.Err() != nil {
+			_ = stream.Close()
+		}
+		opened <- openedStream{stream, err}
+	}()
+	limit := time.NewTimer(novaSonicOpenLimit)
+	defer limit.Stop()
+	var stream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+	select {
+	case result := <-opened:
+		stream, err = result.stream, result.err
+	case <-limit.C:
+		// The SDK's call is left blocked; the session ends with an error instead of hanging with it.
+		err = fmt.Errorf("the stream did not open within %s", novaSonicOpenLimit)
+	}
 	if err != nil {
 		cancel()
 		return newAwsInvokeError(c.Request.Context(), err, "InvokeModelWithBidirectionalStream")

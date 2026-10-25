@@ -140,10 +140,10 @@ type sonicGatewayResult struct {
 // useStubSonicStream makes the sessions of a test open stream instead of calling Bedrock, and records the
 // model ids they open.
 func useStubSonicStream(t *testing.T, stream *stubSonicStream) *[]string {
-	saved := openNovaSonicStream
-	t.Cleanup(func() { openNovaSonicStream = saved })
+	saved := OpenNovaSonicStream
+	t.Cleanup(func() { OpenNovaSonicStream = saved })
 	var modelIDs []string
-	openNovaSonicStream = func(_ context.Context, _ *bedrockruntime.Client, modelID string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
+	OpenNovaSonicStream = func(_ context.Context, _ *bedrockruntime.Client, modelID string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
 		modelIDs = append(modelIDs, modelID)
 		return bedrockruntime.NewInvokeModelWithBidirectionalStreamEventStream(func(es *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream) {
 			es.Writer = stubSonicWriter{stream: stream}
@@ -571,6 +571,36 @@ func TestNovaSonicSession(t *testing.T) {
 	})
 
 	awaitGoroutines(t, baseline)
+}
+
+// The SDK never returns a call that fails before its request is sent; the session gives up on it at the
+// open limit with an error instead of hanging, and closes a stream that opens after that.
+func TestNovaSonicStreamThatNeverOpensEndsTheSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved, savedLimit := OpenNovaSonicStream, novaSonicOpenLimit
+	novaSonicOpenLimit = 200 * time.Millisecond
+	t.Cleanup(func() { OpenNovaSonicStream, novaSonicOpenLimit = saved, savedLimit })
+	stream := newStubSonicStream()
+	release, returned := make(chan struct{}), make(chan struct{})
+	OpenNovaSonicStream = func(context.Context, *bedrockruntime.Client, string) (*bedrockruntime.InvokeModelWithBidirectionalStreamEventStream, error) {
+		defer close(returned)
+		<-release
+		return bedrockruntime.NewInvokeModelWithBidirectionalStreamEventStream(func(es *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream) {
+			es.Writer = stubSonicWriter{stream: stream}
+			es.Reader = stubSonicReader{stream: stream}
+		}), nil
+	}
+	gatewayURL, results := newSonicGateway(t, "nova-2-sonic-v1:0", "nova-2-sonic-v1:0")
+	client, _, err := websocket.DefaultDialer.Dial(gatewayURL, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	result := awaitSonicResult(t, results)
+	require.NotNil(t, result.apiErr)
+	assert.Equal(t, "InvokeModelWithBidirectionalStream: the stream did not open within 200ms", result.apiErr.Error())
+	close(release)
+	<-returned
+	require.Eventually(t, stream.isClosed, 5*time.Second, 5*time.Millisecond, "the late stream is closed")
 }
 
 func TestNovaSonicSessionLimit(t *testing.T) {
