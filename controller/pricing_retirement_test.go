@@ -113,6 +113,12 @@ func TestGetPricingListsRetiredModelsNewestFirst(t *testing.T) {
 
 func TestGetPricingRetiredModelsWithShowAllGroups(t *testing.T) {
 	setupPricingRetirementTest(t)
+	previousRatios, err := common.Marshal(ratio_setting.GetGroupRatioCopy())
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"svip":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(string(previousRatios)))
+	})
 	// svip has a group ratio but is not a group the anonymous viewer may use.
 	require.NoError(t, model.DB.Create(&[]model.Ability{
 		{Group: "svip", Model: "zz-svip-live-model", ChannelId: 1, Enabled: true},
