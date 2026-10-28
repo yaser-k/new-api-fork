@@ -31,6 +31,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -43,12 +44,22 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { safeNumberFieldProps } from '../utils/numeric-field'
+
+const invitationHoursMessage =
+  'Invitation validity must be between 1 and 720 hours'
 
 const basicAuthSchema = z.object({
   PasswordLoginEnabled: z.boolean(),
   PasswordRegisterEnabled: z.boolean(),
   EmailVerificationEnabled: z.boolean(),
   RegisterEnabled: z.boolean(),
+  InvitationRegisterEnabled: z.boolean(),
+  InvitationValidHours: z
+    .number()
+    .int(invitationHoursMessage)
+    .min(1, invitationHoursMessage)
+    .max(720, invitationHoursMessage),
   EmailDomainRestrictionEnabled: z.boolean(),
   EmailAliasRestrictionEnabled: z.boolean(),
   EmailDomainWhitelist: z.string(),
@@ -83,7 +94,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
   useResetForm(form, formDefaults)
 
   const onSubmit = async (data: BasicAuthFormValues) => {
-    const updates: Array<{ key: string; value: string | boolean }> = []
+    const updates: Array<{ key: string; value: string | boolean | number }> = []
 
     Object.entries(data).forEach(([key, value]) => {
       if (key === 'EmailDomainWhitelist') {
@@ -174,6 +185,52 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   />
                 </FormControl>
               </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='InvitationRegisterEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Registration by email invitation')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Administrators can invite an email address from the users page. The mailed link opens the sign-up form for that address, even when registration is closed.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='InvitationValidHours'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Invitation validity (hours)')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='number'
+                    min={1}
+                    max={720}
+                    step={1}
+                    {...safeNumberFieldProps(field)}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('How long an invitation link works, from 1 to 720 hours.')}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
             )}
           />
 

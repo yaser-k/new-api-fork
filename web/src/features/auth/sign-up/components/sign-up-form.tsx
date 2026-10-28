@@ -57,8 +57,12 @@ import { cn } from '@/lib/utils'
 
 export function SignUpForm({
   className,
+  invitation,
   ...props
-}: React.HTMLAttributes<HTMLFormElement>) {
+}: React.HTMLAttributes<HTMLFormElement> & {
+  /** Set when an invitation link opened the page; the account gets its email. */
+  invitation?: { token: string; email: string }
+}) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
@@ -99,7 +103,8 @@ export function SignUpForm({
   })
 
   const emailValue = form.watch('email')
-  const emailVerificationRequired = !!status?.email_verification
+  // The mailed invitation link already proved the invited address.
+  const emailVerificationRequired = !invitation && !!status?.email_verification
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
@@ -168,6 +173,7 @@ export function SignUpForm({
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
         turnstile: turnstileToken,
+        invite_token: invitation?.token,
       })
 
       if (res?.success) {
@@ -251,6 +257,19 @@ export function SignUpForm({
         className={cn('grid gap-4', className)}
         {...props}
       >
+        {invitation && (
+          <div className='grid gap-2'>
+            <Label htmlFor='invitation-email'>{t('Email')}</Label>
+            <Input
+              id='invitation-email'
+              type='email'
+              dir='ltr'
+              value={invitation.email}
+              readOnly
+            />
+          </div>
+        )}
+
         {/* Username Field */}
         <FormField
           control={form.control}
@@ -383,7 +402,7 @@ export function SignUpForm({
           {t('Create account')}
         </Button>
 
-        {oauthRegisterEnabled && (
+        {oauthRegisterEnabled && !invitation && (
           <OAuthProviders
             status={status}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
