@@ -25,6 +25,7 @@ import {
 } from '@/features/model-pricing/currency'
 import {
   BILLING_PRICING_VARS,
+  billingVarUnitPrice,
   splitBillingExprAndRequestRules,
 } from '@/features/pricing/lib/billing-expr'
 import { tryParseVisualConfig } from '@/features/pricing/lib/tier-expr'
@@ -191,19 +192,26 @@ export function getSyncExpressionPricing(
             `${conditionLabels[condition.var]} ${condition.op} ${Number(condition.value).toLocaleString()}`
         )
         .join(' ∧ '),
-      lines: fields.flatMap((field) =>
-        field.tierField
-          ? [
-              {
-                label: t(field.shortLabel),
-                value: formatSyncPriceAmount(
-                  Number(tier[field.tierField]),
-                  currency
-                ),
-              },
-            ]
-          : []
-      ),
+      lines: fields.flatMap((field) => {
+        if (!field.tierField) return []
+        const coefficient = Number(tier[field.tierField])
+        // A second-unit price (vid_sec) is per second, not per 1M tokens.
+        if (field.unit === 'second') {
+          const unitPrice = billingVarUnitPrice(field.key, coefficient)
+          return [
+            {
+              label: t(field.shortLabel),
+              value: `${formatSyncPriceAmount(unitPrice, currency)}/${t('second')}`,
+            },
+          ]
+        }
+        return [
+          {
+            label: t(field.shortLabel),
+            value: formatSyncPriceAmount(coefficient, currency),
+          },
+        ]
+      }),
     })),
   }
 }
