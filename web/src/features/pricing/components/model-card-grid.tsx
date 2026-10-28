@@ -29,6 +29,7 @@ import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
 import { ModelCard } from './model-card'
 import type { ModelPerfBadgeData } from './model-perf-badge'
+import { RetiredModelCard } from './retired-models'
 
 export interface ModelCardGridProps {
   models: PricingModel[]
@@ -54,7 +55,9 @@ export const ModelCardGrid = memo(function ModelCardGrid(
     const start = (currentPage - 1) * pageSize
     return props.models.slice(start, start + pageSize)
   }, [currentPage, pageSize, props.models])
-  const recentModels = pagedModels.map((model) => model.model_name || '')
+  const recentModels = pagedModels
+    .filter((model) => !model.retired)
+    .map((model) => model.model_name || '')
   const perfQuery = useQuery({
     queryKey: ['perf-metrics-summary', 24, recentModels],
     queryFn: async () =>
@@ -94,19 +97,23 @@ export const ModelCardGrid = memo(function ModelCardGrid(
   return (
     <div className='flex flex-col gap-4 sm:gap-5'>
       <div className='grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3'>
-        {pagedModels.map((model) => (
-          <ModelCard
-            key={model.id ?? model.model_name}
-            model={model}
-            tokenUnit={tokenUnit}
-            priceRate={props.priceRate}
-            usdExchangeRate={props.usdExchangeRate}
-            showRechargePrice={props.showRechargePrice}
-            selectedGroup={props.selectedGroup}
-            perf={perfMap.get(model.model_name || '')}
-            onClick={props.onModelClick}
-          />
-        ))}
+        {pagedModels.map((model) =>
+          model.retired ? (
+            <RetiredModelCard key={model.model_name} model={model.retired} />
+          ) : (
+            <ModelCard
+              key={model.id ?? model.model_name}
+              model={model}
+              tokenUnit={tokenUnit}
+              priceRate={props.priceRate}
+              usdExchangeRate={props.usdExchangeRate}
+              showRechargePrice={props.showRechargePrice}
+              selectedGroup={props.selectedGroup}
+              perf={perfMap.get(model.model_name || '')}
+              onClick={props.onModelClick}
+            />
+          )
+        )}
       </div>
 
       {totalPages > 1 && (
