@@ -10,6 +10,7 @@ const (
 	OpenSourceAPIVersion = "v1beta1"
 	PublisherGoogle      = "google"
 	PublisherAnthropic   = "anthropic"
+	PublisherMistral     = "mistralai"
 )
 
 func normalizeVertexBaseURL(baseURL string) string {
@@ -77,6 +78,10 @@ func BuildGoogleModelURL(baseURL, version, projectID, region, modelName, action 
 
 func BuildAnthropicModelURL(baseURL, version, projectID, region, modelName, action string) string {
 	return BuildPublisherModelURL(baseURL, version, projectID, region, PublisherAnthropic, modelName, action)
+}
+
+func BuildMistralModelURL(baseURL, version, projectID, region, modelName, action string) string {
+	return BuildPublisherModelURL(baseURL, version, projectID, region, PublisherMistral, modelName, action)
 }
 
 func BuildOpenSourceChatCompletionsURL(baseURL, projectID, region string) string {
