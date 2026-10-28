@@ -1,0 +1,6 @@
+# Persian translations
+email.invitation.subject: "دعوت به ساخت حساب در {{.SystemName}}"
+email.invitation.greeting: "سلام، شما برای ساخت حساب در {{.SystemName}} دعوت شده‌اید."
+email.invitation.link: "برای ساخت حساب خود، <a href='{{.Link}}'>اینجا</a> کلیک کنید."
+email.invitation.link_fallback: "اگر پیوند باز نشد، پیوند زیر را در مرورگر خود کپی کنید:<br> ⁨{{.Link}}⁩"
+email.invitation.validity: "این دعوت تا {{.Hours}} ساعت معتبر است و فقط یک بار می‌توان از آن استفاده کرد. اگر انتظار آن را نداشتید، این ایمیل را نادیده بگیرید."
