@@ -241,14 +241,14 @@ export function PublicHeader(props: PublicHeaderProps) {
             <div className='hidden min-w-0 items-center gap-0.5 lg:flex'>
               {links.map((link) => {
                 const isActive = pathname === link.href
-                if (link.external) {
+                if (link.external || link.reloadDocument) {
                   return (
                     <a
                       key={`${link.title}:${link.href}`}
                       href={link.href}
                       title={t(link.title)}
-                      target='_blank'
-                      rel='noopener noreferrer'
+                      target={link.external ? '_blank' : undefined}
+                      rel={link.external ? 'noopener noreferrer' : undefined}
                       aria-disabled={link.disabled}
                       tabIndex={link.disabled ? -1 : undefined}
                       onClick={(event) => handleNavLinkClick(event, link)}
@@ -374,13 +374,13 @@ export function PublicHeader(props: PublicHeaderProps) {
               const transitionStyle = {
                 transitionDelay: mobileOpen ? `${100 + i * 50}ms` : '0ms',
               }
-              if (link.external) {
+              if (link.external || link.reloadDocument) {
                 return (
                   <a
                     key={`${link.title}:${link.href}`}
                     href={link.href}
-                    target='_blank'
-                    rel='noopener noreferrer'
+                    target={link.external ? '_blank' : undefined}
+                    rel={link.external ? 'noopener noreferrer' : undefined}
                     aria-disabled={link.disabled}
                     tabIndex={link.disabled ? -1 : undefined}
                     onClick={(event) => handleNavLinkClick(event, link, true)}
