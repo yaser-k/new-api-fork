@@ -253,6 +253,12 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorT(c, "Cannot enable Turnstile verification. Enter the Turnstile settings first.")
 			return
 		}
+	case "InvitationValidHours":
+		hours, err := strconv.Atoi(option.Value.(string))
+		if err != nil || hours < 1 || hours > 720 {
+			common.ApiErrorT(c, "Invitation validity must be between 1 and 720 hours")
+			return
+		}
 	case "TelegramOAuthEnabled":
 		if option.Value == "true" && !system_setting.GetTelegramSettings().IsConfigured() {
 			c.JSON(http.StatusOK, gin.H{

@@ -68,6 +68,12 @@ const (
 	MsgEmailPasswordResetLinkFallback = "email.password_reset.link_fallback"
 	MsgEmailPasswordResetValidity     = "email.password_reset.validity"
 
+	MsgEmailInvitationSubject      = "email.invitation.subject"
+	MsgEmailInvitationGreeting     = "email.invitation.greeting"
+	MsgEmailInvitationLink         = "email.invitation.link"
+	MsgEmailInvitationLinkFallback = "email.invitation.link_fallback"
+	MsgEmailInvitationValidity     = "email.invitation.validity"
+
 	MsgEmailBindingSubject     = "email.binding.subject"
 	MsgEmailBindingNewIntro    = "email.binding.new_intro"
 	MsgEmailBindingOldIntro    = "email.binding.old_intro"
