@@ -76,6 +76,22 @@ const schema = z.object({
       .number()
       .min(0.1, { message: 'Must be at least 0.1' })
       .max(1, { message: 'Must be 1 or less' }),
+    refusal_billing_waiver_enabled: z.boolean(),
+    refusal_billed_categories: z.string().superRefine((value, ctx) => {
+      const result = validateJsonString(value, {
+        allowEmpty: false,
+        predicate: (parsed) =>
+          Array.isArray(parsed) &&
+          parsed.every((item) => typeof item === 'string'),
+        predicateMessage: 'Expected a JSON array.',
+      })
+      if (!result.valid) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: result.message || 'Expected a JSON array.',
+        })
+      }
+    }),
   }),
 })
 
@@ -87,6 +103,8 @@ type FlatClaudeSettings = {
   'claude.default_max_tokens': string
   'claude.thinking_adapter_enabled': boolean
   'claude.thinking_adapter_budget_tokens_percentage': number
+  'claude.refusal_billing_waiver_enabled': boolean
+  'claude.refusal_billed_categories': string
 }
 
 type ClaudeSettingsCardProps = {
@@ -108,6 +126,11 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
     'claude.thinking_adapter_budget_tokens_percentage': Number(
       defaultValues.claude.thinking_adapter_budget_tokens_percentage
     ),
+    'claude.refusal_billing_waiver_enabled':
+      defaultValues.claude.refusal_billing_waiver_enabled,
+    'claude.refusal_billed_categories': normalizeJsonString(
+      defaultValues.claude.refusal_billed_categories
+    ),
   })
 
   const buildFormDefaults = (
@@ -123,6 +146,11 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
       thinking_adapter_enabled: values.claude.thinking_adapter_enabled,
       thinking_adapter_budget_tokens_percentage:
         values.claude.thinking_adapter_budget_tokens_percentage,
+      refusal_billing_waiver_enabled:
+        values.claude.refusal_billing_waiver_enabled,
+      refusal_billed_categories: formatJsonForTextarea(
+        values.claude.refusal_billed_categories
+      ),
     },
   })
 
@@ -148,6 +176,11 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
       'claude.thinking_adapter_budget_tokens_percentage': Number(
         defaultValues.claude.thinking_adapter_budget_tokens_percentage
       ),
+      'claude.refusal_billing_waiver_enabled':
+        defaultValues.claude.refusal_billing_waiver_enabled,
+      'claude.refusal_billed_categories': normalizeJsonString(
+        defaultValues.claude.refusal_billed_categories
+      ),
     }
 
     form.reset(buildFormDefaults(defaultValues))
@@ -164,6 +197,11 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
       'claude.thinking_adapter_enabled': values.claude.thinking_adapter_enabled,
       'claude.thinking_adapter_budget_tokens_percentage':
         values.claude.thinking_adapter_budget_tokens_percentage,
+      'claude.refusal_billing_waiver_enabled':
+        values.claude.refusal_billing_waiver_enabled,
+      'claude.refusal_billed_categories': normalizeJsonString(
+        values.claude.refusal_billed_categories
+      ),
     }
 
     const updates = (
@@ -284,6 +322,59 @@ export function ClaudeSettingsCard({ defaultValues }: ClaudeSettingsCardProps) {
                   <FormDescription>
                     {t(
                       'Budget tokens = max tokens × ratio. Accepts a decimal between 0.1 and 1.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </SettingsControlGroup>
+
+          <SettingsControlGroup>
+            <FormField
+              control={form.control}
+              name='claude.refusal_billing_waiver_enabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Waive Refusals Before Output')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Settle a Claude refusal that arrives before any output at zero, as Anthropic bills it. Mid-stream refusals and the billed categories below are still charged.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='claude.refusal_billed_categories'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Billed Refusal Categories')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                      aria-invalid={Boolean(
+                        form.formState.errors.claude?.refusal_billed_categories
+                      )}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'stop_details categories whose refusals before any output are still billed. Anthropic bills bio, frontier_llm and reasoning_extraction.'
                     )}
                   </FormDescription>
                   <FormMessage />
