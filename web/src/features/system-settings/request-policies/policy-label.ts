@@ -32,6 +32,8 @@ export function policyLabel(t: TFunction, value: string): string {
       return t('Status is outside the retry rules')
     case 'retry_status_matched':
       return t('Status matches the retry rules')
+    case 'retry_keyword_matched':
+      return t('Error message matches a retry keyword')
     case 'session_rule_matched':
       return t('Session rule matched')
     case 'channel_selected':
