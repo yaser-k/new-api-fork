@@ -27,10 +27,13 @@ import {
   FormControl,
   FormDescription,
   FormField,
+  FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { getContactLinkKind } from '@/lib/nav-modules'
 
 import {
   SettingsControlChildren,
@@ -57,9 +60,32 @@ const headerNavSchema = z.object({
   rankingsRequireAuth: z.boolean(),
   docs: z.boolean(),
   about: z.boolean(),
+  contactEnabled: z.boolean(),
+  contactLink: z.string(),
+})
+
+// A contact link is a same-site path or an http(s) URL; showing the Contact
+// item needs one.
+const headerNavFormSchema = headerNavSchema.superRefine((values, ctx) => {
+  const link = values.contactLink.trim()
+  if (link && !getContactLinkKind(link)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['contactLink'],
+      message: 'Enter a path starting with / or an http:// or https:// URL',
+    })
+  } else if (!link && values.contactEnabled) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['contactLink'],
+      message: 'Enter a link to show the Contact item',
+    })
+  }
 })
 
 type HeaderNavFormValues = z.infer<typeof headerNavSchema>
+
+type HeaderNavSwitchKey = Exclude<keyof HeaderNavFormValues, 'contactLink'>
 
 type HeaderNavigationSectionProps = {
   config: HeaderNavModulesConfig
@@ -95,6 +121,8 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.about === undefined
       ? HEADER_NAV_DEFAULT.about
       : Boolean(config.about),
+  contactEnabled: config.contact.enabled,
+  contactLink: config.contact.link,
 })
 
 export function HeaderNavigationSection({
@@ -106,7 +134,7 @@ export function HeaderNavigationSection({
   const formDefaults = useMemo(() => toFormValues(config), [config])
 
   const form = useForm<HeaderNavFormValues>({
-    resolver: zodResolver(headerNavSchema),
+    resolver: zodResolver(headerNavFormSchema),
     defaultValues: formDefaults,
   })
 
@@ -131,6 +159,10 @@ export function HeaderNavigationSection({
         enabled: values.rankingsEnabled,
         requireAuth: values.rankingsRequireAuth,
       },
+      contact: {
+        enabled: values.contactEnabled,
+        link: values.contactLink.trim(),
+      },
     }
 
     const serialized = serializeHeaderNavModules(payload)
@@ -149,7 +181,7 @@ export function HeaderNavigationSection({
   }
 
   const simpleModules: Array<{
-    key: keyof HeaderNavFormValues
+    key: HeaderNavSwitchKey
     title: string
     description: string
   }> = [
@@ -176,8 +208,8 @@ export function HeaderNavigationSection({
   ]
 
   const accessModules: Array<{
-    enabledKey: keyof HeaderNavFormValues
-    requireAuthKey: keyof HeaderNavFormValues
+    enabledKey: HeaderNavSwitchKey
+    requireAuthKey: HeaderNavSwitchKey
     requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
     title: string
     description: string
@@ -293,6 +325,52 @@ export function HeaderNavigationSection({
                 />
               </SettingsControlGroup>
             ))}
+
+            <SettingsControlGroup>
+              <FormField
+                control={form.control}
+                name='contactEnabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Contact')}</FormLabel>
+                      <FormDescription>
+                        {t('Contact page on this site or at an external link.')}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </SettingsSwitchItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='contactLink'
+                render={({ field }) => (
+                  <SettingsControlChildren>
+                    <FormItem className='py-2'>
+                      <FormLabel>{t('Contact link')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          dir='ltr'
+                          placeholder={t(
+                            '/contact or https://example.com/contact'
+                          )}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  </SettingsControlChildren>
+                )}
+              />
+            </SettingsControlGroup>
           </div>
         </SettingsForm>
       </Form>
