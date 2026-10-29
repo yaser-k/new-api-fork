@@ -358,6 +358,7 @@ export function HeaderNavigationSection({
                       <FormLabel>{t('Contact link')}</FormLabel>
                       <FormControl>
                         <Input
+                          dir='ltr'
                           placeholder={t(
                             '/contact or https://example.com/contact'
                           )}
