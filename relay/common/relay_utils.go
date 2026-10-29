@@ -85,6 +85,8 @@ func isSensitiveURLQueryKey(key string) bool {
 		"secret",
 		"password",
 		"passwd",
+		"private_key",
+		"turnstile",
 		"signature",
 		"sig",
 		"awsaccesskeyid",
