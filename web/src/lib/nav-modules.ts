@@ -22,6 +22,8 @@ import { readCachedStatus, statusQueryOptions } from '@/lib/status-query'
 
 export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 
+export type ContactModule = { enabled: boolean; link: string }
+
 export type HeaderNavModule = 'rankings' | 'pricing'
 
 export type HeaderNavModules = {
@@ -31,7 +33,8 @@ export type HeaderNavModules = {
   rankings: ModuleAccess
   docs: boolean
   about: boolean
-  [key: string]: boolean | ModuleAccess
+  contact: ContactModule
+  [key: string]: boolean | ModuleAccess | ContactModule
 }
 
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
@@ -41,6 +44,31 @@ const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   rankings: { enabled: true, requireAuth: false },
   docs: true,
   about: true,
+  contact: { enabled: false, link: '' },
+}
+
+const SAME_SITE_BASE = 'https://same-site.invalid'
+
+/**
+ * Classify a contact link: `path` for a path on this site, `url` for an
+ * http(s) URL, `null` for anything else (no item is shown for it).
+ *
+ * A path must begin with one `/`; the URL check rejects forms a browser reads
+ * as another host, such as `//host`, `/\host` or a tab between the slashes.
+ */
+export function getContactLinkKind(link: string): 'path' | 'url' | null {
+  const trimmed = link.trim()
+  const isPath = trimmed.startsWith('/') && !trimmed.startsWith('//')
+  if (!isPath && !/^https?:\/\//i.test(trimmed)) return null
+
+  let url: URL
+  try {
+    url = new URL(trimmed, SAME_SITE_BASE)
+  } catch {
+    return null
+  }
+  if (!isPath) return 'url'
+  return url.origin === SAME_SITE_BASE ? 'path' : null
 }
 
 const DEFAULTS: Record<HeaderNavModule, ModuleAccess> = {
@@ -53,6 +81,7 @@ function cloneHeaderNavDefaults(): HeaderNavModules {
     ...DEFAULT_HEADER_NAV_MODULES,
     pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
     rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
+    contact: { ...DEFAULT_HEADER_NAV_MODULES.contact },
   }
 }
 
@@ -118,6 +147,16 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
     }
     if (key === 'rankings') {
       result.rankings = parseAccess(value, result.rankings)
+      return
+    }
+    if (key === 'contact') {
+      if (value && typeof value === 'object') {
+        const r = value as Record<string, unknown>
+        result.contact = {
+          enabled: parseHeaderNavBoolean(r.enabled, false),
+          link: typeof r.link === 'string' ? r.link : '',
+        }
+      }
       return
     }
 
