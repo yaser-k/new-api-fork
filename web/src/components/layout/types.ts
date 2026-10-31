@@ -97,6 +97,8 @@ export type TopNavLink = {
   disabled?: boolean
   requiresAuth?: boolean
   external?: boolean
+  /** A plain same-tab anchor the browser loads; the router does not handle it */
+  reloadDocument?: boolean
 }
 
 /**
