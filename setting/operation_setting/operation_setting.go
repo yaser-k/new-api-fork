@@ -30,3 +30,22 @@ func AutomaticDisableKeywordsFromString(s string) {
 		}
 	}
 }
+
+// AutomaticRetryKeywords lets an upstream error whose status is outside the
+// retry rules move on to the next channel when its message contains one of
+// these phrases (case insensitive). Empty by default.
+var AutomaticRetryKeywords = []string{}
+
+func AutomaticRetryKeywordsToString() string {
+	return strings.Join(AutomaticRetryKeywords, "\n")
+}
+
+func AutomaticRetryKeywordsFromString(s string) {
+	AutomaticRetryKeywords = []string{}
+	for k := range strings.SplitSeq(s, "\n") {
+		k = strings.ToLower(strings.TrimSpace(k))
+		if k != "" {
+			AutomaticRetryKeywords = append(AutomaticRetryKeywords, k)
+		}
+	}
+}
