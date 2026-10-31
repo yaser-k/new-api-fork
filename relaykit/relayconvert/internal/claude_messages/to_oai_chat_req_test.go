@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,4 +149,110 @@ func TestClaudeMessagesRequestToOpenAIChatKeepsParallelToolResultsContiguous(t *
 	assert.Equal(t, dto.ContentTypeImageURL, parts[0].Type)
 	require.NotNil(t, parts[0].GetImageMedia())
 	assert.Equal(t, dataURL, parts[0].GetImageMedia().Url)
+}
+
+func TestClaudeMessagesStopSequencesPreservesArray(t *testing.T) {
+	maxTokens := uint(16)
+	cases := []struct {
+		name string
+		stop []string
+		want any
+	}{
+		{name: "single element", stop: []string{"</block>"}, want: []string{"</block>"}},
+		{name: "multiple elements", stop: []string{"A", "B"}, want: []string{"A", "B"}},
+		{name: "empty", stop: nil, want: nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(context.Background(), dto.ClaudeRequest{
+				Model:         "claude-test",
+				MaxTokens:     &maxTokens,
+				StopSequences: tc.stop,
+			}, &convmeta.Values{})
+			require.NoError(t, err)
+			require.NotNil(t, openAIRequest)
+			assert.Equal(t, tc.want, openAIRequest.Stop)
+		})
+	}
+}
+
+func TestClaudeMessagesRequestToOpenAIChatCacheControlOnlyForOpenRouterClaude(t *testing.T) {
+	cacheControl := []byte(`{"type":"ephemeral"}`)
+	request := dto.ClaudeRequest{
+		Model:  "claude-test",
+		System: []dto.ClaudeMediaMessage{{Type: "text", Text: lo.ToPtr("be brief"), CacheControl: cacheControl}},
+		Messages: []dto.ClaudeMessage{{
+			Role:    "user",
+			Content: []dto.ClaudeMediaMessage{{Type: "text", Text: lo.ToPtr("hello"), CacheControl: cacheControl}},
+		}},
+	}
+
+	tests := []struct {
+		name             string
+		info             *convmeta.Values
+		wantCacheControl bool
+	}{
+		{
+			name: "openai compatible channel",
+			info: &convmeta.Values{ChannelMetaAttached: true, UpstreamModelName: "claude-test"},
+		},
+		{
+			name: "openrouter non-claude model",
+			info: &convmeta.Values{
+				ChannelMetaAttached: true,
+				UpstreamModelName:   "openai/gpt-test",
+				Options:             &convmeta.Options{OpenRouterDialect: true},
+			},
+		},
+		{
+			name: "openrouter claude model",
+			info: &convmeta.Values{
+				ChannelMetaAttached: true,
+				UpstreamModelName:   "anthropic/claude-test",
+				Options:             &convmeta.Options{OpenRouterDialect: true},
+			},
+			wantCacheControl: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(context.Background(), request, tt.info)
+			require.NoError(t, err)
+			require.Len(t, openAIRequest.Messages, 2)
+
+			userParts := openAIRequest.Messages[1].ParseContent()
+			require.Len(t, userParts, 1)
+			assert.Equal(t, "hello", userParts[0].Text)
+			if tt.wantCacheControl {
+				assert.JSONEq(t, string(cacheControl), string(userParts[0].CacheControl))
+				systemParts := openAIRequest.Messages[0].ParseContent()
+				require.Len(t, systemParts, 1)
+				assert.JSONEq(t, string(cacheControl), string(systemParts[0].CacheControl))
+				return
+			}
+			assert.Empty(t, userParts[0].CacheControl)
+			body, err := kitutil.Marshal(openAIRequest)
+			require.NoError(t, err)
+			assert.NotContains(t, string(body), "cache_control")
+		})
+	}
+}
+
+func TestClaudeMessagesRequestToOpenAIChatJoinsSystemBlocks(t *testing.T) {
+	request := dto.ClaudeRequest{
+		Model: "claude-test",
+		System: []dto.ClaudeMediaMessage{
+			{Type: "text", Text: lo.ToPtr("You are a CLI.")},
+			{Type: "text", Text: lo.ToPtr("")},
+			{Type: "text", Text: lo.ToPtr("Answer briefly.")},
+		},
+		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
+	}
+
+	openAIRequest, err := ClaudeMessagesRequestToOpenAIChat(context.Background(), request, &convmeta.Values{})
+	require.NoError(t, err)
+	require.Len(t, openAIRequest.Messages, 2)
+	assert.Equal(t, "system", openAIRequest.Messages[0].Role)
+	assert.Equal(t, "You are a CLI.\n\nAnswer briefly.", openAIRequest.Messages[0].StringContent())
 }
