@@ -266,6 +266,9 @@ func (a *Adaptor) getRequestUrl(info *relaycommon.RelayInfo, modelName, suffix s
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	suffix := ""
+	if info.RelayMode == constant.RelayModeRealtime {
+		return a.liveRequestURL(info)
+	}
 	if a.RequestMode == RequestModeGemini {
 		if info.IsStream {
 			suffix = "streamGenerateContent?alt=sse"
@@ -469,6 +472,13 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		conn, err := channel.DoWssRequest(a, c, info, requestBody)
+		if err != nil {
+			return nil, err
+		}
+		return conn, nil
+	}
 	if info.RelayMode == constant.RelayModeEmbeddings {
 		return a.doEmbedContentCalls(c, info, requestBody)
 	}
@@ -494,6 +504,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			return openai.OaiStreamHandler(c, info, resp)
 		}
 	} else {
+		// A realtime session is not a stream until its handler runs.
+		if info.RelayMode == constant.RelayModeRealtime {
+			return a.liveTranscriptionHandler(c, info)
+		}
 		switch a.RequestMode {
 		case RequestModeClaude:
 			return claudeAdaptor.DoResponse(c, resp, info)
