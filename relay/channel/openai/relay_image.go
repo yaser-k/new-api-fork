@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -52,16 +51,20 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	attributeOpenAIImageOutputTokens(info, &usageResp.Usage)
 
-	if openaiImageInlineNeeded(c, info, gjson.GetBytes(responseBody, "data").Array()) {
-		inlined, inlineErr := inlineOpenAIImageResponse(c, responseBody)
-		if inlineErr != nil {
-			return &usageResp.Usage, inlineErr
-		}
-		responseBody = inlined
+	if !openaiImageAnswerRebuilt(info) {
+		// 写入新的 response body
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+		return &usageResp.Usage, nil
 	}
-
-	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	rebuilt, rebuildErr := rebuildOpenAIImageResponse(c, responseBody, openaiImageInline(c, info))
+	if rebuildErr != nil {
+		return &usageResp.Usage, rebuildErr
+	}
+	// The rebuilt answer carries no upstream header: only its own type and
+	// length. The upstream request id is still recorded for the logs.
+	service.ShouldCopyUpstreamHeader(c, common.RequestIdKey, resp.Header.Values(common.RequestIdKey))
+	c.Writer.Header().Set("Content-Type", "application/json")
+	service.IOCopyBytesGracefully(c, nil, rebuilt)
 	return &usageResp.Usage, nil
 }
 
@@ -71,13 +74,20 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 // is settled as the upstream billed it while the client receives an error.
 var ErrGeneratedImageUndelivered = errors.New("the upstream generated the image, but the gateway could not fetch it")
 
-// openaiImageInlineNeeded reports whether the gateway answers with the images
-// themselves instead of forwarding an OpenAI-channel answer as it came: always
-// when the channel turns on image_response_inline, and when the client asked
-// for b64_json while one of the images came back only as a url. Answers of
-// every other channel type are forwarded unchanged.
-func openaiImageInlineNeeded(c *gin.Context, info *relaycommon.RelayInfo, images []gjson.Result) bool {
-	if !info.HasChannelMeta() || info.ChannelType != constant.ChannelTypeOpenAI {
+// openaiImageAnswerRebuilt reports whether an image answer reaches the client
+// rebuilt from the OpenAI Images fields alone, so that fields and headers the
+// upstream adds of its own never do: answers of OpenAI channels are; answers
+// of every other channel type are forwarded as they came.
+func openaiImageAnswerRebuilt(info *relaycommon.RelayInfo) bool {
+	return info.HasChannelMeta() && info.ChannelType == constant.ChannelTypeOpenAI
+}
+
+// openaiImageInline reports whether a rebuilt answer carries its images as
+// b64_json, fetching those the upstream returned only as a url: when the
+// channel turns on image_response_inline, and when the client asked for
+// b64_json. Otherwise an image keeps the form the upstream gave it.
+func openaiImageInline(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	if !info.HasChannelMeta() {
 		return false
 	}
 	if info.ChannelOtherSettings.ImageResponseInline {
@@ -92,22 +102,19 @@ func openaiImageInlineNeeded(c *gin.Context, info *relaycommon.RelayInfo, images
 		// Multipart edits keep their fields in the parsed form.
 		format = c.Request.PostForm.Get("response_format")
 	}
-	if !strings.EqualFold(strings.TrimSpace(format), "b64_json") {
-		return false
-	}
-	return slices.ContainsFunc(images, func(image gjson.Result) bool {
-		return openaiImageDataHasField(image, "url") && !openaiImageDataHasField(image, "b64_json")
-	})
+	return strings.EqualFold(strings.TrimSpace(format), "b64_json")
 }
 
-// inlineOpenAIImageResponse rebuilds an OpenAI Images answer from the OpenAI
+// rebuildOpenAIImageResponse rebuilds an OpenAI Images answer from the OpenAI
 // Images fields alone (created, data, background, output_format, quality,
-// size, usage), with every image as b64_json. Images the upstream returned as
-// a url are fetched; fields the upstream adds of its own are left out. The
-// answer carries the billed number of images (openaiImageResponseCount): an
-// upstream that splits one image into a url entry and a b64_json entry keeps
-// the b64_json entry and its url is not fetched.
-func inlineOpenAIImageResponse(c *gin.Context, responseBody []byte) ([]byte, *types.NewAPIError) {
+// size, usage; per image url, b64_json and revised_prompt), leaving out the
+// fields the upstream adds of its own. Without inline every image keeps the
+// form the upstream gave it. With inline every image is b64_json: images the
+// upstream returned as a url are fetched, and the answer carries the billed
+// number of images (openaiImageResponseCount), so an upstream that splits one
+// image into a url entry and a b64_json entry keeps the b64_json entry and its
+// url is not fetched.
+func rebuildOpenAIImageResponse(c *gin.Context, responseBody []byte, inline bool) ([]byte, *types.NewAPIError) {
 	billed := openaiImageResponseCount(responseBody)
 	// The raw values are sliced from the body so multi-MB b64_json payloads
 	// are not copied; gjson keeps document-relative indexes for both an array
@@ -120,15 +127,23 @@ func inlineOpenAIImageResponse(c *gin.Context, responseBody []byte) ([]byte, *ty
 	}
 	type inlineImage struct {
 		entry gjson.Result
+		url   []byte
 		b64   []byte
 	}
 	var images, urlOnly []inlineImage
 	for _, entry := range gjson.GetBytes(responseBody, "data").Array() {
+		image := inlineImage{entry: entry}
+		if !inline && openaiImageDataHasField(entry, "url") {
+			image.url = rawValue(entry.Get("url"))
+		}
 		switch {
 		case openaiImageDataHasField(entry, "b64_json"):
-			images = append(images, inlineImage{entry: entry, b64: rawValue(entry.Get("b64_json"))})
+			image.b64 = rawValue(entry.Get("b64_json"))
+			images = append(images, image)
+		case !inline && image.url != nil:
+			images = append(images, image)
 		case openaiImageDataHasField(entry, "url"):
-			urlOnly = append(urlOnly, inlineImage{entry: entry})
+			urlOnly = append(urlOnly, image)
 		}
 	}
 	for _, image := range urlOnly {
@@ -158,15 +173,26 @@ func inlineOpenAIImageResponse(c *gin.Context, responseBody []byte) ([]byte, *ty
 		if index > 0 {
 			out.WriteByte(',')
 		}
+		fields := 0
+		writeField := func(name string, value []byte) {
+			if fields > 0 {
+				out.WriteByte(',')
+			}
+			fields++
+			out.WriteString(`"` + name + `":`)
+			out.Write(value)
+		}
 		out.WriteByte('{')
 		if openaiImageDataHasField(image.entry, "revised_prompt") {
-			out.WriteString(`"revised_prompt":`)
-			out.Write(rawValue(image.entry.Get("revised_prompt")))
-			out.WriteByte(',')
+			writeField("revised_prompt", rawValue(image.entry.Get("revised_prompt")))
+		}
+		if image.url != nil {
+			writeField("url", image.url)
 		}
 		// b64_json goes last, after the small fields.
-		out.WriteString(`"b64_json":`)
-		out.Write(image.b64)
+		if image.b64 != nil {
+			writeField("b64_json", image.b64)
+		}
 		out.WriteByte('}')
 	}
 	out.WriteByte(']')
@@ -321,6 +347,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	var lastStreamData []byte
 	var completedImages int64
 	var inlineErr *types.NewAPIError
+	rebuildEvents, inline := openaiImageAnswerRebuilt(info), openaiImageInline(c, info)
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		raw := common.StringToByteSlice(data)
@@ -343,9 +370,8 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 				completedImages++
 			}
 		}
-		event := gjson.ParseBytes(raw)
-		if openaiImageInlineNeeded(c, info, append([]gjson.Result{event}, event.Get("data").Array()...)) {
-			rebuilt, err := rebuildOpenAIImageStreamEvent(c, raw, true)
+		if rebuildEvents {
+			rebuilt, err := rebuildOpenAIImageStreamEvent(c, raw, inline)
 			if err != nil {
 				inlineErr = err
 				sr.Stop(err)
@@ -536,12 +562,12 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	attributeOpenAIImageOutputTokens(info, &usageResp.Usage)
 
 	info.UpdateImageCount(openaiImageResponseCount(responseBody))
-	if openaiImageInlineNeeded(c, info, gjson.GetBytes(responseBody, "data").Array()) {
-		inlined, inlineErr := inlineOpenAIImageResponse(c, responseBody)
-		if inlineErr != nil {
-			return &usageResp.Usage, inlineErr
+	if openaiImageAnswerRebuilt(info) {
+		rebuilt, rebuildErr := rebuildOpenAIImageResponse(c, responseBody, openaiImageInline(c, info))
+		if rebuildErr != nil {
+			return &usageResp.Usage, rebuildErr
 		}
-		responseBody = inlined
+		responseBody = rebuilt
 	}
 
 	helper.SetEventStreamHeaders(c)

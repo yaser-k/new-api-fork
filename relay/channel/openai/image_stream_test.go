@@ -722,24 +722,29 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 		channelType    int
 		inline         bool
 		responseFormat string
-		wantRewritten  bool
+		wantForwarded  bool
 		wantB64        string
+		wantURL        string
 		wantFetches    int32
 		wantKept       []string
 		wantRevised    string
 	}{
-		{name: "url answer, setting on", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: fetched, wantFetches: 1},
-		{name: "url answer, b64_json asked, setting off", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "b64_json", wantRewritten: true, wantB64: fetched, wantFetches: 1},
-		{name: "url answer, setting off, url asked, as today", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "url"},
-		{name: "url answer on another channel type, as today", body: urlAnswer, channelType: constant.ChannelTypeCustom, inline: true, responseFormat: "b64_json"},
-		{name: "b64 answer, setting on", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
-		{name: "b64 answer, setting off, as today", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, responseFormat: "b64_json"},
-		{name: "split url and b64_json entries return the one billed image", body: `{"created":1761480000,"data":[{"url":"` + imageURL + `"},{"b64_json":"aW1hZ2U=","revised_prompt":"a lighthouse at dusk"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: "aW1hZ2U=", wantRevised: "a lighthouse at dusk"},
-		{name: "per-token answer, setting on", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
+		{name: "url answer, setting on", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: fetched, wantFetches: 1},
+		{name: "url answer, b64_json asked, setting off", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "b64_json", wantB64: fetched, wantFetches: 1},
+		{name: "url answer, url asked, setting off, keeps the link", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "url", wantURL: imageURL},
+		{name: "url answer, no response_format, setting off, keeps the link", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, wantURL: imageURL},
+		{name: "url answer on another channel type, as today", body: urlAnswer, channelType: constant.ChannelTypeCustom, inline: true, responseFormat: "b64_json", wantForwarded: true},
+		{name: "b64 answer, setting on", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
+		{name: "b64 answer, setting off", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
+		{name: "split url and b64_json entries return the one billed image", body: `{"created":1761480000,"data":[{"url":"` + imageURL + `"},{"b64_json":"aW1hZ2U=","revised_prompt":"a lighthouse at dusk"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "aW1hZ2U=", wantRevised: "a lighthouse at dusk"},
+		{name: "per-token answer, setting on", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
+		{name: "per-token answer, setting off", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := hits.Load()
 			c, recorder, resp, info := newOpenAIChannelImageContext(t, tc.body, tc.channelType, tc.inline, tc.responseFormat, false)
+			resp.Header.Set("X-Request-Id", "upstream-request-id")
+			resp.Header.Set("Set-Cookie", "upstream-session=1")
 
 			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 
@@ -748,17 +753,21 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 			assert.Equal(t, tc.wantFetches, hits.Load()-before)
 			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"], "billed per image returned")
 			out := recorder.Body.String()
-			if !tc.wantRewritten {
+			if tc.wantForwarded {
 				assert.Equal(t, tc.body, out)
+				assert.Equal(t, "upstream-request-id", recorder.Header().Get("X-Request-Id"))
 				return
 			}
 			require.True(t, gjson.Valid(out), out)
 			answer := gjson.Parse(out)
 			assert.Equal(t, int64(1), answer.Get("data.#").Int())
 			assert.Equal(t, tc.wantB64, answer.Get("data.0.b64_json").String())
+			assert.Equal(t, tc.wantURL, answer.Get("data.0.url").String())
 			assert.Equal(t, gjson.Get(tc.body, "created").Int(), answer.Get("created").Int())
-			assert.NotContains(t, out, server.URL)
-			for _, field := range []string{"billing", "request_id", "id", "data.0.url", "data.0.generation_id"} {
+			if tc.wantURL == "" {
+				assert.NotContains(t, out, server.URL)
+			}
+			for _, field := range []string{"billing", "request_id", "id", "data.0.generation_id"} {
 				assert.False(t, answer.Get(field).Exists(), field)
 			}
 			for _, field := range tc.wantKept {
@@ -766,6 +775,9 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 			}
 			assert.Equal(t, tc.wantRevised, answer.Get("data.0.revised_prompt").String())
 			assert.Equal(t, fmt.Sprint(len(out)), recorder.Header().Get("Content-Length"))
+			assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+			assert.Empty(t, recorder.Header().Get("X-Request-Id"), "no upstream header reaches the client")
+			assert.Empty(t, recorder.Header().Get("Set-Cookie"), "no upstream header reaches the client")
 		})
 	}
 }
@@ -813,6 +825,7 @@ func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
 
 	for _, tc := range []struct {
 		name, body string
+		keepLink   bool
 		wantEvents []string
 	}{
 		{
@@ -834,9 +847,15 @@ func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
 			body:       "data: {\"type\":\"image_generation.completed\",\"data\":[{\"url\":\"" + imageURL + "\",\"generation_id\":\"gen_0a1b\"}]," + upstreamFields + "}\n\ndata: [DONE]\n\n",
 			wantEvents: []string{`{"type":"image_generation.completed","b64_json":"` + fetched + `"}`},
 		},
+		{
+			name:       "setting off keeps the link without the upstream's fields",
+			body:       "data: {\"type\":\"image_generation.completed\",\"url\":\"" + imageURL + "\"," + upstreamFields + "}\n\ndata: [DONE]\n\n",
+			keepLink:   true,
+			wantEvents: []string{`{"type":"image_generation.completed","url":"` + imageURL + `"}`},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c, recorder, resp, info := newOpenAIChannelImageContext(t, tc.body, constant.ChannelTypeOpenAI, true, "", true)
+			c, recorder, resp, info := newOpenAIChannelImageContext(t, tc.body, constant.ChannelTypeOpenAI, !tc.keepLink, "", true)
 
 			_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 
@@ -852,8 +871,12 @@ func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
 			for index, want := range tc.wantEvents {
 				assert.JSONEq(t, want, events[index])
 			}
-			for _, leaked := range []string{server.URL, "billing", "request_id", "generation_id", `"id"`, `"data"`} {
-				assert.NotContains(t, out, leaked)
+			leaked := []string{"billing", "request_id", "generation_id", `"id"`, `"data"`}
+			if !tc.keepLink {
+				leaked = append(leaked, server.URL)
+			}
+			for _, field := range leaked {
+				assert.NotContains(t, out, field)
 			}
 			assert.Equal(t, 1, strings.Count(out, "event: image_generation.completed"))
 			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"])

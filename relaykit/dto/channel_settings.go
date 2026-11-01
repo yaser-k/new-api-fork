@@ -141,9 +141,9 @@ type ChannelOtherSettings struct {
 	ToolLossPolicy string `json:"tool_loss_policy,omitempty"`
 	// ImageResponseInline makes an OpenAI channel answer image generations
 	// and edits with the images themselves: the gateway fetches every image
-	// the upstream returns as a url into b64_json and keeps only the OpenAI
-	// Images response fields, so a client never receives the upstream's
-	// links or its own fields. Off by default.
+	// the upstream returns as a url into b64_json, so a client never receives
+	// the upstream's links. OpenAI channels rebuild every image answer from
+	// the OpenAI Images fields whether it is on or not. Off by default.
 	ImageResponseInline bool `json:"image_response_inline,omitempty"`
 }
 
