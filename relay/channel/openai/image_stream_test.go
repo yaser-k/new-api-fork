@@ -902,9 +902,16 @@ func TestOpenaiImagePerTokenUsageBillsImageOutputAtItsRate(t *testing.T) {
 		{"first measurement", measuredPerTokenAnswer, constant.ChannelTypeOpenAI, 16, 196, 16*4.25 + 196*25.5},
 		{"second measurement", measuredPerTokenDetailedAnswer, constant.ChannelTypeOpenAI, 14, 196, 14*4.25 + 196*25.5},
 		{"first measurement on another channel type, as today", measuredPerTokenAnswer, constant.ChannelTypeCustom, 16, 0, 16 * 4.25},
+		{"first measurement streamed", "data: {\"type\":\"image_generation.completed\",\"b64_json\":\"aW1hZ2U=\",\"usage\":" + gjson.Get(measuredPerTokenAnswer, "usage").Raw + "}\n\ndata: [DONE]\n\n", constant.ChannelTypeOpenAI, 16, 196, 16*4.25 + 196*25.5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c, _, resp, info := newOpenAIChannelImageContext(t, tc.body, tc.channelType, false, "b64_json", false)
+			stream := strings.HasPrefix(tc.body, "data:")
+			if stream {
+				oldTimeout := constant.StreamingTimeout
+				constant.StreamingTimeout = 30
+				t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+			}
+			c, _, resp, info := newOpenAIChannelImageContext(t, tc.body, tc.channelType, false, "b64_json", stream)
 			result, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
 			require.Nil(t, apiErr)
 			usage := result.(*dto.Usage)

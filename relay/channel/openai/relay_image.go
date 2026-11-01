@@ -391,6 +391,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	}
 
 	applyUsagePostProcessing(info, usage, lastStreamData)
+	attributeOpenAIImageOutputTokens(info, usage)
 	// Only trust completedImages when upstream finished the stream (done/eof).
 	// On client-side aborts (client_gone, or handler_stop from a failed client
 	// write) the counter undercounts what upstream actually generated and
