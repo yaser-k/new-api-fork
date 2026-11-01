@@ -86,6 +86,54 @@ func newImageHelperRequest(t *testing.T, body, upstreamURL string, other dto.Cha
 	return c, recorder, info
 }
 
+func TestImageRequestKeyedPricesSelectTheRequestedSizeAndQuality(t *testing.T) {
+	service.InitHttpClient()
+	setImageModelPrices(t, `{"keyed-image":0.02,"keyed-image#1024X1024":0.0254,"keyed-image#2048X2048":0.05,"keyed-image#2048X2048+LOW":0.04,"keyed-image#LOW":0.01,"flat-image":0.03}`)
+	for _, tc := range []struct {
+		name, body string
+		wantPrice  float64
+		wantError  string
+	}{
+		{name: "size key", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024"}`, wantPrice: 0.0254},
+		{name: "size and quality key", body: `{"model":"keyed-image","prompt":"p","size":"2048x2048","quality":"low"}`, wantPrice: 0.04},
+		{name: "quality key", body: `{"model":"keyed-image","prompt":"p","quality":"low"}`, wantPrice: 0.01},
+		{name: "no key named pays the model's own price", body: `{"model":"keyed-image","prompt":"p"}`, wantPrice: 0.02},
+		{name: "size without a price is refused", body: `{"model":"keyed-image","prompt":"p","size":"4096x4096"}`, wantError: "has no image price for 4096X4096"},
+		{name: "separate size and quality prices are refused", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024","quality":"low"}`, wantError: "prices image size 1024X1024 and quality LOW separately"},
+		{name: "a model without keyed prices is priced as today", body: `{"model":"flat-image","prompt":"p","size":"4096x4096"}`, wantPrice: 0.03},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			received := make(chan []byte, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- body
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = io.WriteString(w, `{"error":{"message":"fixture upstream failure","type":"upstream_error"}}`)
+			}))
+			t.Cleanup(upstream.Close)
+			model := gjson.Get(tc.body, "model").String()
+			ownPrice, _ := ratio_setting.GetModelPrice(model, false)
+			c, _, info := newImageHelperRequest(t, tc.body, upstream.URL, dto.ChannelOtherSettings{}, ownPrice, &imageReservation{held: 10000, limit: 500000})
+
+			apiErr := ImageHelper(c, info)
+
+			require.NotNil(t, apiErr)
+			if tc.wantError != "" {
+				assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+				assert.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
+				assert.Contains(t, apiErr.Error(), tc.wantError)
+				assert.True(t, types.IsSkipRetryError(apiErr))
+				assert.Empty(t, received, "a request without a price never reaches the upstream")
+				return
+			}
+			require.Len(t, received, 1)
+			assert.Equal(t, tc.wantPrice, info.PriceData.ModelPrice)
+			assert.Equal(t, common.QuotaFromFloat(tc.wantPrice*common.QuotaPerUnit), info.PriceData.QuotaToPreConsume)
+		})
+	}
+}
+
 // TestImageRequestSettlesAnImageTheGatewayCouldNotFetch covers a per-image
 // answer whose only link stopped answering: the client receives an error and
 // the request settles the image the upstream billed instead of refunding it.

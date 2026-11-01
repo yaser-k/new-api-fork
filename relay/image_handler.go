@@ -18,8 +18,10 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
@@ -126,6 +128,22 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		defer closer.Close()
 		requestBody = body
 	}
+	if info.PriceData.UsePrice {
+		// Price the size and quality actually sent upstream: channel
+		// overrides and pass-through bodies can change them.
+		size, quality := request.Size, request.Quality
+		if jsonData != nil {
+			size = gjson.GetBytes(jsonData, "size").String()
+			quality = gjson.GetBytes(jsonData, "quality").String()
+		}
+		price, keyed, priceErr := resolveImageKeyPrice(info.GetBillingModelName(), size, quality)
+		if priceErr != nil {
+			return types.NewErrorWithStatusCode(priceErr, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		if keyed {
+			info.PriceData.ModelPrice = price
+		}
+	}
 	if billingErr := service.PrepareImageBillingForRequest(c, info, imageCount); billingErr != nil {
 		return billingErr
 	}
@@ -200,4 +218,60 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
 	return newAPIError
+}
+
+// imagePriceKeySeparator joins a model's billing name and an image price key
+// in the per-call price table: "image-model#1024X1024" prices that model's
+// 1024x1024 images, "image-model#LOW" its low quality ones and
+// "image-model#2048X2048+LOW" the two together.
+const imagePriceKeySeparator = "#"
+
+// resolveImageKeyPrice returns the per-image price of a per-call priced model
+// that has keyed image prices, for the size and quality of the outbound
+// request. keyed is false when the model has no keyed price, so its own price
+// applies as before. A request that names neither pays the model's own price,
+// which is the price of the upstream's default. A request that names a size,
+// a quality or both pays the combined SIZE+QUALITY key when the model has one,
+// otherwise the single key it matches. A request whose keys match no price, or
+// match a size price and a quality price at once, is refused before the
+// upstream is called. Keys are the request values in upper case.
+func resolveImageKeyPrice(billingModel, size, quality string) (price float64, keyed bool, err error) {
+	prefix := billingModel + imagePriceKeySeparator
+	for name := range ratio_setting.GetModelPriceCopy() {
+		if strings.HasPrefix(name, prefix) {
+			keyed = true
+			break
+		}
+	}
+	if !keyed {
+		return 0, false, nil
+	}
+	size = strings.ToUpper(strings.TrimSpace(size))
+	quality = strings.ToUpper(strings.TrimSpace(quality))
+	if size == "" && quality == "" {
+		own, found := ratio_setting.GetModelPrice(billingModel, false)
+		if !found {
+			return 0, true, fmt.Errorf("model %s has no price for an image request without size or quality", billingModel)
+		}
+		return own, true, nil
+	}
+	if size != "" && quality != "" {
+		if combined, found := ratio_setting.GetModelPrice(prefix+size+"+"+quality, false); found {
+			return combined, true, nil
+		}
+	}
+	sizePrice, sizeFound := ratio_setting.GetModelPrice(prefix+size, false)
+	qualityPrice, qualityFound := ratio_setting.GetModelPrice(prefix+quality, false)
+	sizeFound = sizeFound && size != ""
+	qualityFound = qualityFound && quality != ""
+	switch {
+	case sizeFound && qualityFound:
+		return 0, true, fmt.Errorf("model %s prices image size %s and quality %s separately; set a price for %s+%s", billingModel, size, quality, size, quality)
+	case sizeFound:
+		return sizePrice, true, nil
+	case qualityFound:
+		return qualityPrice, true, nil
+	}
+	requested := strings.Trim(size+"+"+quality, "+")
+	return 0, true, fmt.Errorf("model %s has no image price for %s", billingModel, requested)
 }
