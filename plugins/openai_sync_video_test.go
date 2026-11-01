@@ -213,6 +213,8 @@ func TestOpenAISyncVideoRefusesWhatItCannotBill(t *testing.T) {
 		{"no duration", "duration is required", map[string]any{"model": model, "prompt": "p", "resolution": "480P"}},
 		{"duration beyond the host cap", "duration must be a number of seconds", map[string]any{"model": model, "prompt": "p", "resolution": "480P", "duration": 3601}},
 		{"zero seconds", "duration must be a number of seconds", map[string]any{"model": model, "prompt": "p", "resolution": "480P", "seconds": "0"}},
+		{"hex seconds", "duration must be a number of seconds", map[string]any{"model": model, "prompt": "p", "resolution": "480P", "seconds": "0x10"}},
+		{"exponent seconds", "duration must be a number of seconds", map[string]any{"model": model, "prompt": "p", "resolution": "480P", "seconds": "1e3"}},
 		{"image input", "field input_reference is not supported by this upstream", map[string]any{"model": model, "prompt": "p", "resolution": "480P", "seconds": 2, "input_reference": "https://example.com/a.png"}},
 		{"size instead of resolution", "field size is not supported by this upstream", map[string]any{"model": model, "prompt": "p", "size": "1280x720", "seconds": 2}},
 		{"no prompt", "prompt is required", map[string]any{"model": model, "resolution": "480P", "seconds": 2}},
@@ -230,6 +232,16 @@ func TestOpenAISyncVideoRefusesWhatItCannotBill(t *testing.T) {
 				"files": []any{map[string]any{"ref": "request_file:input_reference", "field": "input_reference", "filename": "a.png", "mimeType": "image/png", "size": 1}}},
 		})
 		require.ErrorContains(t, err, "file inputs are not supported by this upstream")
+	})
+
+	t.Run("a duration_seconds that is not a plain decimal settles on the requested duration", func(t *testing.T) {
+		driver := map[string]any{"requestBody": map[string]any{"model": model, "prompt": "p", "resolution": "480P", "duration": 2}, "model": model, "upstreamModel": model}
+		for _, reported := range []any{"0x10", "1e3", " ", "-2", "2.5s"} {
+			body := map[string]any{"id": "job", "status": "completed", "videos": []any{map[string]any{"url": "https://objects.upstream.example/a.mp4", "duration_seconds": reported}}}
+			parsed, err := callJSON(t, plugin, []string{"parseSubmitResponse"}, driver, map[string]any{"statusCode": 200, "headers": map[string]any{}, "body": body})
+			require.NoError(t, err)
+			assert.Equal(t, float64(2), parsed["taskData"].(map[string]any)["seconds"], reported)
+		}
 	})
 
 	t.Run("an answer without a finished video is a failed task, never an error", func(t *testing.T) {

@@ -156,10 +156,18 @@ function selectKey(ctx, resolution) {
   throw new Error("model " + trimmed(ctx.model) + " has no per-second rate for resolution " + requested + "; it has " + keys.map(keyResolution).join(", "));
 }
 
+// plainSeconds reads a number of seconds: a finite JSON number, or a string
+// holding a plain decimal such as "2" or "2.041666666666666667". Number()
+// would also accept hex, exponents and blanks; those are not seconds.
+function plainSeconds(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  if (typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim())) return Number(value.trim());
+  return NaN;
+}
+
 function requestSeconds(value) {
-  const seconds = typeof value === "string" ? Number(value.trim()) : value;
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_SECONDS)
-    throw new Error("duration must be a number of seconds between 0 and " + MAX_SECONDS);
+  const seconds = plainSeconds(value);
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_SECONDS) throw new Error("duration must be a number of seconds between 0 and " + MAX_SECONDS);
   return seconds;
 }
 
@@ -216,9 +224,8 @@ function videoArtifactText(ctx) {
 // reports duration_seconds as a number or as a decimal string and bills the
 // fraction.
 function answerSeconds(video) {
-  const value = video && video.duration_seconds;
-  const seconds = typeof value === "string" ? Number(value.trim()) : value;
-  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return 0;
+  const seconds = plainSeconds(video && video.duration_seconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 0;
   return Math.min(seconds, MAX_SECONDS);
 }
 
