@@ -139,6 +139,12 @@ type ChannelOtherSettings struct {
 	// rejection. Empty follows the default allow policy. Accepted values:
 	// "", "allow", "safe", "strict".
 	ToolLossPolicy string `json:"tool_loss_policy,omitempty"`
+	// ImageResponseInline makes an OpenAI channel answer image generations
+	// and edits with the images themselves: the gateway fetches every image
+	// the upstream returns as a url into b64_json and keeps only the OpenAI
+	// Images response fields, so a client never receives the upstream's
+	// links or its own fields. Off by default.
+	ImageResponseInline bool `json:"image_response_inline,omitempty"`
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

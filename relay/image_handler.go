@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -156,7 +157,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	if newAPIError != nil {
 		// reset status code 重置状态码
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
-		return newAPIError
+		// The upstream completed and billed an image the gateway could not
+		// deliver: the client gets the error, and the request still settles
+		// as the upstream billed it.
+		if billed, ok := usage.(*dto.Usage); !ok || billed == nil || !errors.Is(newAPIError, openai.ErrGeneratedImageUndelivered) {
+			return newAPIError
+		}
 	}
 
 	// The log content shows the settled count: the count the handler derived
@@ -193,5 +199,5 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
-	return nil
+	return newAPIError
 }

@@ -2,12 +2,15 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/QuantumNous/new-api/constant"
@@ -15,9 +18,13 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func newImageTestContext(t *testing.T, body, contentType string, isStream bool) (*gin.Context, *httptest.ResponseRecorder, *http.Response, *relaycommon.RelayInfo) {
@@ -630,4 +637,194 @@ func TestOpenaiImageStreamHandlerRecordsUpstreamErrorEvent(t *testing.T) {
 	// is still forwarded in the data: payload (stream ID 77).
 	require.Contains(t, recorder.Body.String(), `event: upstream_error`)
 	require.Contains(t, recorder.Body.String(), `stream ID 77`)
+}
+
+// The answers below keep the shape an OpenAI-compatible upstream returned on
+// two dates; the base64 payloads and the links are cut. Every answer carries
+// fields of the upstream's own (billing, request_id, id, generation_id) that a
+// rewritten answer must not pass on.
+const (
+	// A per-image model, first measurement: a url only, whatever
+	// response_format asked for, and no usage.
+	measuredPerImageURLAnswer = `{"created":1761480000,"data":[{"url":"{{IMAGE_URL}}"}],"id":"0b9d6f42-4a4f-4f43-9d7e-2d1f8f3c5a10","request_id":"7c2f3e1a-5b6d-4e8f-9a0b-1c2d3e4f5a6b","billing":{"status":"settled","billed_cost_usd":"0.025400","currency":"USD"}}`
+	// The same model, second measurement: b64_json with or without
+	// response_format, and a usage of zeros.
+	measuredPerImageB64Answer = `{"created":1761998400,"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAE"}],"usage":{"total_tokens":0,"input_tokens":0,"output_tokens":0},"request_id":"1e2d3c4b-5a69-4788-9a1b-2c3d4e5f6a7b","billing":{"billed_cost_usd":"0.025500"}}`
+	// A per-token model, first measurement: an Images usage without an
+	// output breakdown.
+	measuredPerTokenAnswer = `{"created":1761480000,"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAI"}],"request_id":"2f3e4d5c-6b7a-4899-8a0b-1c2d3e4f5a6b","usage":{"total_tokens":212,"input_tokens":16,"output_tokens":196,"input_tokens_details":{"text_tokens":16,"image_tokens":0}},"billing":{"billed_cost_usd":"0.005066"}}`
+	// The per-token model, second measurement: an output breakdown and the
+	// generation parameters echoed back.
+	measuredPerTokenDetailedAnswer = `{"created":1761998400,"data":[{"b64_json":"iVBORw0KGgoAAAANSUhEUgAAAAM","generation_id":"gen_0a1b2c3d"}],"background":"opaque","output_format":"png","quality":"low","size":"1024x1024","request_id":"3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d","usage":{"total_tokens":210,"input_tokens":14,"output_tokens":196,"input_tokens_details":{"text_tokens":14,"image_tokens":0},"output_tokens_details":{"image_tokens":196,"text_tokens":0}},"billing":{"billed_cost_usd":"0.005057"}}`
+)
+
+var testPNG = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-image-fixture")
+
+// newImageObjectServer serves testPNG under /object/image.png and counts the
+// requests; /object/expired answers like an expired signed link.
+func newImageObjectServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	fetchSetting := system_setting.GetFetchSetting()
+	previousFetchSetting := *fetchSetting
+	fetchSetting.AllowPrivateIp = true
+	fetchSetting.AllowedPorts = []string{"1-65535"}
+	previousLimit := constant.MaxFileDownloadMB
+	constant.MaxFileDownloadMB = 64
+	service.InitHttpClient()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		assert.Empty(t, r.Header.Get("Authorization"), "an image link is fetched without credentials")
+		switch r.URL.Path {
+		case "/object/image.png":
+			w.Header().Set("Content-Type", "binary/octet-stream")
+			_, _ = w.Write(testPNG)
+		case "/object/page":
+			_, _ = w.Write([]byte("<html>not an image</html>"))
+		default:
+			w.WriteHeader(http.StatusForbidden)
+		}
+	}))
+	t.Cleanup(func() {
+		server.Close()
+		*fetchSetting = previousFetchSetting
+		constant.MaxFileDownloadMB = previousLimit
+	})
+	return server, &hits
+}
+
+func newOpenAIChannelImageContext(t *testing.T, body string, channelType int, inline bool, responseFormat string, stream bool) (*gin.Context, *httptest.ResponseRecorder, *http.Response, *relaycommon.RelayInfo) {
+	t.Helper()
+	contentType := "application/json"
+	if strings.HasPrefix(body, "data:") {
+		contentType = "text/event-stream"
+	}
+	c, recorder, resp, info := newImageTestContext(t, body, contentType, stream)
+	info.RelayMode = relayconstant.RelayModeImagesGenerations
+	info.ChannelMeta.ChannelType = channelType
+	info.ChannelMeta.ChannelOtherSettings.ImageResponseInline = inline
+	info.Request = &dto.ImageRequest{Model: "image-model", Prompt: "a lighthouse", Size: "1024x1024", ResponseFormat: responseFormat}
+	info.PriceData.UsePrice = true
+	info.PriceData.AddOtherRatio("n", 1)
+	return c, recorder, resp, info
+}
+
+func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server, hits := newImageObjectServer(t)
+	imageURL := server.URL + "/object/image.png?Expires=1761566400&Signature=cut"
+	urlAnswer := strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", imageURL)
+	fetched := base64.StdEncoding.EncodeToString(testPNG)
+
+	for _, tc := range []struct {
+		name           string
+		body           string
+		channelType    int
+		inline         bool
+		responseFormat string
+		wantRewritten  bool
+		wantB64        string
+		wantFetches    int32
+		wantKept       []string
+		wantRevised    string
+	}{
+		{name: "url answer, setting on", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: fetched, wantFetches: 1},
+		{name: "url answer, b64_json asked, setting off", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "b64_json", wantRewritten: true, wantB64: fetched, wantFetches: 1},
+		{name: "url answer, setting off, url asked, as today", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "url"},
+		{name: "url answer on another channel type, as today", body: urlAnswer, channelType: constant.ChannelTypeCustom, inline: true, responseFormat: "b64_json"},
+		{name: "b64 answer, setting on", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
+		{name: "b64 answer, setting off, as today", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, responseFormat: "b64_json"},
+		{name: "split url and b64_json entries return the one billed image", body: `{"created":1761480000,"data":[{"url":"` + imageURL + `"},{"b64_json":"aW1hZ2U=","revised_prompt":"a lighthouse at dusk"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: "aW1hZ2U=", wantRevised: "a lighthouse at dusk"},
+		{name: "per-token answer, setting on", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantRewritten: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := hits.Load()
+			c, recorder, resp, info := newOpenAIChannelImageContext(t, tc.body, tc.channelType, tc.inline, tc.responseFormat, false)
+
+			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Equal(t, tc.wantFetches, hits.Load()-before)
+			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"], "billed per image returned")
+			out := recorder.Body.String()
+			if !tc.wantRewritten {
+				assert.Equal(t, tc.body, out)
+				return
+			}
+			require.True(t, gjson.Valid(out), out)
+			answer := gjson.Parse(out)
+			assert.Equal(t, int64(1), answer.Get("data.#").Int())
+			assert.Equal(t, tc.wantB64, answer.Get("data.0.b64_json").String())
+			assert.Equal(t, gjson.Get(tc.body, "created").Int(), answer.Get("created").Int())
+			assert.NotContains(t, out, server.URL)
+			for _, field := range []string{"billing", "request_id", "id", "data.0.url", "data.0.generation_id"} {
+				assert.False(t, answer.Get(field).Exists(), field)
+			}
+			for _, field := range tc.wantKept {
+				assert.JSONEq(t, gjson.Get(tc.body, field).Raw, answer.Get(field).Raw, field)
+			}
+			assert.Equal(t, tc.wantRevised, answer.Get("data.0.revised_prompt").String())
+			assert.Equal(t, fmt.Sprint(len(out)), recorder.Header().Get("Content-Length"))
+		})
+	}
+}
+
+func TestOpenaiImageFetchFailureIsAnErrorBilledAsTheUpstreamBilled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server, _ := newImageObjectServer(t)
+	for _, tc := range []struct {
+		name, path string
+		stream     bool
+	}{
+		{"expired link", "/object/expired?Expires=1&Signature=cut", false},
+		{"not an image", "/object/page", false},
+		{"expired link wrapped as SSE", "/object/expired?Expires=1&Signature=cut", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", server.URL+tc.path)
+			c, recorder, resp, info := newOpenAIChannelImageContext(t, body, constant.ChannelTypeOpenAI, true, "", tc.stream)
+			info.PriceData.AddOtherRatio("n", 3)
+
+			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+			require.NotNil(t, apiErr)
+			assert.True(t, errors.Is(apiErr, ErrGeneratedImageUndelivered))
+			assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+			assert.True(t, types.IsSkipRetryError(apiErr), "a generated image must not be generated again on another channel")
+			assert.NotContains(t, apiErr.Error(), server.URL)
+			require.NotNil(t, usage, "the usage of the answer the upstream billed is returned for settlement")
+			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"], "the image the upstream returned is billed")
+			assert.Empty(t, recorder.Body.String(), "no empty data list is returned as success")
+		})
+	}
+}
+
+func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+	server, _ := newImageObjectServer(t)
+	imageURL := server.URL + "/object/image.png?Expires=1761566400&Signature=cut"
+	fetched := base64.StdEncoding.EncodeToString(testPNG)
+
+	for _, tc := range []struct{ name, body string }{
+		{"JSON answer wrapped as SSE", strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", imageURL)},
+		{"SSE completed event with a url", "data: {\"type\":\"image_generation.completed\",\"url\":\"" + imageURL + "\"}\n\ndata: [DONE]\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, recorder, resp, info := newOpenAIChannelImageContext(t, tc.body, constant.ChannelTypeOpenAI, true, "", true)
+
+			_, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+
+			require.Nil(t, apiErr)
+			out := recorder.Body.String()
+			assert.Contains(t, out, `"b64_json":"`+fetched+`"`)
+			assert.NotContains(t, out, server.URL)
+			assert.NotContains(t, out, "billing")
+			assert.Equal(t, 1, strings.Count(out, "event: image_generation.completed"))
+			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"])
+		})
+	}
 }

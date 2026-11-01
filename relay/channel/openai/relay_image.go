@@ -1,14 +1,20 @@
 package openai
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -42,13 +48,168 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	}
 
 	info.UpdateImageCount(openaiImageResponseCount(responseBody))
+	normalizeOpenAIUsage(&usageResp.Usage)
+	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+
+	if openaiImageInlineNeeded(c, info, gjson.GetBytes(responseBody, "data").Array()) {
+		inlined, inlineErr := inlineOpenAIImageResponse(c, responseBody)
+		if inlineErr != nil {
+			return &usageResp.Usage, inlineErr
+		}
+		responseBody = inlined
+	}
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
-
-	normalizeOpenAIUsage(&usageResp.Usage)
-	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
+}
+
+// ErrGeneratedImageUndelivered marks an image answer that the upstream
+// completed, and billed, but that the gateway could not hand to the client.
+// A handler returns it together with the answer's usage so that the request
+// is settled as the upstream billed it while the client receives an error.
+var ErrGeneratedImageUndelivered = errors.New("the upstream generated the image, but the gateway could not fetch it")
+
+// openaiImageInlineNeeded reports whether the gateway answers with the images
+// themselves instead of forwarding an OpenAI-channel answer as it came: always
+// when the channel turns on image_response_inline, and when the client asked
+// for b64_json while one of the images came back only as a url. Answers of
+// every other channel type are forwarded unchanged.
+func openaiImageInlineNeeded(c *gin.Context, info *relaycommon.RelayInfo, images []gjson.Result) bool {
+	if !info.HasChannelMeta() || info.ChannelType != constant.ChannelTypeOpenAI {
+		return false
+	}
+	if info.ChannelOtherSettings.ImageResponseInline {
+		return true
+	}
+	request, ok := info.Request.(*dto.ImageRequest)
+	if !ok {
+		return false
+	}
+	format := request.ResponseFormat
+	if format == "" && c != nil && c.Request != nil {
+		// Multipart edits keep their fields in the parsed form.
+		format = c.Request.PostForm.Get("response_format")
+	}
+	if !strings.EqualFold(strings.TrimSpace(format), "b64_json") {
+		return false
+	}
+	return slices.ContainsFunc(images, func(image gjson.Result) bool {
+		return openaiImageDataHasField(image, "url") && !openaiImageDataHasField(image, "b64_json")
+	})
+}
+
+// inlineOpenAIImageResponse rebuilds an OpenAI Images answer from the OpenAI
+// Images fields alone (created, data, background, output_format, quality,
+// size, usage), with every image as b64_json. Images the upstream returned as
+// a url are fetched; fields the upstream adds of its own are left out. The
+// answer carries the billed number of images (openaiImageResponseCount): an
+// upstream that splits one image into a url entry and a b64_json entry keeps
+// the b64_json entry and its url is not fetched.
+func inlineOpenAIImageResponse(c *gin.Context, responseBody []byte) ([]byte, *types.NewAPIError) {
+	billed := openaiImageResponseCount(responseBody)
+	// The raw values are sliced from the body so multi-MB b64_json payloads
+	// are not copied; gjson keeps document-relative indexes for both an array
+	// and an object-shaped data.
+	rawValue := func(value gjson.Result) []byte {
+		if value.Index > 0 {
+			return responseBody[value.Index : value.Index+len(value.Raw)]
+		}
+		return []byte(value.Raw)
+	}
+	type inlineImage struct {
+		entry gjson.Result
+		b64   []byte
+	}
+	var images, urlOnly []inlineImage
+	for _, entry := range gjson.GetBytes(responseBody, "data").Array() {
+		switch {
+		case openaiImageDataHasField(entry, "b64_json"):
+			images = append(images, inlineImage{entry: entry, b64: rawValue(entry.Get("b64_json"))})
+		case openaiImageDataHasField(entry, "url"):
+			urlOnly = append(urlOnly, inlineImage{entry: entry})
+		}
+	}
+	for _, image := range urlOnly {
+		if int64(len(images)) >= billed {
+			break
+		}
+		encoded, err := fetchOpenAIImageBase64(image.entry.Get("url").String())
+		if err != nil {
+			// The url is the upstream's own link: keep it out of the
+			// client's error and of the log line.
+			logger.LogError(c, common.LogText("inline image fetch failed: %s", common.MaskSensitiveInfo(err.Error())))
+			return nil, types.NewErrorWithStatusCode(ErrGeneratedImageUndelivered, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
+		image.b64 = []byte(strconv.Quote(encoded))
+		images = append(images, image)
+	}
+
+	created := gjson.GetBytes(responseBody, "created").Int()
+	if created == 0 {
+		created = time.Now().Unix()
+	}
+	var out bytes.Buffer
+	out.WriteString(`{"created":`)
+	out.WriteString(strconv.FormatInt(created, 10))
+	out.WriteString(`,"data":[`)
+	for index, image := range images {
+		if index > 0 {
+			out.WriteByte(',')
+		}
+		out.WriteByte('{')
+		if openaiImageDataHasField(image.entry, "revised_prompt") {
+			out.WriteString(`"revised_prompt":`)
+			out.Write(rawValue(image.entry.Get("revised_prompt")))
+			out.WriteByte(',')
+		}
+		// b64_json goes last, after the small fields.
+		out.WriteString(`"b64_json":`)
+		out.Write(image.b64)
+		out.WriteByte('}')
+	}
+	out.WriteByte(']')
+	for _, field := range []string{"background", "output_format", "quality", "size", "usage"} {
+		value := gjson.GetBytes(responseBody, field)
+		if !value.Exists() {
+			continue
+		}
+		out.WriteString(`,"` + field + `":`)
+		out.Write(rawValue(value))
+	}
+	out.WriteByte('}')
+	return out.Bytes(), nil
+}
+
+// fetchOpenAIImageBase64 downloads one generated image through the gateway's
+// download path (SSRF checks, worker mode) without any credential, bounded by
+// MAX_FILE_DOWNLOAD_MB, and returns it Base64-encoded. The content must be an
+// image, by its bytes or by its Content-Type.
+func fetchOpenAIImageBase64(imageURL string) (string, error) {
+	resp, err := service.DoDownloadRequest(imageURL, "inline image response")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("image download returned status %d", resp.StatusCode)
+	}
+	limit := int64(constant.MaxFileDownloadMB) << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return "", fmt.Errorf("read image download: %w", err)
+	}
+	if int64(len(data)) > limit {
+		return "", fmt.Errorf("image download exceeds %d MB", constant.MaxFileDownloadMB)
+	}
+	if len(data) == 0 {
+		return "", errors.New("image download is empty")
+	}
+	if !strings.HasPrefix(http.DetectContentType(data), "image/") &&
+		!strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "image/") {
+		return "", errors.New("image download is not an image")
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 // openaiImageResponseCount counts billable images in an OpenAI-format image
@@ -142,6 +303,7 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	usage := &dto.Usage{}
 	var lastStreamData []byte
 	var completedImages int64
+	var inlineErr *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		raw := common.StringToByteSlice(data)
@@ -163,6 +325,15 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 			if chunk.Type == "image_generation.completed" || chunk.Type == "image_edit.completed" {
 				completedImages++
 			}
+		}
+		if openaiImageInlineNeeded(c, info, []gjson.Result{gjson.ParseBytes(raw)}) {
+			inlined, err := inlineOpenAIImageStreamEvent(c, raw)
+			if err != nil {
+				inlineErr = err
+				sr.Stop(err)
+				return
+			}
+			raw = inlined
 		}
 		if err := writeOpenaiImageStreamChunk(c, raw); err != nil {
 			sr.Stop(err)
@@ -190,7 +361,37 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 			info.UpdateImageCount(completedImages)
 		}
 	}
+	if inlineErr != nil {
+		return usage, inlineErr
+	}
 	return usage, nil
+}
+
+// inlineOpenAIImageStreamEvent gives a streamed image event the image itself:
+// an image sent only as a url is fetched into b64_json, and a url sent next
+// to b64_json is dropped. Events without a url are returned unchanged.
+func inlineOpenAIImageStreamEvent(c *gin.Context, raw []byte) ([]byte, *types.NewAPIError) {
+	event := gjson.ParseBytes(raw)
+	if !openaiImageDataHasField(event, "url") {
+		return raw, nil
+	}
+	if !openaiImageDataHasField(event, "b64_json") {
+		encoded, err := fetchOpenAIImageBase64(event.Get("url").String())
+		if err != nil {
+			logger.LogError(c, common.LogText("inline image fetch failed: %s", common.MaskSensitiveInfo(err.Error())))
+			return nil, types.NewErrorWithStatusCode(ErrGeneratedImageUndelivered, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
+		withImage, setErr := sjson.SetBytes(raw, "b64_json", encoded)
+		if setErr != nil {
+			return nil, types.NewOpenAIError(setErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		raw = withImage
+	}
+	withoutURL, deleteErr := sjson.DeleteBytes(raw, "url")
+	if deleteErr != nil {
+		return nil, types.NewOpenAIError(deleteErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	return withoutURL, nil
 }
 
 // writeOpenaiImageStreamChunk rebuilds the SSE frame for an image stream chunk:
@@ -279,6 +480,13 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
 	info.UpdateImageCount(openaiImageResponseCount(responseBody))
+	if openaiImageInlineNeeded(c, info, gjson.GetBytes(responseBody, "data").Array()) {
+		inlined, inlineErr := inlineOpenAIImageResponse(c, responseBody)
+		if inlineErr != nil {
+			return &usageResp.Usage, inlineErr
+		}
+		responseBody = inlined
+	}
 
 	helper.SetEventStreamHeaders(c)
 	c.Status(http.StatusOK)

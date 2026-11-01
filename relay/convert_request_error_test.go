@@ -10,7 +10,9 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -19,6 +21,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +47,87 @@ func (*imageReservation) Refund(*gin.Context)        {}
 func (*imageReservation) NeedsRefund() bool          { return false }
 
 func (s *imageReservation) ReserveBeforeSubmit(quota int) error { return s.Reserve(quota) }
+
+// settlingImageReservation records the quota a request settles to.
+type settlingImageReservation struct {
+	imageReservation
+	settled *int
+}
+
+func (s *settlingImageReservation) Settle(quota int) error {
+	s.settled = &quota
+	return nil
+}
+
+func setImageModelPrices(t *testing.T, prices string) {
+	t.Helper()
+	previous := ratio_setting.ModelPrice2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(prices))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previous)) })
+}
+
+// newImageHelperRequest prepares an OpenAI-channel image request whose pricing
+// step already reserved priceAtReserve, as PrepareRequestBilling does.
+func newImageHelperRequest(t *testing.T, body, upstreamURL string, other dto.ChannelOtherSettings, priceAtReserve float64, billing relaycommon.BillingSettler) (*gin.Context, *httptest.ResponseRecorder, *relaycommon.RelayInfo) {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeOpenAI)
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, upstreamURL)
+	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, other)
+	request, err := helper.GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesGenerations)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{Request: request, OriginModelName: request.Model, RelayMode: relayconstant.RelayModeImagesGenerations,
+		RequestURLPath: c.Request.URL.Path, Billing: billing,
+		PriceData: hosttypes.PriceData{UsePrice: true, ModelPrice: priceAtReserve, GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}},
+	}
+	return c, recorder, info
+}
+
+// TestImageRequestSettlesAnImageTheGatewayCouldNotFetch covers a per-image
+// answer whose only link stopped answering: the client receives an error and
+// the request settles the image the upstream billed instead of refunding it.
+func TestImageRequestSettlesAnImageTheGatewayCouldNotFetch(t *testing.T) {
+	database := setupRelayChannelDB(t)
+	require.NoError(t, database.AutoMigrate(&model.User{}, &model.Token{}, &model.Log{}))
+	previousLogDB, previousRedis := model.LOG_DB, common.RedisEnabled
+	model.LOG_DB, common.RedisEnabled = database, false
+	fetchSetting := system_setting.GetFetchSetting()
+	previousFetchSetting := *fetchSetting
+	fetchSetting.AllowPrivateIp = true
+	fetchSetting.AllowedPorts = []string{"1-65535"}
+	t.Cleanup(func() {
+		model.LOG_DB, common.RedisEnabled = previousLogDB, previousRedis
+		*fetchSetting = previousFetchSetting
+	})
+	service.InitHttpClient()
+	setImageModelPrices(t, `{"per-image":0.0254}`)
+	objectStore := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(objectStore.Close)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"created":1761480000,"data":[{"url":"`+objectStore.URL+`/object/a.png?Expires=1&Signature=cut"}],"id":"0b9d","request_id":"7c2f","billing":{"status":"settled","billed_cost_usd":"0.025400","currency":"USD"}}`)
+	}))
+	t.Cleanup(upstream.Close)
+	reservation := &settlingImageReservation{imageReservation: imageReservation{held: 12700, limit: 500000}}
+	c, recorder, info := newImageHelperRequest(t, `{"model":"per-image","prompt":"p","size":"1024x1024"}`, upstream.URL,
+		dto.ChannelOtherSettings{ImageResponseInline: true}, 0.0254, reservation)
+
+	apiErr := ImageHelper(c, info)
+
+	require.NotNil(t, apiErr)
+	assert.True(t, errors.Is(apiErr, openai.ErrGeneratedImageUndelivered))
+	assert.Equal(t, http.StatusBadGateway, apiErr.StatusCode)
+	assert.True(t, types.IsSkipRetryError(apiErr))
+	assert.NotContains(t, apiErr.Error(), objectStore.URL)
+	assert.Empty(t, recorder.Body.String())
+	require.NotNil(t, reservation.settled, "the billed image settles instead of being refunded")
+	assert.Equal(t, common.QuotaFromFloat(0.0254*common.QuotaPerUnit), *reservation.settled)
+}
 
 func TestImageRequestReservesFinalQuantityBeforeUpstream(t *testing.T) {
 	service.InitHttpClient()
