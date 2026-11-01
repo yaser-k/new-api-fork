@@ -111,11 +111,12 @@ func openaiImageInline(c *gin.Context, info *relaycommon.RelayInfo) bool {
 // Images fields alone (created, data, background, output_format, quality,
 // size, usage; per image url, b64_json and revised_prompt), leaving out the
 // fields the upstream adds of its own. Without inline every image keeps the
-// form the upstream gave it. With inline every image is b64_json: images the
-// upstream returned as a url are fetched, and the answer carries the billed
-// number of images (openaiImageResponseCount), so an upstream that splits one
-// image into a url entry and a b64_json entry keeps the b64_json entry and its
-// url is not fetched.
+// form the upstream gave it. With inline every image is b64_json and the
+// images keep the answer's order: images the upstream returned as a url are
+// fetched in their place, except that an upstream that splits each image into
+// a url entry and a b64_json entry, so that the b64_json entries alone make up
+// the billed count (openaiImageResponseCount), keeps those and its urls are
+// not fetched.
 func rebuildOpenAIImageResponse(c *gin.Context, responseBody []byte, inline bool) ([]byte, *types.NewAPIError) {
 	billed := openaiImageResponseCount(responseBody)
 	// The raw values are sliced from the body so multi-MB b64_json payloads
@@ -132,34 +133,39 @@ func rebuildOpenAIImageResponse(c *gin.Context, responseBody []byte, inline bool
 		url   []byte
 		b64   []byte
 	}
-	var images, urlOnly []inlineImage
-	for _, entry := range gjson.GetBytes(responseBody, "data").Array() {
+	entries := gjson.GetBytes(responseBody, "data").Array()
+	var b64Images int64
+	for _, entry := range entries {
+		if openaiImageDataHasField(entry, "b64_json") {
+			b64Images++
+		}
+	}
+	// With inline, url-only entries are the split duplicates of b64_json
+	// entries when those already make up the billed count; otherwise each
+	// is an image of its own and is fetched in its place.
+	skipURLOnly := inline && b64Images >= billed
+	var images []inlineImage
+	for _, entry := range entries {
 		image := inlineImage{entry: entry}
-		if !inline && openaiImageDataHasField(entry, "url") {
+		hasURL := openaiImageDataHasField(entry, "url")
+		if !inline && hasURL {
 			image.url = rawValue(entry.Get("url"))
 		}
 		switch {
 		case openaiImageDataHasField(entry, "b64_json"):
 			image.b64 = rawValue(entry.Get("b64_json"))
-			images = append(images, image)
-		case !inline && image.url != nil:
-			images = append(images, image)
-		case openaiImageDataHasField(entry, "url"):
-			urlOnly = append(urlOnly, image)
+		case !hasURL || skipURLOnly:
+			continue
+		case inline:
+			encoded, err := fetchOpenAIImageBase64(c.Request.Context(), entry.Get("url").String())
+			if err != nil {
+				// The url is the upstream's own link: keep it out of the
+				// client's error and of the log line.
+				logger.LogError(c, common.LogText("inline image fetch failed: %s", common.MaskSensitiveInfo(err.Error())))
+				return nil, types.NewErrorWithStatusCode(ErrGeneratedImageUndelivered, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+			}
+			image.b64 = []byte(strconv.Quote(encoded))
 		}
-	}
-	for _, image := range urlOnly {
-		if int64(len(images)) >= billed {
-			break
-		}
-		encoded, err := fetchOpenAIImageBase64(c.Request.Context(), image.entry.Get("url").String())
-		if err != nil {
-			// The url is the upstream's own link: keep it out of the
-			// client's error and of the log line.
-			logger.LogError(c, common.LogText("inline image fetch failed: %s", common.MaskSensitiveInfo(err.Error())))
-			return nil, types.NewErrorWithStatusCode(ErrGeneratedImageUndelivered, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
-		}
-		image.b64 = []byte(strconv.Quote(encoded))
 		images = append(images, image)
 	}
 

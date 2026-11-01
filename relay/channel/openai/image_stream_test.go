@@ -679,6 +679,8 @@ func newImageObjectServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
 		case "/object/image.png":
 			w.Header().Set("Content-Type", "binary/octet-stream")
 			_, _ = w.Write(testPNG)
+		case "/object/second.png":
+			_, _ = w.Write(append(append([]byte(nil), testPNG...), "-second"...))
 		case "/object/page":
 			_, _ = w.Write([]byte("<html>not an image</html>"))
 		default:
@@ -728,6 +730,7 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 		wantFetches    int32
 		wantKept       []string
 		wantRevised    string
+		wantImages     []string
 	}{
 		{name: "url answer, setting on", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: fetched, wantFetches: 1},
 		{name: "url answer, b64_json asked, setting off", body: urlAnswer, channelType: constant.ChannelTypeOpenAI, responseFormat: "b64_json", wantB64: fetched, wantFetches: 1},
@@ -736,6 +739,12 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 		{name: "url answer on another channel type, as today", body: urlAnswer, channelType: constant.ChannelTypeCustom, inline: true, responseFormat: "b64_json", wantForwarded: true},
 		{name: "b64 answer, setting on", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
 		{name: "b64 answer, setting off", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
+		{
+			name:        "url images around a b64_json image keep their order",
+			body:        `{"created":1761480000,"data":[{"url":"` + imageURL + `"},{"b64_json":"aW1hZ2Ux"},{"url":"` + server.URL + `/object/second.png"}]}`,
+			channelType: constant.ChannelTypeOpenAI, inline: true, wantFetches: 2,
+			wantImages: []string{fetched, "aW1hZ2Ux", base64.StdEncoding.EncodeToString(append(append([]byte(nil), testPNG...), "-second"...))},
+		},
 		{name: "data URL image", body: `{"created":1761480000,"data":[{"url":"data:image/png;base64,` + fetched + `"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: fetched},
 		{name: "split url and b64_json entries return the one billed image", body: `{"created":1761480000,"data":[{"url":"` + imageURL + `"},{"b64_json":"aW1hZ2U=","revised_prompt":"a lighthouse at dusk"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "aW1hZ2U=", wantRevised: "a lighthouse at dusk"},
 		{name: "per-token answer, setting on", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
@@ -752,15 +761,25 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 			require.Nil(t, apiErr)
 			require.NotNil(t, usage)
 			assert.Equal(t, tc.wantFetches, hits.Load()-before)
-			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"], "billed per image returned")
 			out := recorder.Body.String()
 			if tc.wantForwarded {
+				assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"], "billed per image returned")
 				assert.Equal(t, tc.body, out)
 				assert.Equal(t, "upstream-request-id", recorder.Header().Get("X-Request-Id"))
 				return
 			}
 			require.True(t, gjson.Valid(out), out)
 			answer := gjson.Parse(out)
+			if tc.wantImages != nil {
+				var images []string
+				for _, image := range answer.Get("data").Array() {
+					images = append(images, image.Get("b64_json").String())
+				}
+				assert.Equal(t, tc.wantImages, images)
+				assert.Equal(t, 2.0, info.PriceData.OtherRatios()["n"])
+				return
+			}
+			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"], "billed per image returned")
 			assert.Equal(t, int64(1), answer.Get("data.#").Int())
 			assert.Equal(t, tc.wantB64, answer.Get("data.0.b64_json").String())
 			assert.Equal(t, tc.wantURL, answer.Get("data.0.url").String())
