@@ -50,6 +50,7 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	info.UpdateImageCount(openaiImageResponseCount(responseBody))
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+	attributeOpenAIImageOutputTokens(info, &usageResp.Usage)
 
 	if openaiImageInlineNeeded(c, info, gjson.GetBytes(responseBody, "data").Array()) {
 		inlined, inlineErr := inlineOpenAIImageResponse(c, responseBody)
@@ -210,6 +211,22 @@ func fetchOpenAIImageBase64(imageURL string) (string, error) {
 		return "", errors.New("image download is not an image")
 	}
 	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+// attributeOpenAIImageOutputTokens counts the output tokens of an OpenAI
+// Images answer from an OpenAI channel as image output when the upstream gives
+// no output breakdown: the Images API reports the generated image as
+// output_tokens, and an answer that also emits text says so in
+// output_tokens_details. Billing expressions then price them with img_o; an
+// expression without img_o keeps pricing them as c.
+func attributeOpenAIImageOutputTokens(info *relaycommon.RelayInfo, usage *dto.Usage) {
+	if usage == nil || !info.HasChannelMeta() || info.ChannelType != constant.ChannelTypeOpenAI {
+		return
+	}
+	if usage.OutputTokensDetails != nil || usage.CompletionTokenDetails.ImageTokens != 0 || usage.OutputTokens <= 0 {
+		return
+	}
+	usage.CompletionTokenDetails.ImageTokens = usage.OutputTokens
 }
 
 // openaiImageResponseCount counts billable images in an OpenAI-format image
@@ -478,6 +495,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	}
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+	attributeOpenAIImageOutputTokens(info, &usageResp.Usage)
 
 	info.UpdateImageCount(openaiImageResponseCount(responseBody))
 	if openaiImageInlineNeeded(c, info, gjson.GetBytes(responseBody, "data").Array()) {

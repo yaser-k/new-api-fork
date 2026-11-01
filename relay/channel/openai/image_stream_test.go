@@ -828,3 +828,41 @@ func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
 		})
 	}
 }
+
+// TestOpenaiImagePerTokenUsageBillsImageOutputAtItsRate settles both measured
+// per-token answers with an expression that prices image output on its own
+// (img_o) and with one that prices all output as c, as before.
+func TestOpenaiImagePerTokenUsageBillsImageOutputAtItsRate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const imageRate = `tier("base", p * 4.25 + img_o * 25.5)`
+	const outputRate = `tier("base", p * 4.25 + c * 25.5)`
+	for _, tc := range []struct {
+		name            string
+		body            string
+		channelType     int
+		wantPrompt      int
+		wantImageTokens int
+		wantImageRate   float64
+	}{
+		{"first measurement", measuredPerTokenAnswer, constant.ChannelTypeOpenAI, 16, 196, 16*4.25 + 196*25.5},
+		{"second measurement", measuredPerTokenDetailedAnswer, constant.ChannelTypeOpenAI, 14, 196, 14*4.25 + 196*25.5},
+		{"first measurement on another channel type, as today", measuredPerTokenAnswer, constant.ChannelTypeCustom, 16, 0, 16 * 4.25},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, resp, info := newOpenAIChannelImageContext(t, tc.body, tc.channelType, false, "b64_json", false)
+			result, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
+			require.Nil(t, apiErr)
+			usage := result.(*dto.Usage)
+			assert.Equal(t, tc.wantPrompt, usage.PromptTokens)
+			assert.Equal(t, 196, usage.CompletionTokens)
+			assert.Equal(t, tc.wantImageTokens, usage.CompletionTokenDetails.ImageTokens)
+
+			for expression, want := range map[string]float64{imageRate: tc.wantImageRate, outputRate: float64(tc.wantPrompt)*4.25 + 196*25.5} {
+				params := service.BuildTieredTokenParams(usage, false, billingexpr.UsedVars(expression))
+				cost, _, err := billingexpr.RunExpr(expression, params)
+				require.NoError(t, err)
+				assert.InDelta(t, want, cost, 1e-9, expression)
+			}
+		})
+	}
+}
