@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -349,9 +350,23 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 9. 发送请求
+	submitted := time.Now()
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
-		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError, common.UpstreamAddresses(c)...)
+		// A submission that timed out may still be running upstream, and an
+		// upstream that answers synchronously bills it when it finishes.
+		// Answer 504, which the task retry policy never retries, instead of
+		// submitting the same work again on another channel. The relay client
+		// hides the transport error, so the timeout is recognised by how long
+		// the submission was outstanding.
+		status := http.StatusInternalServerError
+		outstanding := time.Since(submitted)
+		for _, seconds := range []int{common.RelayTimeout, common.RelayResponseHeaderTimeout} {
+			if seconds > 0 && outstanding >= time.Duration(seconds)*time.Second {
+				status = http.StatusGatewayTimeout
+			}
+		}
+		return nil, service.TaskErrorWrapper(err, "do_request_failed", status, common.UpstreamAddresses(c)...)
 	}
 	if resp == nil {
 		return nil, service.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)

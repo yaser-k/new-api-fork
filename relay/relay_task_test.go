@@ -851,3 +851,52 @@ func TestRelayTaskSubmitSynchronousVideoBillsTheAnswersSeconds(t *testing.T) {
 		})
 	}
 }
+
+// TestRelayTaskSubmitTimeoutIsNotRetried covers a synchronous upstream that
+// is still generating when the relay timeout ends the request: the attempt
+// answers 504, which the task retry policy never retries, so the same video
+// is not generated, and billed upstream, a second time.
+func TestRelayTaskSubmitTimeoutIsNotRetried(t *testing.T) {
+	previousTimeout := common.RelayTimeout
+	common.RelayTimeout = 1
+	service.InitHttpClient()
+	t.Cleanup(func() {
+		common.RelayTimeout = previousTimeout
+		service.InitHttpClient()
+	})
+	const source = `
+export const meta = {apiVersion:1,key:"slow-sync",name:"Slow Sync",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"};
+export function buildSubmitRequest(ctx) { return {url: ctx.baseUrl+"/submit", method:"POST", body:{model: ctx.model}, action:"text_to_video"}; }
+export function parseSubmitResponse(ctx, response) { return {taskId: "job", immediate: {status: "SUCCESS"}}; }
+export function buildQueryRequest(ctx) { return {url: ctx.baseUrl+"/query"}; }
+export function parseTaskResult() { return {status:"SUCCESS"}; }
+`
+	saveBillingConfig(t)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode": `{"declared-model":"tiered_expr"}`,
+		"billing_setting.billing_expr": `{"declared-model":"tier(\"flat\", 3)"}`,
+	}))
+	generating := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select { // still generating when the gateway gives up
+		case <-generating:
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer close(generating)
+
+	c, info := newTaskSubmitContext(t, "declared-model", "")
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, server.URL)
+	c.Set("group", "default")
+	info.UserGroup, info.UsingGroup, info.OriginModelName = "default", "default", "declared-model"
+	info.Billing = &imageReservation{limit: 1 << 30}
+	pinMappingOrderPlugin(t, c, source)
+
+	result, taskErr := RelayTaskSubmit(c, info)
+
+	require.Nil(t, result)
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "do_request_failed", taskErr.Code)
+	assert.Equal(t, http.StatusGatewayTimeout, taskErr.StatusCode)
+}
