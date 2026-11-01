@@ -112,6 +112,9 @@ export const meta = {
   author: { name: "QuantumNous" },
   models: Object.keys(MODEL_KEYS),
   fetchMode: "per_task",
+  // The submission is the generation, and the upstream bills it once it
+  // receives the request: a failed attempt that was sent is never retried.
+  submitIdempotent: false,
   usageSchema: videoUsageSchema(allKeys()),
   usageProfiles: videoUsageProfiles(),
   protocols: [{ name: "openai_responses", supports: ["stream", "sync", "background"] }, "openai_video"],

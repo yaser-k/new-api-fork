@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	common2 "github.com/QuantumNous/new-api/common"
@@ -522,6 +524,16 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
+	// Whether the request reached the upstream connection tells a failure
+	// that may have started billable work apart from one that cannot have.
+	var sent atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(wrote httptrace.WroteRequestInfo) {
+			if wrote.Err == nil {
+				sent.Store(true)
+			}
+		},
+	}))
 	ApplyUpstreamBodyMetadata(req, requestBody)
 	// Do NOT wrap requestBody in a GetBody closure here: returning the same
 	// (already consumed) reader would make any transport-level retry silently
@@ -541,9 +553,27 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
-		return nil, fmt.Errorf("do request failed: %w", err)
+		err = fmt.Errorf("do request failed: %w", err)
+		if sent.Load() {
+			return nil, &taskRequestSentError{err: err}
+		}
+		return nil, err
 	}
 	return resp, nil
+}
+
+// taskRequestSentError is a task submission that failed after its request was
+// written to the upstream connection: the upstream may be doing the work.
+type taskRequestSentError struct{ err error }
+
+func (e *taskRequestSentError) Error() string { return e.err.Error() }
+func (e *taskRequestSentError) Unwrap() error { return e.err }
+
+// TaskRequestSent reports whether a DoTaskApiRequest error came after the
+// request was written to the upstream connection.
+func TaskRequestSent(err error) bool {
+	var sent *taskRequestSentError
+	return errors.As(err, &sent)
 }
 
 func newTaskAPIRequest(c *gin.Context, fullRequestURL string, requestBody io.Reader) (*http.Request, error) {

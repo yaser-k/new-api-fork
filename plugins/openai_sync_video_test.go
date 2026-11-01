@@ -123,6 +123,11 @@ func TestOpenAISyncVideoAppliesOnlyWhereSelected(t *testing.T) {
 	binding, claimed := generation.LookupEndpoint("POST", "/v1/videos", "example-video-model")
 	require.True(t, claimed)
 	assert.Equal(t, syncVideoKey, binding.Plugin.Meta.Key)
+	// Only this plugin's submission is never sent twice; every other
+	// built-in plugin keeps the usual retries.
+	for _, builtIn := range generation.Plugins() {
+		assert.Equal(t, builtIn.Meta.Key != syncVideoKey, builtIn.Meta.IdempotentSubmit(), builtIn.Meta.Key)
+	}
 }
 
 func TestOpenAISyncVideoSubmitsAndKeepsTheAnswerAsAFinishedTask(t *testing.T) {
@@ -267,6 +272,12 @@ func TestOpenAISyncVideoAdministratorModelTable(t *testing.T) {
 
 		_, err = decodeVideo(t, plugin, "video-b", map[string]any{"model": "video-b", "prompt": "p", "resolution": "1080P", "seconds": 4})
 		require.ErrorContains(t, err, "has no per-second rate for resolution 1080P; it has 720P")
+	})
+
+	t.Run("rejects a submitIdempotent that is not a boolean", func(t *testing.T) {
+		require.Contains(t, source, "submitIdempotent: false,")
+		_, err := jsplugin.NewRegistry().RegisterFactory(strings.Replace(source, "submitIdempotent: false,", `submitIdempotent: "false",`, 1), jsplugin.Options{Key: syncVideoKey})
+		require.ErrorContains(t, err, "submitIdempotent must be a boolean")
 	})
 
 	for _, table := range []string{`"video-a": ["720P+AUDIO"],`, `"video-a": ["PRO"],`, `"video-a": ["720P", "720P+TEXT_TO_VIDEO"],`} {

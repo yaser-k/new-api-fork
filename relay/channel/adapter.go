@@ -134,3 +134,10 @@ type TaskValidatedBillingProvider interface {
 type TaskValidatedUsageFactsProvider interface {
 	ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error)
 }
+
+// TaskSubmitIdempotency is implemented by task adaptors that say whether a
+// submission whose request reached the upstream may be sent again on another
+// channel.
+type TaskSubmitIdempotency interface {
+	IdempotentSubmit() bool
+}

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -350,43 +349,48 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 9. 发送请求
-	submitted := time.Now()
+	// A plugin that declares submitIdempotent: false performs billable work
+	// as soon as the upstream receives its submission. Once the request was
+	// sent, a failed attempt is not retried on another channel: the first
+	// upstream may still finish, and bill, the work. A failure before the
+	// request was sent, and an upstream 4xx, which refuses the request, keep
+	// the usual retry decision.
+	idempotent := true
+	if policy, ok := adaptor.(channel.TaskSubmitIdempotency); ok {
+		idempotent = policy.IdempotentSubmit()
+	}
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
-		// A submission that timed out may still be running upstream, and an
-		// upstream that answers synchronously bills it when it finishes.
-		// Answer 504, which the task retry policy never retries, instead of
-		// submitting the same work again on another channel. The relay client
-		// hides the transport error, so the timeout is recognised by how long
-		// the submission was outstanding.
-		status := http.StatusInternalServerError
-		outstanding := time.Since(submitted)
-		for _, seconds := range []int{common.RelayTimeout, common.RelayResponseHeaderTimeout} {
-			if seconds > 0 && outstanding >= time.Duration(seconds)*time.Second {
-				status = http.StatusGatewayTimeout
-			}
-		}
-		return nil, service.TaskErrorWrapper(err, "do_request_failed", status, common.UpstreamAddresses(c)...)
+		taskErr := service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError, common.UpstreamAddresses(c)...)
+		taskErr.NoRetry = !idempotent && channel.TaskRequestSent(err)
+		return nil, taskErr
 	}
 	if resp == nil {
-		return nil, service.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)
+		taskErr := service.TaskErrorWrapperLocal(errors.New("upstream returned an empty response"), "fail_to_fetch_task", http.StatusBadGateway)
+		taskErr.NoRetry = !idempotent
+		return nil, taskErr
 	}
 	defer resp.Body.Close()
 	// Any 2xx is a successful submission: task APIs commonly answer 201 Created
 	// or 202 Accepted, and parseSubmitResponse receives the exact status code.
 	if resp.StatusCode/100 != 2 {
 		responseBody, _ := io.ReadAll(resp.Body)
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode, common.UpstreamAddresses(c)...)
+		taskErr := service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode, common.UpstreamAddresses(c)...)
+		taskErr.NoRetry = !idempotent && resp.StatusCode >= http.StatusInternalServerError
+		return nil, taskErr
 	}
 
 	// 10. Parse only. The controller presents the response after the durable
 	// task barrier and billing settlement.
 	parsed, taskErr := adaptor.ParseResponse(c, resp, info)
 	if taskErr != nil {
+		taskErr.NoRetry = taskErr.NoRetry || !idempotent
 		return nil, taskErr
 	}
 	if parsed == nil {
-		return nil, service.TaskErrorWrapperLocal(errors.New("task adaptor returned an empty response"), "plugin_submit_response_invalid", http.StatusBadGateway)
+		taskErr = service.TaskErrorWrapperLocal(errors.New("task adaptor returned an empty response"), "plugin_submit_response_invalid", http.StatusBadGateway)
+		taskErr.NoRetry = !idempotent
+		return nil, taskErr
 	}
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios

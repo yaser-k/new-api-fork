@@ -101,12 +101,21 @@ type Meta struct {
 	FetchMode            string                      `json:"fetchMode"`
 	AllowedHosts         []string                    `json:"allowedHosts"`
 	Upstreams            []string                    `json:"upstreams,omitempty"`
+	SubmitIdempotent     *bool                       `json:"submitIdempotent,omitempty"`
 	Routes               []Route                     `json:"routes"`
 	Protocols            []ProtocolClaim             `json:"protocols"`
 	UsageSchema          map[string]UsageFieldSchema `json:"usageSchema,omitempty"`
 	UsageExamples        []UsageExample              `json:"usageExamples,omitempty"`
 	UsageProfiles        []UsageProfile              `json:"usageProfiles,omitempty"`
 	Auth                 AuthMeta                    `json:"auth"`
+}
+
+// IdempotentSubmit reports whether a submission may be sent again on another
+// channel after its request reached the upstream. A plugin declares
+// submitIdempotent: false when its submission performs billable work as soon
+// as the upstream receives it; absent means true.
+func (m Meta) IdempotentSubmit() bool {
+	return m.SubmitIdempotent == nil || *m.SubmitIdempotent
 }
 
 // Upstream kinds a plugin driver can address. Every driver speaks to its
@@ -881,6 +890,10 @@ func cloneMeta(meta Meta) Meta {
 	meta.Models = append([]string(nil), meta.Models...)
 	meta.AllowedHosts = append([]string(nil), meta.AllowedHosts...)
 	meta.Upstreams = slices.Clone(meta.Upstreams)
+	if meta.SubmitIdempotent != nil {
+		idempotent := *meta.SubmitIdempotent
+		meta.SubmitIdempotent = &idempotent
+	}
 	meta.Routes = append([]Route(nil), meta.Routes...)
 	for index := range meta.Routes {
 		meta.Routes[index].Models = append([]string(nil), meta.Routes[index].Models...)
@@ -1022,7 +1035,7 @@ func decodeMeta(value any) (Meta, error) {
 	}
 	for field := range object {
 		switch field {
-		case "requiredCapabilities", "submitResponseTypes", "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "upstreams", "routes", "protocols", "usageSchema", "usageExamples", "usageProfiles", "auth", "endpoints", "submitPaths", "actions":
+		case "requiredCapabilities", "submitResponseTypes", "sortPriority", "website", "apiVersion", "key", "name", "icon", "description", "version", "author", "baseUrl", "channelTypes", "channelType", "compatibleChannelTypes", "models", "fetchMode", "allowedHosts", "upstreams", "submitIdempotent", "routes", "protocols", "usageSchema", "usageExamples", "usageProfiles", "auth", "endpoints", "submitPaths", "actions":
 		default:
 			return Meta{}, &UnknownMetaFieldError{Field: field}
 		}
@@ -1109,6 +1122,13 @@ func decodeMeta(value any) (Meta, error) {
 	meta.RequiredCapabilities, err = strictStringSlice(object, "requiredCapabilities")
 	if err != nil {
 		return Meta{}, err
+	}
+	if value, exists := object["submitIdempotent"]; exists {
+		idempotent, isBool := value.(bool)
+		if !isBool {
+			return Meta{}, fmt.Errorf("plugin meta submitIdempotent must be a boolean")
+		}
+		meta.SubmitIdempotent = &idempotent
 	}
 	meta.Models, err = strictStringSlice(object, "models")
 	if err != nil {

@@ -2,6 +2,8 @@ package relay
 
 import (
 	"encoding/base64"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -852,51 +854,85 @@ func TestRelayTaskSubmitSynchronousVideoBillsTheAnswersSeconds(t *testing.T) {
 	}
 }
 
-// TestRelayTaskSubmitTimeoutIsNotRetried covers a synchronous upstream that
-// is still generating when the relay timeout ends the request: the attempt
-// answers 504, which the task retry policy never retries, so the same video
-// is not generated, and billed upstream, a second time.
-func TestRelayTaskSubmitTimeoutIsNotRetried(t *testing.T) {
-	previousTimeout := common.RelayTimeout
-	common.RelayTimeout = 1
+// TestRelayTaskSubmitAfterSendIsNotRetriedForNonIdempotentPlugins covers a
+// plugin whose submission is billable work as soon as the upstream receives
+// it (submitIdempotent: false). Once the request was sent, a failed attempt
+// is not retried on another channel, so the same video is not generated, and
+// billed upstream, twice. A failure before sending and a 4xx answer stay
+// retryable, and a plugin without the declaration keeps today's retries.
+func TestRelayTaskSubmitAfterSendIsNotRetriedForNonIdempotentPlugins(t *testing.T) {
 	service.InitHttpClient()
-	t.Cleanup(func() {
-		common.RelayTimeout = previousTimeout
-		service.InitHttpClient()
-	})
 	const source = `
-export const meta = {apiVersion:1,key:"slow-sync",name:"Slow Sync",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"};
+export const meta = {apiVersion:1,key:"sync-submit",name:"Sync Submit",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task"DECLARATION};
 export function buildSubmitRequest(ctx) { return {url: ctx.baseUrl+"/submit", method:"POST", body:{model: ctx.model}, action:"text_to_video"}; }
-export function parseSubmitResponse(ctx, response) { return {taskId: "job", immediate: {status: "SUCCESS"}}; }
+export function parseSubmitResponse(ctx, response) { if (response.body && response.body.fail) throw new Error("unreadable answer"); return {taskId: "job", immediate: {status: "SUCCESS"}}; }
 export function buildQueryRequest(ctx) { return {url: ctx.baseUrl+"/query"}; }
 export function parseTaskResult() { return {status:"SUCCESS"}; }
 `
-	saveBillingConfig(t)
-	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
-		"billing_setting.billing_mode": `{"declared-model":"tiered_expr"}`,
-		"billing_setting.billing_expr": `{"declared-model":"tier(\"flat\", 3)"}`,
-	}))
-	generating := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select { // still generating when the gateway gives up
-		case <-generating:
-		case <-r.Context().Done():
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	for _, tc := range []struct {
+		name        string
+		upstream    http.HandlerFunc
+		refused     bool
+		wantCode    string
+		wantNoRetry bool
+	}{
+		{name: "connection dropped after the request was sent", wantCode: "do_request_failed", wantNoRetry: true, upstream: func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.ReadAll(r.Body)
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+		}},
+		{name: "connection refused before anything was sent", refused: true, wantCode: "do_request_failed"},
+		{name: "body cut off after the headers", wantCode: "read_response_body_failed", wantNoRetry: true, upstream: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Length", "1000")
+			_, _ = w.Write([]byte(`{"id":`))
+		}},
+		{name: "answer the plugin cannot parse", wantCode: "plugin_submit_response_failed", wantNoRetry: true, upstream: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"fail":true}`))
+		}},
+		{name: "5xx answer", wantCode: "fail_to_fetch_task", wantNoRetry: true, upstream: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}},
+		{name: "4xx answer refuses the request", wantCode: "fail_to_fetch_task", upstream: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		}},
+	} {
+		for _, declared := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/declared=%t", tc.name, declared), func(t *testing.T) {
+				saveBillingConfig(t)
+				require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+					"billing_setting.billing_mode": `{"declared-model":"tiered_expr"}`,
+					"billing_setting.billing_expr": `{"declared-model":"tier(\"flat\", 3)"}`,
+				}))
+				baseURL := closed.URL
+				if !tc.refused {
+					server := httptest.NewServer(tc.upstream)
+					defer server.Close()
+					baseURL = server.URL
+				}
+				declaration := ""
+				if declared {
+					declaration = ",submitIdempotent:false"
+				}
+				c, info := newTaskSubmitContext(t, "declared-model", "")
+				common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, baseURL)
+				c.Set("group", "default")
+				info.UserGroup, info.UsingGroup, info.OriginModelName = "default", "default", "declared-model"
+				info.Billing = &imageReservation{limit: 1 << 30}
+				pinMappingOrderPlugin(t, c, strings.Replace(source, "DECLARATION", declaration, 1))
+
+				result, taskErr := RelayTaskSubmit(c, info)
+
+				require.Nil(t, result)
+				require.NotNil(t, taskErr)
+				assert.Equal(t, tc.wantCode, taskErr.Code)
+				assert.Equal(t, declared && tc.wantNoRetry, taskErr.NoRetry)
+			})
 		}
-	}))
-	defer server.Close()
-	defer close(generating)
-
-	c, info := newTaskSubmitContext(t, "declared-model", "")
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, server.URL)
-	c.Set("group", "default")
-	info.UserGroup, info.UsingGroup, info.OriginModelName = "default", "default", "declared-model"
-	info.Billing = &imageReservation{limit: 1 << 30}
-	pinMappingOrderPlugin(t, c, source)
-
-	result, taskErr := RelayTaskSubmit(c, info)
-
-	require.Nil(t, result)
-	require.NotNil(t, taskErr)
-	assert.Equal(t, "do_request_failed", taskErr.Code)
-	assert.Equal(t, http.StatusGatewayTimeout, taskErr.StatusCode)
+	}
 }

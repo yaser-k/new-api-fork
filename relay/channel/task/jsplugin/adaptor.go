@@ -624,6 +624,11 @@ func (a *TaskAdaptor) GetModelList() []string { return append([]string(nil), a.p
 func (a *TaskAdaptor) GetChannelName() string { return a.plugin.Meta.Name }
 func (a *TaskAdaptor) FetchMode() string      { return a.plugin.Meta.FetchMode }
 
+// IdempotentSubmit reports the plugin's submitIdempotent declaration.
+func (a *TaskAdaptor) IdempotentSubmit() bool {
+	return a.plugin.Meta.IdempotentSubmit()
+}
+
 func (a *TaskAdaptor) FetchBatchTasks(baseURL, key string, tasks []*model.Task, proxy string) (*http.Response, error) {
 	taskContexts := make([]map[string]any, 0, len(tasks))
 	for _, task := range tasks {
