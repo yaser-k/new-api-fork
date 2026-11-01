@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -766,6 +767,87 @@ export function extractUsage() { return {seconds:2}; }
 			}
 			require.NotNil(t, info.TieredBillingSnapshot)
 			assert.Equal(t, tc.expressions["retry-b::declared-model"], info.TieredBillingSnapshot.ExprString)
+		})
+	}
+}
+
+// TestRelayTaskSubmitSynchronousVideoBillsTheAnswersSeconds submits through
+// the openai-sync-video plugin to an upstream that answers with the finished
+// video, priced per second by resolution, and settles on the answer's
+// duration_seconds, fraction included.
+func TestRelayTaskSubmitSynchronousVideoBillsTheAnswersSeconds(t *testing.T) {
+	service.InitHttpClient()
+	source, err := os.ReadFile("../plugins/tasks/openai-sync-video/plugin.js")
+	require.NoError(t, err)
+	const videoModel = "example-video-model"
+	rates := func(r480, r720, r1080 string) string {
+		return `u("resolution") == "480P" ? tier("480P", u("seconds") * ` + r480 + `) : u("resolution") == "720P" ? tier("720P", u("seconds") * ` + r720 + `) : tier("1080P", u("seconds") * ` + r1080 + `)`
+	}
+	for _, tc := range []struct {
+		name, expression, resolution, answer string
+		wantSeconds                          float64
+		wantQuota                            int
+		wantCode                             string
+	}{
+		{
+			name: "whole seconds", expression: rates("0.0425", "0.085", "0.17"), resolution: "480P",
+			answer:      `{"id":"6a1f3c9e2b7d4e8f0a5c6b1d","status":"completed","videos":[{"url":"https://objects.upstream.example/a.mp4?Expires=1761566400&Signature=cut","duration_seconds":2}],"usage":{},"request_id":"0f1e","billing":{"billed_cost_usd":"0.085000"}}`,
+			wantSeconds: 2, wantQuota: 42500, // 2 s x 0.0425 USD = 0.085 USD
+		},
+		{
+			name: "fractional seconds as a string", expression: rates("0.017", "0.0255", "0.119"), resolution: "480P",
+			answer:      `{"id":"video_3f9a","status":"completed","videos":[{"url":"https://api.upstream.example/v1/videos/artifacts/opaque","duration_seconds":"2.041666666666666667"}],"usage":{},"request_id":"1a2b","billing":{"billed_cost_usd":"0.034708"}}`,
+			wantSeconds: 2.041666666666667, wantQuota: 17354, // 2.0417 s x 0.017 USD = 0.034708 USD
+		},
+		{name: "resolution without a rate", expression: rates("0.0425", "0.085", "0.17"), resolution: "4K", wantCode: "plugin_request_invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveBillingConfig(t)
+			expressions, err := common.Marshal(map[string]string{"openai-sync-video::" + videoModel: tc.expression})
+			require.NoError(t, err)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				billing_setting.PluginBillingExprOption: string(expressions),
+				"billing_setting.billing_mode":          `{}`,
+				"billing_setting.billing_expr":          `{}`,
+				"group_ratio_setting.group_ratio":       `{"default":1}`,
+			}))
+			var submitted []map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = common.DecodeJson(r.Body, &body)
+				body["path"] = r.URL.Path
+				submitted = append(submitted, body)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.answer))
+			}))
+			defer server.Close()
+
+			c, info := newTaskSubmitContext(t, videoModel, "")
+			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, server.URL)
+			c.Set("group", "default")
+			c.Set("task_request", map[string]any{"model": videoModel, "prompt": "a red kite over the dunes", "resolution": tc.resolution, "duration": 2})
+			info.UserGroup, info.UsingGroup, info.OriginModelName = "default", "default", videoModel
+			info.Billing = &imageReservation{limit: 1 << 30}
+			pinMappingOrderPlugin(t, c, string(source))
+
+			result, taskErr := RelayTaskSubmit(c, info)
+			if tc.wantCode != "" {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, tc.wantCode, taskErr.Code)
+				assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+				assert.Contains(t, taskErr.Message, "has no per-second rate for resolution 4K")
+				assert.Empty(t, submitted, "a resolution without a rate never reaches the upstream")
+				return
+			}
+			require.Nil(t, taskErr, "submission error: %+v", taskErr)
+			require.Len(t, submitted, 1)
+			assert.Equal(t, map[string]any{"path": "/v1/videos/generations", "model": videoModel, "prompt": "a red kite over the dunes", "resolution": "480P", "duration": float64(2)}, submitted[0])
+			require.NotNil(t, result.Immediate)
+			assert.Equal(t, model.TaskStatusSuccess, result.Immediate.Status)
+			assert.InDelta(t, tc.wantSeconds, result.Immediate.UsageFacts["seconds"], 1e-12)
+			assert.Equal(t, tc.wantQuota, result.Quota)
+			assert.NotContains(t, string(result.TaskData), "upstream.example")
+			assert.Contains(t, string(result.PluginState), "upstream.example")
 		})
 	}
 }
