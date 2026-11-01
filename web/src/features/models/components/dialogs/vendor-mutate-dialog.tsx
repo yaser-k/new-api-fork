@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/sheet'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatTimestampToDate } from '@/lib/format'
 import { createServerError } from '@/lib/server-error-message'
 
@@ -71,7 +72,8 @@ export function VendorMutateDialog(props: {
   onOpenChange: (open: boolean) => void
   currentVendor?: Vendor | null
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const client = useQueryClient()
   const id = props.currentVendor?.id
   const [section, setSection] = useState('details')
@@ -145,7 +147,7 @@ export function VendorMutateDialog(props: {
       <Sheet open={props.open} onOpenChange={close}>
         <SheetContent className={sideDrawerContentClassName('sm:max-w-3xl')}>
           <SheetHeader className={sideDrawerHeaderClassName()}>
-            <SheetTitle className='pr-6 break-all'>
+            <SheetTitle className='pe-6 break-all'>
               {id ? props.currentVendor?.name : t('Create Vendor')}
             </SheetTitle>
             <SheetDescription>
@@ -231,11 +233,19 @@ export function VendorMutateDialog(props: {
                         <div className='text-muted-foreground space-y-1 border-t pt-3 text-xs'>
                           <p>
                             {t('Created At')}:{' '}
-                            {formatTimestampToDate(query.data.created_time)}
+                            {formatTimestampToDate(
+                              query.data.created_time,
+                              'seconds',
+                              locale
+                            )}
                           </p>
                           <p>
                             {t('Updated At')}:{' '}
-                            {formatTimestampToDate(query.data.updated_time)}
+                            {formatTimestampToDate(
+                              query.data.updated_time,
+                              'seconds',
+                              locale
+                            )}
                           </p>
                         </div>
                       )}
