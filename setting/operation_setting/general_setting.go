@@ -20,6 +20,10 @@ type GeneralSetting struct {
 	CustomCurrencySymbol string `json:"custom_currency_symbol"`
 	// 自定义货币与美元汇率（1 USD = X Custom）
 	CustomCurrencyExchangeRate float64 `json:"custom_currency_exchange_rate"`
+	// Show every group that has a group ratio on the pricing page, with its
+	// models, to every viewer. Display only: which groups a user may use is
+	// unchanged.
+	PricingShowAllGroups bool `json:"pricing_show_all_groups"`
 }
 
 // 默认配置
@@ -30,6 +34,7 @@ var generalSetting = GeneralSetting{
 	QuotaDisplayType:           QuotaDisplayTypeUSD,
 	CustomCurrencySymbol:       "¤",
 	CustomCurrencyExchangeRate: 1.0,
+	PricingShowAllGroups:       false,
 }
 
 func init() {
@@ -39,6 +44,12 @@ func init() {
 
 func GetGeneralSetting() *GeneralSetting {
 	return &generalSetting
+}
+
+// IsPricingShowAllGroups reports whether the pricing page lists every group
+// with a group ratio, not only the groups the viewer may use.
+func IsPricingShowAllGroups() bool {
+	return generalSetting.PricingShowAllGroups
 }
 
 // IsCurrencyDisplay 是否以货币形式展示（美元或人民币）

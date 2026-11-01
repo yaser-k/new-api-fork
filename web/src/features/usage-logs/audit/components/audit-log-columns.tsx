@@ -22,16 +22,22 @@ import { useTranslation } from 'react-i18next'
 
 import { TruncatedCell } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
-import dayjs from '@/lib/dayjs'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatGregorianTitle, formatTimestampToDate } from '@/lib/format'
 
 import type { AuditLog } from '../api'
 import { buildAuditDetails } from '../lib/audit-details'
 import { AuditLogDetailsDialog } from './audit-log-details-dialog'
 
+// Routes and user agents are left-to-right text. In a right-to-left page
+// the leading "/" of a route would otherwise move to the far end.
+const LTR_VALUE_IN_RTL = 'rtl:[direction:ltr] rtl:text-right'
+
 export function useAuditLogColumns(
   accessOnly?: boolean
 ): ColumnDef<AuditLog>[] {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   return useMemo(() => {
     const columns: ColumnDef<AuditLog>[] = [
       {
@@ -39,8 +45,11 @@ export function useAuditLogColumns(
         header: t('Time'),
         size: 180,
         cell: ({ row }) => (
-          <span className='font-mono tabular-nums'>
-            {dayjs.unix(row.original.created_at).format('YYYY-MM-DD HH:mm:ss')}
+          <span
+            className='font-mono tabular-nums'
+            title={formatGregorianTitle(row.original.created_at, locale)}
+          >
+            {formatTimestampToDate(row.original.created_at, 'seconds', locale)}
           </span>
         ),
         meta: { label: t('Time'), mobileTitle: true },
@@ -59,13 +68,14 @@ export function useAuditLogColumns(
           header: t('Event'),
           size: 360,
           accessorFn: (entry) => {
-            const detail = buildAuditDetails(entry, t)
+            const detail = buildAuditDetails(entry, t, { locale })
             return [detail.summary, detail.operation?.description]
               .filter(Boolean)
               .join(' · ')
           },
           cell: ({ row, getValue }) => {
-            const operation = buildAuditDetails(row.original, t).operation
+            const operation = buildAuditDetails(row.original, t, { locale })
+              .operation
             if (!operation) {
               return (
                 <TruncatedCell className='max-w-64'>
@@ -119,7 +129,10 @@ export function useAuditLogColumns(
         header: t('Client'),
         size: 180,
         cell: ({ row }) => (
-          <TruncatedCell className='max-w-48'>
+          <TruncatedCell
+            className='max-w-48'
+            contentClassName={LTR_VALUE_IN_RTL}
+          >
             {row.original.user_agent || '—'}
           </TruncatedCell>
         ),
@@ -141,7 +154,10 @@ export function useAuditLogColumns(
         header: t('Route'),
         size: 220,
         cell: ({ row }) => (
-          <TruncatedCell className='max-w-60 font-mono'>
+          <TruncatedCell
+            className='max-w-60 font-mono'
+            contentClassName={LTR_VALUE_IN_RTL}
+          >
             {row.original.route || '—'}
           </TruncatedCell>
         ),
@@ -181,5 +197,5 @@ export function useAuditLogColumns(
       }
     )
     return columns
-  }, [accessOnly, t])
+  }, [accessOnly, locale, t])
 }

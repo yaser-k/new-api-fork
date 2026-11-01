@@ -28,6 +28,7 @@ import { getUserQuotaDates } from '@/features/dashboard/api'
 import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
 import type { QuotaDataItem } from '@/features/dashboard/types'
 import { useStatus } from '@/hooks/use-status'
+import { toIntlLocale } from '@/i18n/languages'
 import { getCurrencyLabel, isCurrencyDisplayEnabled } from '@/lib/currency'
 import { formatNumber, formatQuota } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
@@ -138,7 +139,8 @@ const HEALTH_CONFIG: Record<
 }
 
 export function SummaryCards() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const user = useAuthStore((state) => state.auth.user)
   const { status, loading } = useStatus()
 
@@ -168,10 +170,10 @@ export function SummaryCards() {
 
   const summaryValues = useMemo(() => {
     return {
-      usedDisplay: formatQuota(usedQuota),
-      requestCountDisplay: formatNumber(requestCount),
+      usedDisplay: formatQuota(usedQuota, locale),
+      requestCountDisplay: formatNumber(requestCount, locale),
     }
-  }, [requestCount, usedQuota])
+  }, [locale, requestCount, usedQuota])
 
   const currencyEnabledFromStore = isCurrencyDisplayEnabled()
   const statusCurrencyFlag =
@@ -213,7 +215,7 @@ export function SummaryCards() {
   const healthCfg = HEALTH_CONFIG[healthLevel]
   const runwayDays = getRunwayDays(remainQuota, recentUsage)
 
-  const todayUsageDisplay = formatQuota(recentUsage)
+  const todayUsageDisplay = formatQuota(recentUsage, locale)
   let runwayDisplay: string
   if (runwayDays !== null) {
     if (runwayDays < 1) {
@@ -221,7 +223,7 @@ export function SummaryCards() {
     } else if (runwayDays > 999) {
       runwayDisplay = `999+ ${t('days')}`
     } else {
-      runwayDisplay = `~${formatNumber(Math.floor(runwayDays))} ${t('days')}`
+      runwayDisplay = `~${formatNumber(Math.floor(runwayDays), locale)} ${t('days')}`
     }
   } else if (remainQuota <= 0) {
     runwayDisplay = t('Balance depleted')
@@ -288,7 +290,7 @@ export function SummaryCards() {
           </StaggerContainer>
         </div>
 
-        <div className='flex flex-col justify-between gap-3 border-t bg-[linear-gradient(135deg,color-mix(in_oklch,var(--overview-accent-2)_12%,var(--background))_0%,color-mix(in_oklch,oklch(0.82_0.04_155)_8%,var(--background))_48%,color-mix(in_oklch,var(--overview-accent-1)_7%,var(--background))_100%)] p-3 sm:gap-4 sm:p-5 xl:border-t-0 xl:border-l'>
+        <div className='flex flex-col justify-between gap-3 border-t bg-[linear-gradient(135deg,color-mix(in_oklch,var(--overview-accent-2)_12%,var(--background))_0%,color-mix(in_oklch,oklch(0.82_0.04_155)_8%,var(--background))_48%,color-mix(in_oklch,var(--overview-accent-1)_7%,var(--background))_100%)] p-3 sm:gap-4 sm:p-5 xl:border-s xl:border-t-0'>
           <div className='flex flex-col gap-2 sm:gap-3'>
             <div className='flex items-center justify-between'>
               <span className='text-muted-foreground text-xs font-medium'>
@@ -306,7 +308,7 @@ export function SummaryCards() {
             </div>
 
             <div className='font-mono text-xl font-semibold tracking-tight sm:text-2xl'>
-              {formatQuota(remainQuota)}
+              {formatQuota(remainQuota, locale)}
             </div>
 
             <div className='grid grid-cols-2 gap-2'>
@@ -316,7 +318,7 @@ export function SummaryCards() {
                   <span className='truncate'>{t('Last 24h usage')}</span>
                 </div>
                 <div className='text-foreground mt-1.5 truncate text-xs font-semibold tabular-nums'>
-                  {formatQuota(recentUsage)}
+                  {formatQuota(recentUsage, locale)}
                 </div>
               </div>
               <div className='bg-background/60 rounded-lg px-2.5 py-2'>
@@ -349,7 +351,7 @@ export function SummaryCards() {
 
           <Button className='justify-between' render={<Link to='/wallet' />}>
             <span>{t('Wallet')}</span>
-            <ArrowRight data-icon='inline-end' />
+            <ArrowRight data-icon='inline-end' className='rtl:rotate-180' />
           </Button>
         </div>
       </div>
