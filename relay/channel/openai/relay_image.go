@@ -2,12 +2,14 @@ package openai
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -150,7 +152,7 @@ func rebuildOpenAIImageResponse(c *gin.Context, responseBody []byte, inline bool
 		if int64(len(images)) >= billed {
 			break
 		}
-		encoded, err := fetchOpenAIImageBase64(image.entry.Get("url").String())
+		encoded, err := fetchOpenAIImageBase64(c.Request.Context(), image.entry.Get("url").String())
 		if err != nil {
 			// The url is the upstream's own link: keep it out of the
 			// client's error and of the log line.
@@ -208,22 +210,71 @@ func rebuildOpenAIImageResponse(c *gin.Context, responseBody []byte, inline bool
 	return out.Bytes(), nil
 }
 
-// fetchOpenAIImageBase64 downloads one generated image through the gateway's
-// download path (SSRF checks, worker mode) without any credential, bounded by
-// MAX_FILE_DOWNLOAD_MB, and returns it Base64-encoded. The content must be an
-// image, by its bytes or by its Content-Type.
-func fetchOpenAIImageBase64(imageURL string) (string, error) {
-	resp, err := service.DoDownloadRequest(imageURL, "inline image response")
+// openaiImageFetchTimeout bounds one image download; a client that leaves
+// ends it sooner.
+const openaiImageFetchTimeout = 60 * time.Second
+
+// fetchOpenAIImageBase64 returns one generated image Base64-encoded. A
+// data:image URL is decoded. Any other link is downloaded over the
+// SSRF-protected client without credentials, bounded by MAX_FILE_DOWNLOAD_MB,
+// openaiImageFetchTimeout and the client's request. The content must be an
+// image, by its bytes or by its Content-Type. The errors never carry the
+// link, which is the upstream's own.
+func fetchOpenAIImageBase64(ctx context.Context, imageURL string) (string, error) {
+	limit := int64(constant.MaxFileDownloadMB) << 20
+	if len(imageURL) > 5 && strings.EqualFold(imageURL[:5], "data:") {
+		meta, payload, found := strings.Cut(imageURL[5:], ",")
+		mediaType, isBase64 := strings.CutSuffix(strings.ToLower(meta), ";base64")
+		if !found || !strings.HasPrefix(mediaType, "image/") {
+			return "", errors.New("data URL is not an image")
+		}
+		var data []byte
+		var err error
+		if isBase64 {
+			data, err = base64.StdEncoding.DecodeString(payload)
+			if err != nil {
+				data, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(payload, "="))
+			}
+		} else {
+			var text string
+			text, err = url.PathUnescape(payload)
+			data = []byte(text)
+		}
+		if err != nil {
+			return "", errors.New("data URL does not decode")
+		}
+		if len(data) == 0 || int64(len(data)) > limit {
+			return "", fmt.Errorf("data URL image is empty or exceeds %d MB", constant.MaxFileDownloadMB)
+		}
+		return base64.StdEncoding.EncodeToString(data), nil
+	}
+	if err := service.ValidateSSRFProtectedFetchURL(imageURL); err != nil {
+		return "", fmt.Errorf("image link rejected: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, openaiImageFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
-		return "", err
+		return "", errors.New("image link is not a valid URL")
+	}
+	resp, err := service.GetSSRFProtectedHTTPClient().Do(req)
+	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return "", fmt.Errorf("image download failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("image download returned status %d", resp.StatusCode)
 	}
-	limit := int64(constant.MaxFileDownloadMB) << 20
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return "", fmt.Errorf("read image download: %w", err)
 	}
 	if int64(len(data)) > limit {
@@ -465,7 +516,7 @@ func rebuildOpenAIImageStreamEvent(c *gin.Context, raw []byte, inline bool) ([]b
 	case hasB64:
 		write("b64_json", rawValue(image.Get("b64_json")))
 	case inline && openaiImageDataHasField(image, "url"):
-		encoded, err := fetchOpenAIImageBase64(image.Get("url").String())
+		encoded, err := fetchOpenAIImageBase64(c.Request.Context(), image.Get("url").String())
 		if err != nil {
 			logger.LogError(c, common.LogText("inline image fetch failed: %s", common.MaskSensitiveInfo(err.Error())))
 			return nil, types.NewErrorWithStatusCode(ErrGeneratedImageUndelivered, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())

@@ -736,6 +736,7 @@ func TestOpenaiImageAnswersWithoutUpstreamLinksOrFields(t *testing.T) {
 		{name: "url answer on another channel type, as today", body: urlAnswer, channelType: constant.ChannelTypeCustom, inline: true, responseFormat: "b64_json", wantForwarded: true},
 		{name: "b64 answer, setting on", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
 		{name: "b64 answer, setting off", body: measuredPerImageB64Answer, channelType: constant.ChannelTypeOpenAI, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAE", wantKept: []string{"usage"}},
+		{name: "data URL image", body: `{"created":1761480000,"data":[{"url":"data:image/png;base64,` + fetched + `"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: fetched},
 		{name: "split url and b64_json entries return the one billed image", body: `{"created":1761480000,"data":[{"url":"` + imageURL + `"},{"b64_json":"aW1hZ2U=","revised_prompt":"a lighthouse at dusk"}],"request_id":"r"}`, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "aW1hZ2U=", wantRevised: "a lighthouse at dusk"},
 		{name: "per-token answer, setting on", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, inline: true, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
 		{name: "per-token answer, setting off", body: measuredPerTokenDetailedAnswer, channelType: constant.ChannelTypeOpenAI, wantB64: "iVBORw0KGgoAAAANSUhEUgAAAAM", wantKept: []string{"usage", "background", "output_format", "quality", "size"}},
@@ -786,16 +787,24 @@ func TestOpenaiImageFetchFailureIsAnErrorBilledAsTheUpstreamBilled(t *testing.T)
 	gin.SetMode(gin.TestMode)
 	server, _ := newImageObjectServer(t)
 	for _, tc := range []struct {
-		name, path string
+		name, link string
 		stream     bool
+		clientGone bool
 	}{
-		{"expired link", "/object/expired?Expires=1&Signature=cut", false},
-		{"not an image", "/object/page", false},
-		{"expired link wrapped as SSE", "/object/expired?Expires=1&Signature=cut", true},
+		{name: "expired link", link: server.URL + "/object/expired?Expires=1&Signature=cut"},
+		{name: "not an image", link: server.URL + "/object/page"},
+		{name: "expired link wrapped as SSE", link: server.URL + "/object/expired?Expires=1&Signature=cut", stream: true},
+		{name: "data URL that is not an image", link: "data:text/html;base64,PGh0bWw+"},
+		{name: "client already gone", link: server.URL + "/object/image.png?Expires=1&Signature=cut", clientGone: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", server.URL+tc.path)
+			body := strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", tc.link)
 			c, recorder, resp, info := newOpenAIChannelImageContext(t, body, constant.ChannelTypeOpenAI, true, "", tc.stream)
+			if tc.clientGone {
+				gone, cancel := context.WithCancel(c.Request.Context())
+				cancel()
+				c.Request = c.Request.WithContext(gone)
+			}
 			info.PriceData.AddOtherRatio("n", 3)
 
 			usage, apiErr := (&Adaptor{}).DoResponse(c, resp, info)
@@ -810,6 +819,20 @@ func TestOpenaiImageFetchFailureIsAnErrorBilledAsTheUpstreamBilled(t *testing.T)
 			assert.Empty(t, recorder.Body.String(), "no empty data list is returned as success")
 		})
 	}
+
+	t.Run("fetch errors never carry the link", func(t *testing.T) {
+		closed := httptest.NewServer(http.NotFoundHandler())
+		closed.Close()
+		for _, link := range []string{
+			server.URL + "/object/expired?Expires=1&Signature=cut",
+			closed.URL + "/object/a.png?Expires=1&Signature=cut",
+		} {
+			_, err := fetchOpenAIImageBase64(t.Context(), link)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), "/object/")
+			assert.NotContains(t, err.Error(), "Signature")
+		}
+	})
 }
 
 func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
