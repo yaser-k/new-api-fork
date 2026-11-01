@@ -331,7 +331,8 @@ export const protocols = {
         const events = previousState && previousState.status === status ? [] : [{ type: "output", data: videoArtifactText(ctx) }];
         return { events: events, state: state, done: true };
       }
-      if (status === "FAILURE") return { events: [{ type: "error", code: "task_failed", message: task.fail_reason || "task failed" }], state: state, done: true };
+      if (status === "FAILURE")
+        return { events: [{ type: "error", code: "task_failed", message: task.fail_reason || "task failed" }], state: state, done: true };
       if (previousState && previousState.status === status && previousState.progress === progress) return { events: [], state: state, done: false };
       const event = { type: "progress", message: status.toLowerCase() };
       if (progress !== null) event.progress = progress;
