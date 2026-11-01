@@ -343,14 +343,15 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 				completedImages++
 			}
 		}
-		if openaiImageInlineNeeded(c, info, []gjson.Result{gjson.ParseBytes(raw)}) {
-			inlined, err := inlineOpenAIImageStreamEvent(c, raw)
+		event := gjson.ParseBytes(raw)
+		if openaiImageInlineNeeded(c, info, append([]gjson.Result{event}, event.Get("data").Array()...)) {
+			rebuilt, err := rebuildOpenAIImageStreamEvent(c, raw, true)
 			if err != nil {
 				inlineErr = err
 				sr.Stop(err)
 				return
 			}
-			raw = inlined
+			raw = rebuilt
 		}
 		if err := writeOpenaiImageStreamChunk(c, raw); err != nil {
 			sr.Stop(err)
@@ -384,31 +385,68 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	return usage, nil
 }
 
-// inlineOpenAIImageStreamEvent gives a streamed image event the image itself:
-// an image sent only as a url is fetched into b64_json, and a url sent next
-// to b64_json is dropped. Events without a url are returned unchanged.
-func inlineOpenAIImageStreamEvent(c *gin.Context, raw []byte) ([]byte, *types.NewAPIError) {
-	event := gjson.ParseBytes(raw)
-	if !openaiImageDataHasField(event, "url") {
-		return raw, nil
+// openaiImageStreamEventFields are the OpenAI image stream event fields a
+// rebuilt event keeps, in the order it writes them; the image comes last.
+var openaiImageStreamEventFields = []string{"type", "created_at", "partial_image_index", "size", "quality", "background", "output_format", "usage", "error", "message"}
+
+// rebuildOpenAIImageStreamEvent rebuilds a streamed image event from the
+// OpenAI image stream fields alone, so fields the upstream adds of its own
+// never reach the client. The image is the event's b64_json or url, or the
+// first image of a data list an upstream nests in the event. With inline, an
+// image sent only as a url is fetched into b64_json and no url is kept.
+func rebuildOpenAIImageStreamEvent(c *gin.Context, raw []byte, inline bool) ([]byte, *types.NewAPIError) {
+	// Values are sliced from the event so a multi-MB b64_json is not copied.
+	rawValue := func(value gjson.Result) []byte {
+		if value.Index > 0 {
+			return raw[value.Index : value.Index+len(value.Raw)]
+		}
+		return []byte(value.Raw)
 	}
-	if !openaiImageDataHasField(event, "b64_json") {
-		encoded, err := fetchOpenAIImageBase64(event.Get("url").String())
+	event := gjson.ParseBytes(raw)
+	image := event
+	if !openaiImageDataHasField(event, "b64_json") && !openaiImageDataHasField(event, "url") {
+		for _, entry := range event.Get("data").Array() {
+			if openaiImageDataHasField(entry, "b64_json") || openaiImageDataHasField(entry, "url") {
+				image = entry
+				break
+			}
+		}
+	}
+	var out bytes.Buffer
+	out.WriteByte('{')
+	write := func(name string, value []byte) {
+		if out.Len() > 1 {
+			out.WriteByte(',')
+		}
+		out.WriteString(strconv.Quote(name))
+		out.WriteByte(':')
+		out.Write(value)
+	}
+	for _, field := range openaiImageStreamEventFields {
+		if value := event.Get(field); value.Exists() {
+			write(field, rawValue(value))
+		}
+	}
+	if openaiImageDataHasField(image, "revised_prompt") {
+		write("revised_prompt", rawValue(image.Get("revised_prompt")))
+	}
+	hasB64 := openaiImageDataHasField(image, "b64_json")
+	if openaiImageDataHasField(image, "url") && !inline {
+		write("url", rawValue(image.Get("url")))
+	}
+	switch {
+	case hasB64:
+		write("b64_json", rawValue(image.Get("b64_json")))
+	case inline && openaiImageDataHasField(image, "url"):
+		encoded, err := fetchOpenAIImageBase64(image.Get("url").String())
 		if err != nil {
 			logger.LogError(c, common.LogText("inline image fetch failed: %s", common.MaskSensitiveInfo(err.Error())))
 			return nil, types.NewErrorWithStatusCode(ErrGeneratedImageUndelivered, types.ErrorCodeBadResponse, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 		}
-		withImage, setErr := sjson.SetBytes(raw, "b64_json", encoded)
-		if setErr != nil {
-			return nil, types.NewOpenAIError(setErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-		}
-		raw = withImage
+		write("b64_json", []byte(strconv.Quote(encoded)))
 	}
-	withoutURL, deleteErr := sjson.DeleteBytes(raw, "url")
-	if deleteErr != nil {
-		return nil, types.NewOpenAIError(deleteErr, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-	return withoutURL, nil
+	out.WriteByte('}')
+	return out.Bytes(), nil
 }
 
 // writeOpenaiImageStreamChunk rebuilds the SSE frame for an image stream chunk:

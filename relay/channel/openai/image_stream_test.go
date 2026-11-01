@@ -808,10 +808,32 @@ func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
 	server, _ := newImageObjectServer(t)
 	imageURL := server.URL + "/object/image.png?Expires=1761566400&Signature=cut"
 	fetched := base64.StdEncoding.EncodeToString(testPNG)
+	const upstreamFields = `"id":"evt_1","request_id":"7c2f3e1a","generation_id":"gen_0a1b","billing":{"status":"settled","billed_cost_usd":"0.025400"}`
+	const usage = `{"input_tokens":16,"output_tokens":196,"total_tokens":212}`
 
-	for _, tc := range []struct{ name, body string }{
-		{"JSON answer wrapped as SSE", strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", imageURL)},
-		{"SSE completed event with a url", "data: {\"type\":\"image_generation.completed\",\"url\":\"" + imageURL + "\"}\n\ndata: [DONE]\n\n"},
+	for _, tc := range []struct {
+		name, body string
+		wantEvents []string
+	}{
+		{
+			name:       "JSON answer wrapped as SSE",
+			body:       strings.ReplaceAll(measuredPerImageURLAnswer, "{{IMAGE_URL}}", imageURL),
+			wantEvents: []string{`{"type":"image_generation.completed","created_at":1761480000,"b64_json":"` + fetched + `"}`},
+		},
+		{
+			name: "SSE events with a url and the upstream's own fields",
+			body: "data: {\"type\":\"image_generation.partial_image\",\"partial_image_index\":0,\"b64_json\":\"cGFydGlhbA==\"," + upstreamFields + "}\n\n" +
+				"data: {\"type\":\"image_generation.completed\",\"created_at\":1761480000,\"url\":\"" + imageURL + "\",\"usage\":" + usage + "," + upstreamFields + "}\n\ndata: [DONE]\n\n",
+			wantEvents: []string{
+				`{"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"cGFydGlhbA=="}`,
+				`{"type":"image_generation.completed","created_at":1761480000,"usage":` + usage + `,"b64_json":"` + fetched + `"}`,
+			},
+		},
+		{
+			name:       "SSE event nesting the image in a data list",
+			body:       "data: {\"type\":\"image_generation.completed\",\"data\":[{\"url\":\"" + imageURL + "\",\"generation_id\":\"gen_0a1b\"}]," + upstreamFields + "}\n\ndata: [DONE]\n\n",
+			wantEvents: []string{`{"type":"image_generation.completed","b64_json":"` + fetched + `"}`},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, recorder, resp, info := newOpenAIChannelImageContext(t, tc.body, constant.ChannelTypeOpenAI, true, "", true)
@@ -820,9 +842,19 @@ func TestOpenaiImageStreamsCarryTheImageWithoutTheLink(t *testing.T) {
 
 			require.Nil(t, apiErr)
 			out := recorder.Body.String()
-			assert.Contains(t, out, `"b64_json":"`+fetched+`"`)
-			assert.NotContains(t, out, server.URL)
-			assert.NotContains(t, out, "billing")
+			var events []string
+			for line := range strings.SplitSeq(out, "\n") {
+				if payload, ok := strings.CutPrefix(line, "data: "); ok && payload != "[DONE]" {
+					events = append(events, payload)
+				}
+			}
+			require.Len(t, events, len(tc.wantEvents), out)
+			for index, want := range tc.wantEvents {
+				assert.JSONEq(t, want, events[index])
+			}
+			for _, leaked := range []string{server.URL, "billing", "request_id", "generation_id", `"id"`, `"data"`} {
+				assert.NotContains(t, out, leaked)
+			}
 			assert.Equal(t, 1, strings.Count(out, "event: image_generation.completed"))
 			assert.Equal(t, 1.0, info.PriceData.OtherRatios()["n"])
 		})
