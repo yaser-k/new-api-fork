@@ -88,11 +88,18 @@ func newImageHelperRequest(t *testing.T, body, upstreamURL string, other dto.Cha
 
 func TestImageRequestKeyedPricesSelectTheRequestedSizeAndQuality(t *testing.T) {
 	service.InitHttpClient()
-	setImageModelPrices(t, `{"keyed-image":0.02,"keyed-image#1024X1024":0.0254,"keyed-image#2048X2048":0.05,"keyed-image#2048X2048+LOW":0.04,"keyed-image#LOW":0.01,"flat-image":0.03}`)
+	setImageModelPrices(t, `{
+		"keyed-image":0.02,"keyed-image#1024X1024":0.0254,"keyed-image#2048X2048":0.05,"keyed-image#2048X2048+LOW":0.04,"keyed-image#LOW":0.01,"keyed-image#HIGH":0.03,
+		"styled-image":0.02,"styled-image#1024X1024":0.0254,"styled-image#VECTOR_ILLUSTRATION":0.06,
+		"unpriced-keyed#1024X1024":0.0254,
+		"flat-image":0.03}`)
+	deleteSize := map[string]any{"operations": []any{map[string]any{"path": "size", "mode": "delete"}}}
 	for _, tc := range []struct {
-		name, body string
-		wantPrice  float64
-		wantError  string
+		name, body  string
+		override    map[string]any
+		ratioBilled bool
+		wantPrice   float64
+		wantError   string
 	}{
 		{name: "size key", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024"}`, wantPrice: 0.0254},
 		{name: "size and quality key", body: `{"model":"keyed-image","prompt":"p","size":"2048x2048","quality":"low"}`, wantPrice: 0.04},
@@ -100,6 +107,14 @@ func TestImageRequestKeyedPricesSelectTheRequestedSizeAndQuality(t *testing.T) {
 		{name: "no key named pays the model's own price", body: `{"model":"keyed-image","prompt":"p"}`, wantPrice: 0.02},
 		{name: "size without a price is refused", body: `{"model":"keyed-image","prompt":"p","size":"4096x4096"}`, wantError: "has no image price for 4096X4096"},
 		{name: "separate size and quality prices are refused", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024","quality":"low"}`, wantError: "prices image size 1024X1024 and quality LOW separately"},
+		{name: "a priced size with a quality without a rate is refused", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024","quality":"medium"}`, wantError: "has no image price for 1024X1024+MEDIUM"},
+		{name: "a quality without a rate is refused", body: `{"model":"keyed-image","prompt":"p","quality":"medium"}`, wantError: "has no image price for MEDIUM"},
+		{name: "a style the model does not price is ignored", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024","style":"vivid"}`, wantPrice: 0.0254},
+		{name: "a size the body lacks keeps the client's", body: `{"model":"keyed-image","prompt":"p","size":"1024x1024"}`, override: deleteSize, wantPrice: 0.0254},
+		{name: "a style on a model with keys the gateway cannot select is refused", body: `{"model":"styled-image","prompt":"p","size":"1024x1024","style":"vector_illustration"}`, wantError: "has image prices the gateway cannot select"},
+		{name: "an input image on a model with keys the gateway cannot select is refused", body: `{"model":"styled-image","prompt":"p","size":"1024x1024","image":"https://example.com/reference.png"}`, wantError: "has image prices the gateway cannot select"},
+		{name: "a model with keys the gateway cannot select still prices its size", body: `{"model":"styled-image","prompt":"p","size":"1024x1024"}`, wantPrice: 0.0254},
+		{name: "keyed prices without a price of the model's own are refused", body: `{"model":"unpriced-keyed","prompt":"p","size":"1024x1024"}`, ratioBilled: true, wantError: "has keyed image prices but no per-call price of its own"},
 		{name: "a model without keyed prices is priced as today", body: `{"model":"flat-image","prompt":"p","size":"4096x4096"}`, wantPrice: 0.03},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +130,12 @@ func TestImageRequestKeyedPricesSelectTheRequestedSizeAndQuality(t *testing.T) {
 			model := gjson.Get(tc.body, "model").String()
 			ownPrice, _ := ratio_setting.GetModelPrice(model, false)
 			c, _, info := newImageHelperRequest(t, tc.body, upstream.URL, dto.ChannelOtherSettings{}, ownPrice, &imageReservation{held: 10000, limit: 500000})
+			if tc.override != nil {
+				common.SetContextKey(c, constant.ContextKeyChannelParamOverride, tc.override)
+			}
+			if tc.ratioBilled {
+				info.PriceData.UsePrice = false
+			}
 
 			apiErr := ImageHelper(c, info)
 
@@ -128,6 +149,9 @@ func TestImageRequestKeyedPricesSelectTheRequestedSizeAndQuality(t *testing.T) {
 				return
 			}
 			require.Len(t, received, 1)
+			if tc.override != nil {
+				assert.False(t, gjson.GetBytes(<-received, "size").Exists(), "the override removed the size from the body")
+			}
 			assert.Equal(t, tc.wantPrice, info.PriceData.ModelPrice)
 			assert.Equal(t, common.QuotaFromFloat(tc.wantPrice*common.QuotaPerUnit), info.PriceData.QuotaToPreConsume)
 		})
