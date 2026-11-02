@@ -31,6 +31,10 @@ func TestSetUpLoggerMasksQueryCredentials(t *testing.T) {
 		{"/v1/models?alt=sse&api-version=2024-02-01", "/v1/models?alt=sse&api-version=2024-02-01"},
 		{"/v1/models", "/v1/models"},
 		{"/%61pi/oauth/test?code=secret&state=secret", "/api/oauth/test"},
+		{"/api/option/waffo-pancake/catalog?merchant_id=m1&Private_Key=pancake-secret",
+			"/api/option/waffo-pancake/catalog?Private_Key=%2A%2A%2Amasked%2A%2A%2A&merchant_id=m1"},
+		{"/api/verification?email=user%40example.com&turnstile=turnstile-response",
+			"/api/verification?email=user%40example.com&turnstile=%2A%2A%2Amasked%2A%2A%2A"},
 	} {
 		t.Run(tc.target, func(t *testing.T) {
 			var output bytes.Buffer
