@@ -35,6 +35,7 @@ import { formatLocalCurrencyAmount } from '@/lib/currency'
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
 import { formatCurrency, getPaymentIcon } from '../../lib'
 import type { PaymentMethod } from '../../types'
+import { PaymentUsdFigure } from '../payment-usd-figure'
 
 interface PaymentConfirmDialogProps {
   open: boolean
@@ -47,6 +48,7 @@ interface PaymentConfirmDialogProps {
   processing: boolean
   discountRate?: number
   usdExchangeRate?: number
+  priceRatio?: number
 }
 
 export function PaymentConfirmDialog({
@@ -60,6 +62,7 @@ export function PaymentConfirmDialog({
   processing,
   discountRate = DEFAULT_DISCOUNT_RATE,
   usdExchangeRate = 1,
+  priceRatio = 1,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
@@ -102,6 +105,10 @@ export function PaymentConfirmDialog({
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
                   {formatCurrency(paymentAmount)}
+                  <PaymentUsdFigure
+                    amount={paymentAmount}
+                    priceRatio={priceRatio}
+                  />
                 </span>
                 {hasDiscount && (
                   <span className='text-muted-foreground text-sm line-through'>

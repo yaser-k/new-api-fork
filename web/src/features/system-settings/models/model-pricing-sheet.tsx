@@ -207,7 +207,9 @@ export const ModelPricingEditorPanel = forwardRef<
   const { t } = useTranslation()
   const promptPriceId = useId()
   const formElementRef = useRef<HTMLFormElement>(null)
-  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
+  const currencyConfig = useSystemConfigStore(
+    (state) => state.config.siteCurrency
+  )
   const preference = usePricingPreferencesStore((state) => state.currency)
   const siteCurrency = useMemo(
     () => getSitePricingCurrency(currencyConfig),
