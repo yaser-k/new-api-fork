@@ -31,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { AppHeader } from '@/components/layout/components/app-header'
 import { PublicHeader } from '@/components/layout/components/public-header'
 import { SidebarProvider } from '@/components/ui/sidebar'
+import { DirectionProvider } from '@/context/direction-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
@@ -76,7 +77,9 @@ async function renderInRouter(node: ReactNode): Promise<void> {
   await router.load()
   render(
     <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
+      <DirectionProvider>
+        <RouterProvider router={router} />
+      </DirectionProvider>
     </QueryClientProvider>
   )
 }
