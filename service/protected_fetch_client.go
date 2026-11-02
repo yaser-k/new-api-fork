@@ -160,6 +160,13 @@ func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transp
 		ForceAttemptHTTP2:   true,
 		Proxy:               proxyFunc,
 		DialContext:         dialContext,
+		// The URLs fetched here are user-controlled, so a host that completes the TCP
+		// handshake and then stays silent must not park the request: bound the TLS
+		// handshake and the wait for headers as the relay transport does.
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	if seconds := common.RelayResponseHeaderTimeout; seconds > 0 {
+		transport.ResponseHeaderTimeout = time.Duration(min(seconds, maxTimeoutSeconds)) * time.Second
 	}
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
