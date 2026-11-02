@@ -16,6 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useTranslation } from 'react-i18next'
+
+import { toIntlLocale } from '@/i18n/languages'
 import { formatCurrencyFromUSD } from '@/lib/currency'
 import { useDisplayCurrencyStore } from '@/stores/display-currency-store'
 import {
@@ -32,6 +35,8 @@ export function PaymentUsdFigure(props: {
   amount: number
   priceRatio: number
 }) {
+  const { i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const displayCurrency = useDisplayCurrencyStore(
     (state) => state.displayCurrency
   )
@@ -45,7 +50,7 @@ export function PaymentUsdFigure(props: {
 
   return (
     <span className='text-muted-foreground ms-1.5 text-xs font-normal'>
-      ≈ {formatCurrencyFromUSD(props.amount / props.priceRatio)}
+      ≈ {formatCurrencyFromUSD(props.amount / props.priceRatio, { locale })}
     </span>
   )
 }

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
@@ -32,6 +33,7 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
+import { PaymentUsdFigure } from '../components/payment-usd-figure'
 import { Wallet } from '../index'
 
 // The site shows CNY at 7 per USD and charges 5 CNY for 1 USD of balance.
@@ -91,9 +93,10 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks()
   resetStores()
+  await i18next.changeLanguage('en')
 })
 
 describe('wallet top-up with either display currency', () => {
@@ -155,4 +158,30 @@ describe('wallet top-up with either display currency', () => {
       '50≈ $10'
     )
   })
+})
+
+describe('US dollar figure in the interface language', () => {
+  test.each([
+    { language: 'en', figure: '≈ $2,469.1' },
+    { language: 'zhCN', figure: '≈ $2,469.1' },
+    { language: 'zhTW', figure: '≈ $2,469.1' },
+    { language: 'fr', figure: '≈ 2 469,1 $' },
+    { language: 'ru', figure: '≈ 2 469,1 $' },
+    { language: 'ja', figure: '≈ $2,469.1' },
+    { language: 'vi', figure: '≈ 2.469,1 $' },
+    { language: '!!', figure: '≈ $2,469.1' },
+  ])(
+    'formats the figure for interface language $language',
+    async ({ language, figure }) => {
+      useDisplayCurrencyStore.getState().setDisplayCurrency('USD')
+      await i18next.changeLanguage(language)
+
+      const { container } = render(
+        <PaymentUsdFigure amount={12_345.5} priceRatio={PRICE} />
+      )
+
+      // Grouping and currency spacing differ only in the kind of space.
+      expect(container.textContent?.replaceAll(/\s/g, ' ')).toBe(figure)
+    }
+  )
 })
