@@ -848,6 +848,28 @@ func UpdateSelf(c *gin.Context) {
 		return
 	}
 
+	// The currency the console shows figures in; display only, billing stays in USD.
+	if displayCurrency, exists := requestData["display_currency"]; exists && !passwordRequested {
+		choice, ok := displayCurrency.(string)
+		if !ok || (choice != "site" && choice != "USD") {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		user, err := model.GetUserById(c.GetInt("id"), false)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		currentSetting := user.GetSetting()
+		currentSetting.DisplayCurrency = choice
+		if err := model.UpdateUserSetting(user.Id, currentSetting); err != nil {
+			common.ApiErrorT(c, "Update failed")
+			return
+		}
+		common.ApiSuccessT(c, "Update successful", nil)
+		return
+	}
+
 	// 原有的用户信息更新逻辑
 	var user model.User
 	requestDataBytes, err := common.Marshal(requestData)
