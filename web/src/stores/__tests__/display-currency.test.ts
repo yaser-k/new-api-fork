@@ -217,6 +217,26 @@ describe('display currency with US dollars chosen', () => {
   })
 })
 
+describe('display currency with a config saved before this change', () => {
+  test('reads the saved currency as the site values', async () => {
+    useDisplayCurrencyStore.getState().setDisplayCurrency('USD')
+    localStorage.setItem(
+      'system-config-storage',
+      JSON.stringify({ state: { config: { currency: SITES.CUSTOM } } })
+    )
+
+    await useSystemConfigStore.persist.rehydrate()
+
+    expect(useSystemConfigStore.getState().config.siteCurrency).toEqual(
+      SITES.CUSTOM
+    )
+    expect(figures()).toEqual({
+      ...USD_FIGURES,
+      local: SITE_FIGURES.CUSTOM.local,
+    })
+  })
+})
+
 describe('display currency precedence', () => {
   test('defaults to the site currency', async () => {
     showSite(SITES.CUSTOM)
