@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatLocalCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
@@ -64,7 +65,8 @@ export function PaymentConfirmDialog({
   usdExchangeRate = 1,
   priceRatio = 1,
 }: PaymentConfirmDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
@@ -91,6 +93,7 @@ export function PaymentConfirmDialog({
                 digitsLarge: 2,
                 digitsSmall: 2,
                 abbreviate: false,
+                locale,
               })}
             </span>
           </div>
@@ -104,7 +107,7 @@ export function PaymentConfirmDialog({
             ) : (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {formatCurrency(paymentAmount)}
+                  {formatCurrency(paymentAmount, locale)}
                   <PaymentUsdFigure
                     amount={paymentAmount}
                     priceRatio={priceRatio}
@@ -112,7 +115,7 @@ export function PaymentConfirmDialog({
                 </span>
                 {hasDiscount && (
                   <span className='text-muted-foreground text-sm line-through'>
-                    {formatCurrency(originalAmount)}
+                    {formatCurrency(originalAmount, locale)}
                   </span>
                 )}
               </div>
@@ -124,7 +127,7 @@ export function PaymentConfirmDialog({
               <div className='flex items-center justify-between text-sm'>
                 <span className='text-muted-foreground'>{t('You save')}</span>
                 <span className='font-semibold text-green-600'>
-                  {formatCurrency(discountAmount)}
+                  {formatCurrency(discountAmount, locale)}
                 </span>
               </div>
             </div>
@@ -153,7 +156,7 @@ export function PaymentConfirmDialog({
             {t('Cancel')}
           </AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm} disabled={processing}>
-            {processing && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+            {processing && <Loader2 className='me-2 h-4 w-4 animate-spin' />}
             {t('Confirm Payment')}
           </AlertDialogAction>
         </AlertDialogFooter>
