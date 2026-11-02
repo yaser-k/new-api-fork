@@ -57,7 +57,9 @@ export function ModelPricingPanel(props: {
   onDirtyChange?: (dirty: boolean) => void
 }) {
   const { t } = useTranslation()
-  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
+  const currencyConfig = useSystemConfigStore(
+    (state) => state.config.siteCurrency
+  )
   const currencyPreference = usePricingPreferencesStore(
     (state) => state.currency
   )
