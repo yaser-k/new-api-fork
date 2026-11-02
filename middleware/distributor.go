@@ -31,6 +31,10 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+// selectChannelForRequest is the distributor's channel selector, a variable
+// so tests can observe whether a request reached channel selection.
+var selectChannelForRequest = service.SelectChannelForRequest
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
@@ -49,6 +53,12 @@ func Distribute() func(c *gin.Context) {
 		if err != nil {
 			abortWithOpenAiMessage(c, invalidRequestStatus(err), i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
+		}
+		if shouldSelectChannel {
+			if retiredName, retirement, retired := lookupModelRetirement(modelRequest.Model); retired {
+				abortWithModelRetired(c, retiredName, retirement)
+				return
+			}
 		}
 		_, pinned, _ := constraints.ResolvedPin()
 		if !pinned {
@@ -108,7 +118,7 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 			if channel == nil {
-				channel, _, selectErr = service.SelectChannelForRequest(c, modelRequest.Model, &service.RetryParam{
+				channel, _, selectErr = selectChannelForRequest(c, modelRequest.Model, &service.RetryParam{
 					Ctx:         c,
 					ModelName:   modelRequest.Model,
 					TokenGroup:  usingGroup,
