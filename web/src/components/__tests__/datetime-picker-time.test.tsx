@@ -70,5 +70,6 @@ test('keeps the current time when the time field is emptied', () => {
   const field = screen.getByLabelText('Time')
   fireEvent.change(field, { target: { value: '' } })
   expect(onChange).not.toHaveBeenCalled()
+  fireEvent.blur(field)
   expect(field).toHaveValue('20:30:45')
 })
