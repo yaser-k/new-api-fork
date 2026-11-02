@@ -24,8 +24,14 @@ import {
   getSavedLanguage,
   sanitizeAuthRedirect,
 } from '@/features/auth/lib/auth-redirect'
+import {
+  isInterfaceLanguageOffered,
+  readInterfaceLanguageSettings,
+  rememberChosenInterfaceLanguage,
+} from '@/i18n/interface-language-policy'
 import { applyAuthBundle, isAuthBundle } from '@/lib/api'
 import { AuthOperationError } from '@/lib/secure-verification'
+import { readCachedStatus } from '@/lib/status-query'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 import { isLoginChallenge } from '../secure-verification/api'
@@ -59,7 +65,15 @@ export function useAuthRedirect() {
       }
       applyAuthBundle(bundle)
       const savedLang = getSavedLanguage(bundle.user)
-      if (savedLang && savedLang !== i18n.language) {
+      if (
+        savedLang &&
+        savedLang !== i18n.language &&
+        isInterfaceLanguageOffered(
+          readInterfaceLanguageSettings(readCachedStatus()),
+          savedLang
+        )
+      ) {
+        rememberChosenInterfaceLanguage(savedLang)
         await i18n.changeLanguage(savedLang)
       }
 
