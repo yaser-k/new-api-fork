@@ -33,20 +33,20 @@ export function parseDisplayCurrency(value: unknown): DisplayCurrency | null {
   return value === 'site' || value === 'USD' ? value : null
 }
 
-/** The display currency saved in an account's settings, if a valid one is. */
-export function getAccountDisplayCurrency(
+/** An account's settings, which the server sends as a JSON string. */
+export function readAccountSetting(
   user: AuthUser | null
-): DisplayCurrency | null {
-  let setting = user?.setting
-  if (typeof setting === 'string') {
-    try {
-      setting = JSON.parse(setting) as Record<string, unknown>
-    } catch {
-      return null
-    }
+): Record<string, unknown> {
+  const setting = user?.setting
+  if (typeof setting !== 'string') return setting ?? {}
+  try {
+    const parsed: unknown = JSON.parse(setting)
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
   }
-  if (!setting || typeof setting !== 'object') return null
-  return parseDisplayCurrency(setting.display_currency)
 }
 
 type DisplayCurrencyState = {
@@ -81,7 +81,9 @@ export const useDisplayCurrencyStore = create<DisplayCurrencyState>()(
 
 useAuthStore.subscribe((state, previous) => {
   if (state.auth.user === previous.auth.user) return
-  const accountChoice = getAccountDisplayCurrency(state.auth.user)
+  const accountChoice = parseDisplayCurrency(
+    readAccountSetting(state.auth.user).display_currency
+  )
   if (
     accountChoice &&
     accountChoice !== useDisplayCurrencyStore.getState().displayCurrency
