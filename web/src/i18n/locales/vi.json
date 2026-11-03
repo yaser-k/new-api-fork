@@ -2976,6 +2976,7 @@
     "Grok": "Grok",
     "Grok Settings": "Cài đặt Grok",
     "Group": "Nhóm",
+    "Group {{group}} is unavailable or unauthorized": "Nhóm {{group}} không khả dụng hoặc không có quyền truy cập",
     "Group {{path}}": "Nhóm {{path}}",
     "Group & Quota": "Nhóm & Hạn mức",
     "Group #{{index}} category name cannot exceed 50 characters": "Tên danh mục của nhóm #{{index}} không được vượt quá 50 ký tự",
