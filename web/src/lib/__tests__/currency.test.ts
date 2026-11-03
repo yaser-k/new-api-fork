@@ -142,6 +142,14 @@ describe('amounts in the interface language', () => {
     await i18next.changeLanguage('en')
   })
 
+  test('a Persian interface puts Persian digits before a Persian currency word', async () => {
+    await i18next.changeLanguage('fa')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700)).toBe(`۲۰۳٬۷۰۰ ${TOMAN}`)
+    expect(formatCurrencyFromUSD(203700)).toBe(`۲۰۳٬۷۰۰ ${TOMAN}`)
+  })
+
   test('an English interface keeps the Persian currency word before the number', async () => {
     await i18next.changeLanguage('en')
     useToman()
@@ -206,6 +214,15 @@ describe('amounts in the interface language', () => {
 
     expect(formatBillingCurrencyFromUSD(203700, { locale: 'fa' })).toBe(
       '\u200e$۲۰۳٬۷۰۰'
+    )
+  })
+
+  test('an explicit Persian locale puts the Persian currency word after the number', async () => {
+    await i18next.changeLanguage('en')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700, { locale: 'fa' })).toBe(
+      `۲۰۳٬۷۰۰ ${TOMAN}`
     )
   })
 
