@@ -109,3 +109,12 @@ func TestSmokeTestExprRejectsTaskUsageWithoutSchema(t *testing.T) {
 
 	require.NoError(t, SmokeTestExpr(`tier("base", p * 2 + c * 8)`))
 }
+
+func TestSmokeTestExprExercisesInputVideoSeconds(t *testing.T) {
+	require.NoError(t, SmokeTestExpr(`tier("base", c * 7.5 + vid_sec * 490)`))
+
+	// Every other vector carries no seconds, so only the video vectors catch a
+	// term that would turn a request into a credit.
+	err := SmokeTestExpr(`tier("base", c * 7.5 - vid_sec * 490)`)
+	require.ErrorContains(t, err, "result must be finite and non-negative")
+}
