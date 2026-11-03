@@ -212,6 +212,7 @@ export function RedemptionsMutateDrawer({
               quota: stripCurrencyIsolates(
                 formatQuotaWithCurrency(basePayload.quota, {
                   abbreviate: false,
+                  locale: undefined,
                 })
               ),
             })

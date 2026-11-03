@@ -69,12 +69,18 @@ export function formatCurrencyUSD(value: number | null | undefined): string {
 /**
  * Format quota into the configured display amount.
  * Quota is stored in units where `quotaPerUnit` equals 1 USD.
+ * Pass the interface locale (see `toIntlLocale`) so digits follow the
+ * selected language instead of the browser default.
  */
-export function formatQuota(quota: number): string {
+export function formatQuota(
+  quota: number,
+  locale?: Intl.LocalesArgument
+): string {
   return formatQuotaWithCurrency(quota, {
     digitsLarge: 2,
     digitsSmall: 4,
     abbreviate: true,
+    locale,
   })
 }
 
@@ -233,12 +239,18 @@ export function formatTimeStr(date: Date): string {
 /**
  * Format quota for usage logs with higher precision
  * Uses 6 decimal places to show very small costs accurately
+ * Pass the interface locale (see `toIntlLocale`) so digits follow the
+ * selected language instead of the browser default.
  */
-export function formatLogQuota(quota: number): string {
+export function formatLogQuota(
+  quota: number,
+  locale?: Intl.LocalesArgument
+): string {
   return formatQuotaWithCurrency(quota, {
     digitsLarge: 4,
     digitsSmall: 6,
     abbreviate: false,
+    locale,
   })
 }
 

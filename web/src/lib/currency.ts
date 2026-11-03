@@ -78,6 +78,9 @@ For commercial licensing, please contact support@quantumnous.com
  * 4. **Billing displays**: Use formatBillingCurrencyFromUSD() to avoid token display
  * 5. **Effective exchange rate**: When quotaDisplayType is 'USD', use rate of 1 regardless of config
  */
+import i18next from 'i18next'
+
+import { toIntlLocale } from '@/i18n/languages'
 import {
   useSystemConfigStore,
   DEFAULT_CURRENCY_CONFIG,
@@ -101,7 +104,11 @@ export interface CurrencyFormatOptions {
   compact?: boolean
   /** Whether to include the currency/custom symbol. Token displays are unchanged. */
   showSymbol?: boolean
-  /** Locale used for number formatting (defaults to the runtime locale) */
+  /**
+   * Locale used for number formatting (defaults to the interface language).
+   * An explicit `undefined` keeps the runtime locale, for amounts that leave
+   * the page (exported files, values sent to the server).
+   */
   locale?: Intl.LocalesArgument | undefined
 }
 
@@ -258,7 +265,11 @@ function getBillingDisplayMeta(config: CurrencyConfig): DisplayMeta {
 function mergeOptions(
   options?: CurrencyFormatOptions
 ): ResolvedCurrencyFormatOptions {
-  if (!options) return DEFAULT_FORMAT_OPTIONS
+  const locale =
+    options && 'locale' in options
+      ? options.locale
+      : toIntlLocale(i18next.resolvedLanguage || i18next.language)
+  if (!options) return { ...DEFAULT_FORMAT_OPTIONS, locale }
   return {
     digitsLarge: options.digitsLarge ?? DEFAULT_FORMAT_OPTIONS.digitsLarge,
     digitsSmall: options.digitsSmall ?? DEFAULT_FORMAT_OPTIONS.digitsSmall,
@@ -267,7 +278,7 @@ function mergeOptions(
       options.minimumNonZero ?? DEFAULT_FORMAT_OPTIONS.minimumNonZero,
     compact: options.compact ?? DEFAULT_FORMAT_OPTIONS.compact,
     showSymbol: options.showSymbol ?? DEFAULT_FORMAT_OPTIONS.showSymbol,
-    locale: options.locale ?? DEFAULT_FORMAT_OPTIONS.locale,
+    locale,
   }
 }
 
