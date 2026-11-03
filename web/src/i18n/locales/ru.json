@@ -2335,6 +2335,7 @@
     "Enter password": "Введите пароль",
     "Enter password (8-20 characters)": "Введите пароль (8-20 символов)",
     "Enter password (8–128 characters)": "Введите пароль (8–128 символов)",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "Укажите порты от 1 до 65535 или диапазоны вида 8000-9000 через запятую",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "Укажите прежние домены, по одному на строку, без протокола, порта и пути. Разные порты одного домена не требуют добавления совместимых доменов.",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "Введите прежние домены ключей доступа, по одному в строке. Существующие ключи продолжат работать с этими доменами, а новые будут использовать основной домен.",
     "Enter quota in {{currency}}": "Введите квоту в {{currency}}",

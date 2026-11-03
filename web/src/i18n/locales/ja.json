@@ -2335,6 +2335,7 @@
     "Enter password": "パスワードを入力",
     "Enter password (8-20 characters)": "パスワードを入力 (8～20文字)",
     "Enter password (8–128 characters)": "パスワードを入力（8～128文字）",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "1～65535 のポート、または 8000-9000 のような範囲をカンマ区切りで入力してください",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "以前のドメインを1行に1つ入力し、プロトコル、ポート、パスは含めないでください。同じドメインでポートのみが異なる場合、互換ドメインへの追加は不要です。",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "以前のパスキードメインを1行に1つ入力してください。既存のパスキーはこれらのドメインで引き続き認証でき、新しいパスキーはメインドメインを使用します。",
     "Enter quota in {{currency}}": "{{currency}} でクォータを入力",
