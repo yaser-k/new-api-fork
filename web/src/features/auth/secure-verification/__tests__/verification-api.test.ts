@@ -27,6 +27,7 @@ import { waitFor } from '@testing-library/react'
 import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { setup2FA } from '@/features/security/api'
 import { api } from '@/lib/api'
 import { AuthOperationError, authResult } from '@/lib/secure-verification'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
@@ -425,6 +426,129 @@ it('passes the operation context to Passkey begin and completes with only its fl
     flow_token: 'flow',
     credential: expect.anything(),
   })
+})
+
+it('uses a proof issued by a server whose clock is two minutes behind the browser', async () => {
+  const browserNow = Date.now()
+  vi.spyOn(Date, 'now').mockReturnValue(browserNow)
+  const proof = {
+    proof_token: 'password-change-proof',
+    method: '2fa',
+    scope: 'account.password.change',
+    expires_at: Math.floor((browserNow - 120_000) / 1000) + 60,
+  }
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: proof },
+  })
+  await expect(
+    verify(
+      { method: '2fa', code: '123456' },
+      { scope: 'account.password.change' },
+      false,
+      new AbortController().signal
+    )
+  ).resolves.toEqual(proof)
+})
+
+it('uses a Passkey proof from a server two minutes behind and remembers its domain', async () => {
+  const browserNow = Date.now()
+  vi.spyOn(Date, 'now').mockReturnValue(browserNow)
+  window.localStorage.clear()
+  vi.stubGlobal('navigator', {
+    credentials: {
+      get: vi.fn().mockResolvedValue({
+        id: 'credential',
+        rawId: new Uint8Array([1, 2, 3]).buffer,
+        type: 'public-key',
+        response: {
+          clientDataJSON: new Uint8Array([1]).buffer,
+          authenticatorData: new Uint8Array([2]).buffer,
+          signature: new Uint8Array([3]).buffer,
+          userHandle: null,
+        },
+        getClientExtensionResults: () => ({}),
+      }),
+    },
+  })
+  const proof = {
+    proof_token: 'passkey-proof',
+    scope: '2fa.setup',
+    method: 'passkey',
+    expires_at: Math.floor((browserNow - 120_000) / 1000) + 60,
+  }
+  vi.spyOn(api, 'post')
+    .mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          flow_token: 'flow',
+          options: {
+            publicKey: {
+              challenge: 'AQID',
+              rpId: 'console.example.com',
+              allowCredentials: [],
+            },
+          },
+        },
+      },
+    })
+    .mockResolvedValueOnce({ data: { success: true, data: proof } })
+  await expect(
+    verify(
+      { method: 'passkey' },
+      { scope: '2fa.setup' },
+      false,
+      new AbortController().signal
+    )
+  ).resolves.toEqual(proof)
+  expect(window.localStorage.getItem('passkey:last-successful-rp-id')).toBe(
+    'console.example.com'
+  )
+  window.localStorage.clear()
+})
+
+it('reports a proof the server refuses as expired and does not send it again', async () => {
+  const proof = {
+    proof_token: 'expired-proof',
+    method: '2fa',
+    scope: '2fa.setup',
+    expires_at: Math.floor(Date.now() / 1000) + 60,
+  }
+  vi.spyOn(api, 'post').mockResolvedValueOnce({
+    data: { success: true, data: proof },
+  })
+  const issued = await verify(
+    { method: '2fa', code: '123456' },
+    { scope: '2fa.setup' },
+    false,
+    new AbortController().signal
+  )
+  vi.mocked(api.post).mockRestore()
+  useAuthStore.getState().auth.setBundle(sessionBundle)
+  const adapter = vi.fn(async (config: InternalAxiosRequestConfig) => {
+    throw new AxiosError('Forbidden', 'ERR_BAD_REQUEST', config, undefined, {
+      status: 403,
+      statusText: 'Forbidden',
+      config,
+      headers: {},
+      data: {
+        success: false,
+        code: 'SECURITY_PROOF_EXPIRED',
+        message: 'Security verification has expired. Please verify again.',
+      },
+    })
+  })
+  api.defaults.adapter = adapter
+  await expect(
+    setup2FA(issued.proof_token, new AbortController().signal)
+  ).rejects.toMatchObject({
+    code: 'SECURITY_PROOF_EXPIRED',
+    message: 'Security verification has expired. Please verify again.',
+  })
+  expect(adapter).toHaveBeenCalledTimes(1)
+  expect(adapter.mock.calls[0]?.[0].headers['X-Security-Proof']).toBe(
+    'expired-proof'
+  )
 })
 
 it('passes an enrollment operation through OAuth state creation', async () => {
