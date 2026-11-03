@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/internal/convdiag"
+	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
@@ -292,4 +293,68 @@ func HasFunctionCallContent(call *dto.FunctionCall) bool {
 
 func SupportedMimeTypesList() []string {
 	return append(slices.Sorted(maps.Keys(supportedMimeTypes)), "audio/*", "video/*")
+}
+
+// AppendContentPart adds part to the last content when it has the same role,
+// so consecutive parts of one role form a single turn, and starts a content
+// otherwise. Function calls stay ahead of the other parts of a model turn.
+// Function responses stay ahead of the tool media sent after them, in the
+// order of the calls they answer in the preceding model turn: Gemini pairs a
+// response with its call by position when call ids are absent, as on Vertex AI
+// by default.
+func AppendContentPart(req *dto.GeminiChatRequest, role string, part dto.GeminiPart) {
+	last := len(req.Contents) - 1
+	if last < 0 || req.Contents[last].Role != role {
+		req.Contents = append(req.Contents, dto.GeminiChatContent{
+			Role:  role,
+			Parts: []dto.GeminiPart{part},
+		})
+		return
+	}
+	parts := req.Contents[last].Parts
+	insertAt := len(parts)
+	switch {
+	case role == "model" && part.FunctionCall != nil:
+		insertAt = 0
+		for insertAt < len(parts) && parts[insertAt].FunctionCall != nil {
+			insertAt++
+		}
+	case part.FunctionResponse != nil:
+		var calls []dto.GeminiPart
+		if last > 0 && req.Contents[last-1].Role == "model" {
+			calls = req.Contents[last-1].Parts
+		}
+		position := answeredCallPosition(calls, part.FunctionResponse)
+		for i := len(parts) - 1; i >= 0; i-- {
+			if parts[i].FunctionResponse == nil {
+				continue
+			}
+			if answeredCallPosition(calls, parts[i].FunctionResponse) <= position {
+				insertAt = i + 1
+				break
+			}
+			insertAt = i
+		}
+	}
+	req.Contents[last].Parts = slices.Insert(parts, insertAt, part)
+}
+
+// answeredCallPosition returns the index, among the function calls in calls,
+// of the call whose id the response carries, or len(calls) when none matches.
+func answeredCallPosition(calls []dto.GeminiPart, response *dto.GeminiFunctionResponse) int {
+	id := kitutil.JsonRawMessageToString(response.ID)
+	if id == "" {
+		return len(calls)
+	}
+	position := 0
+	for _, call := range calls {
+		if call.FunctionCall == nil {
+			continue
+		}
+		if call.FunctionCall.ID == id {
+			return position
+		}
+		position++
+	}
+	return len(calls)
 }
