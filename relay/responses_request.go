@@ -60,6 +60,9 @@ func PrepareResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, req *d
 
 	convertedRequest, err := adaptor.ConvertOpenAIResponsesRequest(c, info, *request)
 	if err != nil {
+		if apiErr := newUnsupportedOperationError(c, info, err); apiErr != nil {
+			return nil, nil, nil, apiErr
+		}
 		return nil, nil, nil, newConvertRequestFailedError(c, info, err)
 	}
 	relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
