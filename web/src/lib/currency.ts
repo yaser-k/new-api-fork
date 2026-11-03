@@ -80,7 +80,7 @@ For commercial licensing, please contact support@quantumnous.com
  */
 import i18next from 'i18next'
 
-import { toIntlLocale } from '@/i18n/languages'
+import { getInterfaceLanguageDirection, toIntlLocale } from '@/i18n/languages'
 import {
   useSystemConfigStore,
   DEFAULT_CURRENCY_CONFIG,
@@ -388,7 +388,18 @@ function formatCurrencyValue(
     maximumFractionDigits: options.compact ? 1 : digits,
   }).format(adjustedValue)
 
-  return options.showSymbol ? `${meta.symbol} ${decimal}` : decimal
+  if (!options.showSymbol) return decimal
+  // A currency word in a right-to-left script is read after the number in a
+  // right-to-left locale ("۲۰۳٬۷۰۰ تومان"). Other symbols, and amounts in the
+  // runtime locale (an undefined locale), keep the symbol first.
+  const locale = typeof options.locale === 'string' ? options.locale : undefined
+  if (
+    STRONG_RTL_CHAR.test(meta.symbol) &&
+    getInterfaceLanguageDirection(locale) === 'rtl'
+  ) {
+    return `${decimal} ${meta.symbol}`
+  }
+  return `${meta.symbol} ${decimal}`
 }
 
 /**
