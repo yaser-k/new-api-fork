@@ -2350,6 +2350,7 @@
     "Enter password": "Saisir le mot de passe",
     "Enter password (8-20 characters)": "Saisir le mot de passe (8-20 caractères)",
     "Enter password (8–128 characters)": "Saisissez un mot de passe (8 à 128 caractères)",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "Saisissez des ports de 1 à 65535 ou des plages comme 8000-9000, séparés par des virgules",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "Saisissez les anciens domaines, un par ligne, sans protocole, port ni chemin. Des ports différents sur un même domaine ne nécessitent pas de domaines compatibles.",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "Saisissez les anciens domaines des clés d’accès, un par ligne. Les clés existantes restent utilisables avec ces domaines ; les nouvelles utilisent le domaine principal.",
     "Enter quota in {{currency}}": "Saisir le quota en {{currency}}",
