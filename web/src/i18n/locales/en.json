@@ -2353,6 +2353,7 @@
     "Enter password": "Enter password",
     "Enter password (8-20 characters)": "Enter password (8-20 characters)",
     "Enter password (8–128 characters)": "Enter password (8–128 characters)",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.",
     "Enter quota in {{currency}}": "Enter quota in {{currency}}",
