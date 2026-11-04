@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,11 @@ type Adaptor struct {
 	AwsReq     any
 	IsNova     bool
 	IsConverse bool
+
+	// The Nova Sonic stream of a realtime session, opened by DoRequest and run by DoResponse.
+	sonicModel  novaSonicModel
+	sonicStream *bedrockruntime.InvokeModelWithBidirectionalStreamEventStream
+	sonicCancel context.CancelFunc
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
@@ -190,6 +196,13 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == relayconstant.RelayModeRealtime {
+		// The session has no upstream WebSocket: DoResponse runs it on the stream opened here.
+		return nil, a.openNovaSonicSession(c, info)
+	}
+	if _, ok := novaSonicModels[getAwsModelID(info.UpstreamModelName)]; ok {
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("model %s is a speech-to-speech model served only on the realtime route (/v1/realtime)", info.OriginModelName), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
 	if info.RelayMode == relayconstant.RelayModeEmbeddings {
 		return nil, doAwsEmbeddingRequest(c, info, a, requestBody)
 	}
@@ -217,6 +230,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayMode == relayconstant.RelayModeRealtime {
+		return a.novaSonicHandler(c, info)
+	}
 	// A Mantle channel answers in the Messages API for Claude models only;
 	// newMantleRequest refuses Nova and the Converse models before sending.
 	if a.IsConverse && a.ClientMode != ClientModeApiKey && info.ChannelOtherSettings.AwsApiType != dto.AwsApiTypeMantle {
