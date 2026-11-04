@@ -69,27 +69,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, errors.New("not supported model for image generation, only imagen models are supported")
 	}
 
-	// convert size to aspect ratio but allow user to specify aspect ratio
-	aspectRatio := "1:1" // default aspect ratio
-	size := strings.TrimSpace(request.Size)
-	if size != "" {
-		if strings.Contains(size, ":") {
-			aspectRatio = size
-		} else {
-			switch size {
-			case "256x256", "512x512", "1024x1024":
-				aspectRatio = "1:1"
-			case "1536x1024":
-				aspectRatio = "3:2"
-			case "1024x1536":
-				aspectRatio = "2:3"
-			case "1024x1792":
-				aspectRatio = "9:16"
-			case "1792x1024":
-				aspectRatio = "16:9"
-			}
-		}
-	}
+	aspectRatio := imageAspectRatio(request.Size)
 
 	// build gemini imagen request
 	geminiRequest := dto.GeminiImageRequest{
@@ -128,6 +108,26 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	return geminiRequest, nil
+}
+
+// imageAspectRatio converts an OpenAI image size to a Google aspect ratio. A size that already is
+// an aspect ratio ("16:9") is kept, and an unknown or empty size is square.
+func imageAspectRatio(size string) string {
+	size = strings.TrimSpace(size)
+	if strings.Contains(size, ":") {
+		return size
+	}
+	switch size {
+	case "1536x1024":
+		return "3:2"
+	case "1024x1536":
+		return "2:3"
+	case "1024x1792":
+		return "9:16"
+	case "1792x1024":
+		return "16:9"
+	}
+	return "1:1"
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
