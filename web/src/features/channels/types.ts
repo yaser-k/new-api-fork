@@ -94,6 +94,12 @@ export interface ChannelSettings {
   tls_insecure_skip_verify?: boolean
 }
 
+export type UpstreamEndUserIdField =
+  | ''
+  | 'safety_identifier'
+  | 'user'
+  | 'metadata.user_id'
+
 export interface ChannelOtherSettings {
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'
@@ -104,6 +110,7 @@ export interface ChannelOtherSettings {
   allow_service_tier?: boolean
   disable_store?: boolean
   allow_safety_identifier?: boolean
+  upstream_end_user_id_field?: UpstreamEndUserIdField
   allow_include_obfuscation?: boolean
   allow_inference_geo?: boolean
   allow_speed?: boolean
