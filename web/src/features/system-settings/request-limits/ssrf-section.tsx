@@ -53,6 +53,21 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+const splitPorts = (value: string) =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+// An entry is a port from 1 to 65535 or a range N-M with N not above M.
+const isPortEntry = (entry: string) => {
+  const match = /^(\d+)(?:-(\d+))?$/.exec(entry)
+  if (!match) return false
+  const start = Number(match[1])
+  const end = Number(match[2] ?? match[1])
+  return start >= 1 && start <= end && end <= 65535
+}
+
 const ssrfSchema = z.object({
   fetch_setting: z.object({
     enable_ssrf_protection: z.boolean(),
@@ -61,7 +76,12 @@ const ssrfSchema = z.object({
     ip_filter_mode: z.boolean(),
     domain_list: z.string(),
     ip_list: z.string(),
-    allowed_ports: z.string(),
+    allowed_ports: z
+      .string()
+      .refine(
+        (value) => splitPorts(value).every(isPortEntry),
+        'Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas'
+      ),
     apply_ip_filter_for_domain: z.boolean(),
   }),
 })
@@ -76,7 +96,7 @@ type NormalizedSSRFValues = {
   'fetch_setting.ip_filter_mode': boolean
   'fetch_setting.domain_list': string[]
   'fetch_setting.ip_list': string[]
-  'fetch_setting.allowed_ports': number[]
+  'fetch_setting.allowed_ports': string[]
   'fetch_setting.apply_ip_filter_for_domain': boolean
 }
 
@@ -88,7 +108,8 @@ type SSRFSectionProps = {
     'fetch_setting.ip_filter_mode': boolean
     'fetch_setting.domain_list': string[]
     'fetch_setting.ip_list': string[]
-    'fetch_setting.allowed_ports': number[]
+    // An older console saved the ports as JSON numbers.
+    'fetch_setting.allowed_ports': Array<number | string>
     'fetch_setting.apply_ip_filter_for_domain': boolean
   }
 }
@@ -98,12 +119,6 @@ const splitLines = (value: string) =>
     .split('\n')
     .map((entry) => entry.trim())
     .filter(Boolean)
-
-const parsePorts = (value: string) =>
-  value
-    .split(',')
-    .map((item) => Number.parseInt(item.trim(), 10))
-    .filter((port) => Number.isFinite(port))
 
 const buildFormDefaults = (
   defaults: SSRFSectionProps['defaultValues']
@@ -132,7 +147,8 @@ const normalizeDefaults = (
   'fetch_setting.ip_filter_mode': defaults['fetch_setting.ip_filter_mode'],
   'fetch_setting.domain_list': defaults['fetch_setting.domain_list'],
   'fetch_setting.ip_list': defaults['fetch_setting.ip_list'],
-  'fetch_setting.allowed_ports': defaults['fetch_setting.allowed_ports'],
+  'fetch_setting.allowed_ports':
+    defaults['fetch_setting.allowed_ports'].map(String),
   'fetch_setting.apply_ip_filter_for_domain':
     defaults['fetch_setting.apply_ip_filter_for_domain'],
 })
@@ -145,7 +161,7 @@ const normalizeFormValues = (values: SSRFFormValues): NormalizedSSRFValues => ({
   'fetch_setting.ip_filter_mode': values.fetch_setting.ip_filter_mode,
   'fetch_setting.domain_list': splitLines(values.fetch_setting.domain_list),
   'fetch_setting.ip_list': splitLines(values.fetch_setting.ip_list),
-  'fetch_setting.allowed_ports': parsePorts(values.fetch_setting.allowed_ports),
+  'fetch_setting.allowed_ports': splitPorts(values.fetch_setting.allowed_ports),
   'fetch_setting.apply_ip_filter_for_domain':
     values.fetch_setting.apply_ip_filter_for_domain,
 })
