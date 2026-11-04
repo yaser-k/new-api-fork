@@ -21,6 +21,7 @@ import { persist } from 'zustand/middleware'
 
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import {
+  shownDisplayCurrency,
   useDisplayCurrencyStore,
   type DisplayCurrency,
 } from '@/stores/display-currency-store'
@@ -133,7 +134,7 @@ export const useSystemConfigStore = create<SystemConfigState>()(
               siteCurrency,
               currency: applyDisplayCurrency(
                 siteCurrency,
-                useDisplayCurrencyStore.getState().displayCurrency
+                shownDisplayCurrency(useDisplayCurrencyStore.getState())
               ),
             },
           }
@@ -164,7 +165,7 @@ export const useSystemConfigStore = create<SystemConfigState>()(
             siteCurrency,
             currency: applyDisplayCurrency(
               siteCurrency,
-              useDisplayCurrencyStore.getState().displayCurrency
+              shownDisplayCurrency(useDisplayCurrencyStore.getState())
             ),
           },
         }
@@ -174,14 +175,12 @@ export const useSystemConfigStore = create<SystemConfigState>()(
 )
 
 useDisplayCurrencyStore.subscribe((state, previous) => {
-  if (state.displayCurrency === previous.displayCurrency) return
+  const shown = shownDisplayCurrency(state)
+  if (shown === shownDisplayCurrency(previous)) return
   useSystemConfigStore.setState((current) => ({
     config: {
       ...current.config,
-      currency: applyDisplayCurrency(
-        current.config.siteCurrency,
-        state.displayCurrency
-      ),
+      currency: applyDisplayCurrency(current.config.siteCurrency, shown),
     },
   }))
 })

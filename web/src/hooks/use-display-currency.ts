@@ -48,6 +48,7 @@ export function useDisplayCurrencyOptions() {
   return {
     value,
     symbol: value === 'USD' ? '$' : site.symbol,
+    siteLabel: site.label,
     items: [
       {
         value: 'site' as const,
