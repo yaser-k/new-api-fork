@@ -46,6 +46,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 
 import { getSortLabels, type SortOption, type ViewMode } from '../constants'
+import type { CurrencyView } from '../hooks/use-currency-view'
 import type { PricingModel, PricingVendor, TokenUnit } from '../types'
 import { PricingSidebar } from './pricing-sidebar'
 
@@ -56,6 +57,8 @@ export interface PricingToolbarProps {
   onSortChange: (value: string) => void
   tokenUnit: TokenUnit
   onTokenUnitChange: (value: TokenUnit) => void
+  /** The currency switch, absent on a site that offers no choice */
+  currencyView?: CurrencyView | null
   showRechargePrice: boolean
   onRechargePriceChange: (value: boolean) => void
   viewMode: ViewMode
@@ -134,6 +137,21 @@ export function PricingToolbar(props: PricingToolbarProps) {
             <ToggleGroupItem value='standard'>{t('Standard')}</ToggleGroupItem>
             <ToggleGroupItem value='recharge'>{t('Recharge')}</ToggleGroupItem>
           </ToggleGroup>
+          {props.currencyView && (
+            <ToggleGroup
+              value={[props.currencyView.value]}
+              onValueChange={(values) => props.currencyView?.select(values[0])}
+              variant='outline'
+              size='sm'
+              aria-label={t('Currency')}
+            >
+              {props.currencyView.items.map((item) => (
+                <ToggleGroupItem key={item.value} value={item.value}>
+                  {item.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
           <ToggleGroup
             value={[props.tokenUnit]}
             onValueChange={(values) => {
