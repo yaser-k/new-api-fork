@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -33,6 +34,9 @@ type ClaudeMediaMessage struct {
 	// Text blocks and citations_delta events.
 	Citations json.RawMessage `json:"citations,omitempty"`
 	Citation  json.RawMessage `json:"citation,omitempty"`
+
+	// Search-result and document blocks.
+	Title string `json:"title,omitempty"`
 
 	// Server-tool and tool-result blocks.
 	Caller     json.RawMessage `json:"caller,omitempty"`
@@ -126,11 +130,39 @@ func (m *ClaudeMediaMessage) ToFileSource() types.FileSource {
 	return types.NewFileSourceFromData(data, m.Source.MediaType)
 }
 
+// ClaudeMessageSource is the source object of an image, document or file
+// block. A search_result block gives its source as a plain string instead (the
+// URL or other identifier of the result); that string is kept in Identifier
+// and written back as the same string.
 type ClaudeMessageSource struct {
 	Type      string `json:"type"`
 	MediaType string `json:"media_type,omitempty"`
 	Data      any    `json:"data,omitempty"`
 	Url       string `json:"url,omitempty"`
+
+	Identifier *string `json:"-"`
+}
+
+func (s *ClaudeMessageSource) UnmarshalJSON(data []byte) error {
+	type sourceObject ClaudeMessageSource
+	if !bytes.HasPrefix(bytes.TrimSpace(data), []byte(`"`)) {
+		s.Identifier = nil
+		return kitutil.Unmarshal(data, (*sourceObject)(s))
+	}
+	var identifier string
+	if err := kitutil.Unmarshal(data, &identifier); err != nil {
+		return err
+	}
+	*s = ClaudeMessageSource{Identifier: &identifier}
+	return nil
+}
+
+func (s ClaudeMessageSource) MarshalJSON() ([]byte, error) {
+	type sourceObject ClaudeMessageSource
+	if s.Identifier != nil {
+		return kitutil.Marshal(*s.Identifier)
+	}
+	return kitutil.Marshal(sourceObject(s))
 }
 
 type ClaudeMessage struct {

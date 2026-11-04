@@ -188,6 +188,12 @@ func ClaudeMessagesRequestToOpenAIChat(ctx context.Context, claudeRequest dto.Cl
 						CacheControl: mediaMsg.CacheControl,
 					}
 					mediaMessages = append(mediaMessages, message)
+				case "search_result":
+					mediaMessages = append(mediaMessages, dto.MediaContent{
+						Type:         "text",
+						Text:         claudeSearchResultText(mediaMsg),
+						CacheControl: mediaMsg.CacheControl,
+					})
 				case "image":
 					url := claudeImageSourceURL(mediaMsg.Source)
 					if url == "" {
@@ -300,6 +306,8 @@ func claudeToolResultToChat(blocks []dto.ClaudeMediaMessage) (string, []dto.Medi
 			if text := block.GetText(); text != "" {
 				texts = append(texts, text)
 			}
+		case block.Type == "search_result":
+			texts = append(texts, claudeSearchResultText(block))
 		case block.Type == "image":
 			url := claudeImageSourceURL(block.Source)
 			if url == "" {
@@ -319,6 +327,25 @@ func claudeToolResultToChat(blocks []dto.ClaudeMediaMessage) (string, []dto.Medi
 	default:
 		return strings.Join(texts, "\n"), media
 	}
+}
+
+// claudeSearchResultText is the text a search_result block becomes in formats
+// that have no such block: its title, its source and the text of its content,
+// one per line. The citations setting has no counterpart there and is dropped.
+func claudeSearchResultText(block dto.ClaudeMediaMessage) string {
+	lines := make([]string, 0, 3)
+	if block.Title != "" {
+		lines = append(lines, block.Title)
+	}
+	if block.Source != nil && block.Source.Identifier != nil && *block.Source.Identifier != "" {
+		lines = append(lines, *block.Source.Identifier)
+	}
+	for _, part := range block.ParseMediaContent() {
+		if text := part.GetText(); part.Type == "text" && text != "" {
+			lines = append(lines, text)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // claudeImageSourceURL is the Chat image_url for a Claude image source: a data
