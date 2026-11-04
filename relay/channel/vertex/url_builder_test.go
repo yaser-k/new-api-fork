@@ -23,3 +23,19 @@ func TestBuildGoogleModelURLUsesTheLocationHost(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildMistralModelURLUsesTheMistralPublisher(t *testing.T) {
+	tests := []struct {
+		action string
+		want   string
+	}{
+		{"rawPredict", "https://europe-west4-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west4/publishers/mistralai/models/mistral-medium-3:rawPredict"},
+		{"streamRawPredict", "https://europe-west4-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west4/publishers/mistralai/models/mistral-medium-3:streamRawPredict"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.action, func(t *testing.T) {
+			got := BuildMistralModelURL("", DefaultAPIVersion, "my-project", "europe-west4", "mistral-medium-3", tt.action)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
