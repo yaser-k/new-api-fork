@@ -35,6 +35,7 @@ import {
   ModelDetailsDrawer,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
+import { useCurrencyView } from './hooks/use-currency-view'
 import { useFilters } from './hooks/use-filters'
 import { usePricingData } from './hooks/use-pricing-data'
 
@@ -44,6 +45,7 @@ export function Pricing() {
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
   )
+  const currencyView = useCurrencyView()
 
   const {
     models,
@@ -237,6 +239,7 @@ export function Pricing() {
                 onSortChange={setSortBy}
                 tokenUnit={tokenUnit}
                 onTokenUnitChange={setTokenUnit}
+                currencyView={currencyView}
                 showRechargePrice={showRechargePrice}
                 onRechargePriceChange={setShowRechargePrice}
                 viewMode={viewMode}
