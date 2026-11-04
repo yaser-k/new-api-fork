@@ -67,6 +67,9 @@ func (a *Adaptor) newMantleRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 	if a.IsNova || isNovaModel(getAwsModelID(info.UpstreamModelName)) {
 		return nil, fmt.Errorf("AWS Mantle Messages API requires a Claude model; use InvokeModel for Amazon Nova")
 	}
+	if a.IsConverse || isConverseModel(getAwsModelID(info.UpstreamModelName)) {
+		return nil, fmt.Errorf("AWS Mantle Messages API requires a Claude model; use InvokeModel for models of other providers")
+	}
 	var payload map[string]json.RawMessage
 	if err := common.DecodeJson(requestBody, &payload); err != nil {
 		return nil, fmt.Errorf("decode AWS Mantle request: %w", err)
