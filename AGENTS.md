@@ -28,7 +28,7 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 
 ### Backend (`i18n/`)
 - Library: `nicksnyder/go-i18n/v2`
-- Languages: en, zh-CN, zh-TW
+- Languages: en, zh-CN, zh-TW, fa
 - Scope: text with no web console in between (errors returned to AI clients, emails, notifications), translated with `i18n.T` / `i18n.Translate`
 - Web console API messages are English source text built with `common.NewMessage` / `common.ApiErrorT` / `common.ApiSuccessT`; the frontend translates them, so add each key to all seven frontend locale files
 - Stored log content is `[]*common.Message`; a fail reason written by the gateway is a fixed English sentence that is also a key in the frontend locale files
