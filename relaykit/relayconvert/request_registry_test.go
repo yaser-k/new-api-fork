@@ -420,6 +420,84 @@ func TestConvertRequestClaudeToResponsesDefaultsImageDetail(t *testing.T) {
 	]`, string(responsesReq.Input))
 }
 
+// searchResultRequest is a Claude request whose last user turn holds a
+// search_result block shaped as Anthropic documents it, with a string source,
+// either directly in the message or inside a tool_result.
+func searchResultRequest(t *testing.T, inToolResult bool) *dto.ClaudeRequest {
+	t.Helper()
+	const block = `{"type":"search_result","source":"https://example.com/a","title":"A","content":[{"type":"text","text":"First fact."},{"type":"text","text":"Second fact."}],"citations":{"enabled":true}}`
+	last := `{"role":"user","content":[` + block + `,{"type":"text","text":"Answer from the result."}]}`
+	if inToolResult {
+		last = `{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":[` + block + `]},{"type":"text","text":"Answer from the result."}]}`
+	}
+	var request dto.ClaudeRequest
+	require.NoError(t, kitutil.UnmarshalJsonStr(`{"model":"claude-test","max_tokens":64,"messages":[
+		{"role":"user","content":"Search for A."},
+		{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"search","input":{"q":"A"}}]},
+		`+last+`]}`, &request))
+	return &request
+}
+
+// The text a search_result block becomes in formats without one: its title,
+// its source and the text of its content, one per line.
+const searchResultText = "A\nhttps://example.com/a\nFirst fact.\nSecond fact."
+
+func TestConvertRequestClaudeToChatRendersSearchResultBlocks(t *testing.T) {
+	t.Run("in the message", func(t *testing.T) {
+		result, err := ConvertRequestByID(context.Background(), nil, ConverterClaudeMessagesToOpenAIChat, searchResultRequest(t, false))
+		require.NoError(t, err)
+		chatReq := result.Value.(*dto.GeneralOpenAIRequest)
+		require.Len(t, chatReq.Messages, 3)
+		parts := chatReq.Messages[2].ParseContent()
+		require.Len(t, parts, 2)
+		assert.Equal(t, dto.ContentTypeText, parts[0].Type)
+		assert.Equal(t, searchResultText, parts[0].Text)
+		assert.Equal(t, "Answer from the result.", parts[1].Text)
+	})
+	t.Run("in a tool_result", func(t *testing.T) {
+		result, err := ConvertRequestByID(context.Background(), nil, ConverterClaudeMessagesToOpenAIChat, searchResultRequest(t, true))
+		require.NoError(t, err)
+		chatReq := result.Value.(*dto.GeneralOpenAIRequest)
+		require.Len(t, chatReq.Messages, 4)
+		tool := chatReq.Messages[2]
+		assert.Equal(t, "tool", tool.Role)
+		assert.Equal(t, "call_1", tool.ToolCallId)
+		assert.Equal(t, searchResultText, tool.StringContent())
+		parts := chatReq.Messages[3].ParseContent()
+		require.Len(t, parts, 1)
+		assert.Equal(t, "Answer from the result.", parts[0].Text)
+	})
+}
+
+func TestConvertRequestClaudeToResponsesRendersSearchResultBlocks(t *testing.T) {
+	t.Run("in the message", func(t *testing.T) {
+		result, err := ConvertRequestByID(context.Background(), nil, ConverterClaudeMessagesToOpenAIResponses, searchResultRequest(t, false))
+		require.NoError(t, err)
+		responsesReq := result.Value.(*dto.OpenAIResponsesRequest)
+		assert.JSONEq(t, `[
+			{"role":"user","content":"Search for A."},
+			{"type":"function_call","call_id":"call_1","name":"search","arguments":"{\"q\":\"A\"}"},
+			{"role":"user","content":[
+				{"type":"input_text","text":"A\nhttps://example.com/a\nFirst fact.\nSecond fact."},
+				{"type":"input_text","text":"Answer from the result."}
+			]}
+		]`, string(responsesReq.Input))
+	})
+	t.Run("in a tool_result", func(t *testing.T) {
+		result, err := ConvertRequestByID(context.Background(), nil, ConverterClaudeMessagesToOpenAIResponses, searchResultRequest(t, true))
+		require.NoError(t, err)
+		responsesReq := result.Value.(*dto.OpenAIResponsesRequest)
+		assert.JSONEq(t, `[
+			{"role":"user","content":"Search for A."},
+			{"type":"function_call","call_id":"call_1","name":"search","arguments":"{\"q\":\"A\"}"},
+			{"type":"function_call_output","call_id":"call_1","output":[
+				{"type":"input_text","text":"A\nhttps://example.com/a\nFirst fact.\nSecond fact."}
+			]},
+			{"role":"user","content":[{"type":"input_text","text":"Answer from the result."}]}
+		]`, string(responsesReq.Input))
+	})
+}
+
 func TestConvertRequestClaudeToResponsesDropsIncompatibleContextManagement(t *testing.T) {
 	req := &dto.ClaudeRequest{
 		Model: "gpt-test",
