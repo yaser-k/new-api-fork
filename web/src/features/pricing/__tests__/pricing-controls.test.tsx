@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import i18next from 'i18next'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PricingSidebar } from '../components/pricing-sidebar'
 import {
@@ -60,7 +61,39 @@ function toolbarProps(): PricingToolbarProps {
   }
 }
 
+afterEach(async () => {
+  await i18next.changeLanguage('en')
+})
+
 describe('pricing controls', () => {
+  it('shows the model counts in Persian digits in a Persian interface', async () => {
+    await i18next.changeLanguage('fa')
+    render(
+      <PricingToolbar
+        {...toolbarProps()}
+        filteredCount={118}
+        totalCount={121}
+      />
+    )
+
+    expect(screen.getByText('۱۱۸')).toBeVisible()
+    expect(screen.getByText('/ ۱۲۱')).toBeVisible()
+  })
+
+  it('shows the model counts in Latin digits in an English interface', async () => {
+    await i18next.changeLanguage('en')
+    render(
+      <PricingToolbar
+        {...toolbarProps()}
+        filteredCount={1180}
+        totalCount={1210}
+      />
+    )
+
+    expect(screen.getByText('1,180')).toBeVisible()
+    expect(screen.getByText('/ 1,210')).toBeVisible()
+  })
+
   it('counts each model once per filter and updates counts when the catalog changes', () => {
     const props = toolbarProps()
     const base: PricingModel = {

@@ -23,6 +23,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { getPerfMetricsSummary } from '@/features/performance-metrics/api'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
@@ -44,7 +46,8 @@ export interface ModelCardGridProps {
 export const ModelCardGrid = memo(function ModelCardGrid(
   props: ModelCardGridProps
 ) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const [page, setPage] = useState(1)
   const pageSize = DEFAULT_PRICING_PAGE_SIZE
   const tokenUnit = props.tokenUnit ?? DEFAULT_TOKEN_UNIT
@@ -120,8 +123,8 @@ export const ModelCardGrid = memo(function ModelCardGrid(
         <div className='text-muted-foreground flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-sm sm:flex-row'>
           <p className='text-muted-foreground'>
             {t('Page {{current}} of {{total}}', {
-              current: currentPage,
-              total: totalPages,
+              current: formatNumber(currentPage, locale),
+              total: formatNumber(totalPages, locale),
             })}
           </p>
           <div className='flex items-center gap-2'>
