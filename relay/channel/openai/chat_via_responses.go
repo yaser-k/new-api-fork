@@ -191,6 +191,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	// failedUsage the usage it reported, if any.
 	upstreamFailed := false
 	var failedUsage *dto.Usage
+	upstreamEventReceived := false
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -275,6 +276,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			sr.Error(err)
 			return
 		}
+		upstreamEventReceived = true
 
 		if streamResp.Response != nil {
 			info.ObserveResponseModel(streamResp.Response.Model)
@@ -350,7 +352,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 	usage := state.Usage()
 	if usage == nil || usage.TotalTokens == 0 {
-		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		// Without any upstream event nothing was generated, so nothing is billed.
+		usage = &dto.Usage{}
+		if upstreamEventReceived {
+			usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		}
 		state.SetUsage(usage)
 	}
 	if info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone {
