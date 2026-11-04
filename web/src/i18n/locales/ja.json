@@ -2997,6 +2997,7 @@
     "Grok": "Grok",
     "Grok Settings": "Grok 設定",
     "Group": "グループ",
+    "Group {{group}} is unavailable or unauthorized": "グループ {{group}} は利用できないか、アクセス権がありません",
     "Group {{path}}": "グループ {{path}}",
     "Group & Quota": "グループとクォータ",
     "Group #{{index}} category name cannot exceed 50 characters": "グループ #{{index}} のカテゴリ名は 50 文字以内にしてください",
