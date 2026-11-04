@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { render, screen } from '@testing-library/react'
+import i18next from 'i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -72,10 +73,11 @@ beforeEach(() => {
   } as typeof Intl.NumberFormat)
 })
 
-afterEach(() => {
+afterEach(async () => {
   useSystemConfigStore
     .getState()
     .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
+  await i18next.changeLanguage('en')
 })
 
 describe('model card prices', () => {
@@ -88,6 +90,17 @@ describe('model card prices', () => {
     expect(amount.parentElement).toHaveTextContent(`${TOMAN} 2,016,150 / 1M`)
     expect(screen.getByText(`${TOMAN} 8,064,600`)).toBeVisible()
     expect(screen.getByText(`${TOMAN} 40,323`)).toBeVisible()
+  })
+
+  it('in a Persian interface, shows Persian digits with the currency word after them', async () => {
+    await i18next.changeLanguage('fa')
+    useToman()
+    render(<ModelCard model={pricingModel()} onClick={vi.fn()} />)
+
+    const amount = screen.getByText(`۲٬۰۱۶٬۱۵۰ ${TOMAN}`)
+    expect(amount.parentElement).toHaveTextContent(`۲٬۰۱۶٬۱۵۰ ${TOMAN} / 1M`)
+    expect(screen.getByText(`۸٬۰۶۴٬۶۰۰ ${TOMAN}`)).toBeVisible()
+    expect(screen.getByText(`۴۰٬۳۲۳ ${TOMAN}`)).toBeVisible()
   })
 
   it('puts each long price on its own line with the label beside it', () => {
