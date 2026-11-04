@@ -16,8 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 func applySystemPromptIfNeeded(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) {
@@ -145,7 +145,7 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 	// After a param_override on the chat request, keep the field as the
 	// override and the conversion left it; write it again only where the
 	// conversion or the filter above dropped it.
-	if !paramOverrideApplied || !gjson.GetBytes(jsonData, info.ChannelOtherSettings.UpstreamEndUserIDField).Exists() {
+	if !paramOverrideApplied || !ojson.GetBytes(jsonData, info.ChannelOtherSettings.UpstreamEndUserIDField).Exists() {
 		jsonData, err = relaycommon.SetUpstreamEndUserID(jsonData, info)
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
