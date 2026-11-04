@@ -119,7 +119,7 @@ function breakdownPriceFieldLabel(
   if (field.labelKind === 'schema') {
     return <span className='break-words whitespace-normal'>{field.label}</span>
   }
-  return field.showTokenUnit
+  return field.showTokenUnit && field.unit === 'token'
     ? `${t(field.label)} / ${t('1M token')}`
     : t(field.label)
 }
@@ -207,7 +207,8 @@ function formatBreakdownPrice(
   const amount =
     field.labelKind === 'schema' ||
     field.unit === 'request' ||
-    field.unit === 'image'
+    field.unit === 'image' ||
+    field.unit === 'second'
       ? formatTaskUsageUnitPrice(value, { tokenUnit: 'M', ...taskPriceOptions })
       : `${symbol}${(value * rate).toFixed(4)}`
   if (field.unit === 'second') return `${amount}/${t('s')}`
@@ -420,7 +421,7 @@ export function DynamicPricingBreakdown({
       id: variable.field ?? `price-${index}`,
       label: variable.shortLabel,
       labelKind: 'i18n' as const,
-      unit: 'token',
+      unit: variable.unit ?? 'token',
       value: (tier: BreakdownTier) =>
         isTaskBreakdownTier(tier)
           ? 0
