@@ -1423,6 +1423,7 @@
     "Create, revoke, and audit API tokens.": "ساخت، ابطال و بررسی کلیدهای API.",
     "Created": "زمان ایجاد",
     "Created {{count}} redemption codes named {{name}} ({{quota}} each)": "{{count}} کد شارژ با نام ⁨{{name}}⁩ ساخته شد (هر کد ⁨{{quota}}⁩)",
+    "Created {{created}} of {{total}} API keys": "{{created}} از {{total}} کلید API ساخته شد",
     "Created {{time}}": "ساخته‌شده در ⁨{{time}}⁩",
     "Custom reset cycle must be greater than 0 seconds": "دورۀ بازنشانی سفارشی باید بیشتر از صفر ثانیه باشد",
     "Created a custom OAuth provider": "یک ارائه‌دهندۀ OAuth سفارشی ساخته شد",
