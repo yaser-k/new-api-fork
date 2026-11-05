@@ -79,7 +79,11 @@ import {
   getApiKey,
   getTokenAutoGroups,
 } from '../api'
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
+import {
+  API_KEY_VALIDATION,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+} from '../constants'
 import {
   getApiKeyFormSchema,
   type ApiKeyFormValues,
@@ -582,13 +586,18 @@ export function ApiKeysMutateDrawer({
                       <FormControl>
                         <Input
                           {...field}
+                          value={
+                            Number.isFinite(field.value) ? field.value : ''
+                          }
                           type='number'
-                          min='1'
+                          min={API_KEY_VALIDATION.COUNT_MIN}
+                          max={API_KEY_VALIDATION.COUNT_MAX}
+                          step={1}
                           placeholder={t('Number of keys to create')}
                           onChange={(e) =>
-                            field.onChange(
-                              Number.parseInt(e.target.value, 10) || 1
-                            )
+                            // NaN for an empty or partial entry, so the
+                            // schema reports it instead of a guessed count.
+                            field.onChange(e.target.valueAsNumber)
                           }
                         />
                       </FormControl>
