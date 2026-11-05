@@ -1656,6 +1656,7 @@
     "Create, revoke, and audit API tokens.": "Create, revoke, and audit API tokens.",
     "Created": "Created",
     "Created {{count}} redemption codes named {{name}} ({{quota}} each)": "Created {{count}} redemption codes named {{name}} ({{quota}} each)",
+    "Created {{created}} of {{total}} API keys": "Created {{created}} of {{total}} API keys",
     "Created {{time}}": "Created {{time}}",
     "Created a custom OAuth provider": "Created a custom OAuth provider",
     "Created a deployment": "Created a deployment",

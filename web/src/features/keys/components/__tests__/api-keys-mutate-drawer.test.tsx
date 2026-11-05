@@ -329,6 +329,56 @@ describe('API keys mutate drawer batch quantity', () => {
     expect(createdPayloads).toHaveLength(3)
     expect(createdPayloads[0]?.name).toBe('trio')
   })
+
+  test.each([
+    {
+      refusal: 'the per-user key limit',
+      refuse: async () => ({
+        data: {
+          success: false,
+          message: 'Maximum number of tokens reached (1000)',
+          message_key: 'Maximum number of tokens reached ({{max}})',
+          message_params: { max: 1000 },
+        },
+      }),
+      reason: 'Maximum number of tokens reached (1000)',
+    },
+    {
+      refusal: 'a rate-limited request',
+      refuse: async () => {
+        throw Object.assign(
+          new Error('Request failed with status code 429'),
+          { isAxiosError: true, response: { status: 429, data: '' } }
+        )
+      },
+      reason: 'Request failed with status code 429',
+    },
+  ])(
+    'stops at $refusal on the 2nd of 5 keys and reports 1 of 5 created',
+    async ({ refuse, reason }) => {
+      const createdPayloads: Array<Record<string, unknown>> = []
+      installApiFixtures(createdPayloads)
+      apiClient.post = async (_url, data) => {
+        createdPayloads.push(data as Record<string, unknown>)
+        if (createdPayloads.length === 1) {
+          return { data: { success: true, data: {} } }
+        }
+        return refuse()
+      }
+      await renderCreateDrawer()
+
+      changeInput(getControlByLabel('Name'), 'five')
+      changeInput(getControlByLabel('Quantity'), '5')
+      fireEvent.click(findButton('Save changes', true))
+
+      expect(await screen.findByText('Created 1 of 5 API keys')).toBeVisible()
+      expect(screen.getByText(reason)).toBeVisible()
+      expect(createdPayloads).toHaveLength(2)
+      expect(screen.queryByText('Successfully created 1 API Key(s)')).toBe(
+        null
+      )
+    }
+  )
 })
 
 describe('API key expiry across editing sessions', () => {

@@ -1656,6 +1656,7 @@
     "Create, revoke, and audit API tokens.": "Создать, отозвать и аудитировать токены API.",
     "Created": "Создано",
     "Created {{count}} redemption codes named {{name}} ({{quota}} each)": "Создано кодов погашения: {{count}} с именем {{name}} (по {{quota}} каждый)",
+    "Created {{created}} of {{total}} API keys": "Создано API-ключей: {{created}} из {{total}}",
     "Created {{time}}": "Создан {{time}}",
     "Created a custom OAuth provider": "Создан пользовательский провайдер OAuth",
     "Created a deployment": "Создано развёртывание",

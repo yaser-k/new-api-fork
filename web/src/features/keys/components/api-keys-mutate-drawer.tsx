@@ -68,6 +68,7 @@ import { getUserModels, getUserGroups } from '@/lib/api'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
+  getServerErrorMessage,
   requireServerSuccess,
   translateServerText,
 } from '@/lib/server-error-message'
@@ -309,32 +310,53 @@ export function ApiKeysMutateDrawer({
           handleServerError(result, t(ERROR_MESSAGES.UPDATE_FAILED))
         }
       } else {
-        // Create mode - handle batch creation
-        const count = data.tokenCount || 1
+        // Create mode - handle batch creation, one key at a time
+        const count = data.tokenCount ?? 1
         let successCount = 0
+        let failure: unknown = null
 
-        for (let i = 0; i < count; i++) {
-          const result = await createApiKey({
-            ...basePayload,
-            name:
-              i === 0 && data.name
-                ? data.name
-                : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
-          })
-          if (result.success) {
-            successCount++
-          } else {
-            handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
-            break
+        for (let i = 0; i < count && failure === null; i++) {
+          try {
+            const result = await createApiKey({
+              ...basePayload,
+              name:
+                i === 0 && data.name
+                  ? data.name
+                  : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
+            })
+            if (result.success) {
+              successCount++
+            } else {
+              failure = result
+            }
+          } catch (error) {
+            failure = error
           }
         }
 
-        if (successCount > 0) {
+        if (failure === null) {
           toast.success(
             t('Successfully created {{count}} API Key(s)', {
               count: successCount,
             })
           )
+        } else if (count === 1) {
+          handleServerError(failure, t(ERROR_MESSAGES.CREATE_FAILED))
+        } else {
+          // A stopped batch reports how many of its keys exist, then why.
+          handleServerError(failure, t(ERROR_MESSAGES.CREATE_FAILED), {
+            title: t('Created {{created}} of {{total}} API keys', {
+              created: successCount,
+              total: count,
+            }),
+            description: getServerErrorMessage(
+              failure,
+              t(ERROR_MESSAGES.CREATE_FAILED)
+            ),
+          })
+        }
+
+        if (successCount > 0) {
           onOpenChange(false)
           triggerRefresh()
         }
