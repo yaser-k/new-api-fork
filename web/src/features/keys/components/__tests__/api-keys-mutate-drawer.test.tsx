@@ -346,10 +346,10 @@ describe('API keys mutate drawer batch quantity', () => {
     {
       refusal: 'a rate-limited request',
       refuse: async () => {
-        throw Object.assign(
-          new Error('Request failed with status code 429'),
-          { isAxiosError: true, response: { status: 429, data: '' } }
-        )
+        throw Object.assign(new Error('Request failed with status code 429'), {
+          isAxiosError: true,
+          response: { status: 429, data: '' },
+        })
       },
       reason: 'Request failed with status code 429',
     },
@@ -374,9 +374,7 @@ describe('API keys mutate drawer batch quantity', () => {
       expect(await screen.findByText('Created 1 of 5 API keys')).toBeVisible()
       expect(screen.getByText(reason)).toBeVisible()
       expect(createdPayloads).toHaveLength(2)
-      expect(screen.queryByText('Successfully created 1 API Key(s)')).toBe(
-        null
-      )
+      expect(screen.queryByText('Successfully created 1 API Key(s)')).toBe(null)
     }
   )
 })
