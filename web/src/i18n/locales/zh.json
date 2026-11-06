@@ -2997,6 +2997,7 @@
     "Grok": "Grok",
     "Grok Settings": "Grok 设置",
     "Group": "分组",
+    "Group {{group}} is unavailable or unauthorized": "分组 {{group}} 不可用或无权访问",
     "Group {{path}}": "组 {{path}}",
     "Group & Quota": "分组与配额",
     "Group #{{index}} category name cannot exceed 50 characters": "第{{index}}个分组的分类名称长度不能超过50字符",

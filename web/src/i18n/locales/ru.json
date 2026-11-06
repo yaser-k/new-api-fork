@@ -2997,6 +2997,7 @@
     "Grok": "Grok",
     "Grok Settings": "Настройки Grok",
     "Group": "Группа",
+    "Group {{group}} is unavailable or unauthorized": "Группа {{group}} недоступна или нет прав доступа",
     "Group {{path}}": "Группа {{path}}",
     "Group & Quota": "Группа и квота",
     "Group #{{index}} category name cannot exceed 50 characters": "Название категории группы № {{index}} не может превышать 50 символов",
