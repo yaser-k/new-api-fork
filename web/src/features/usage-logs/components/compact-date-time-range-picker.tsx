@@ -21,9 +21,9 @@ import { useId, useMemo, useState } from 'react'
 import type { DateRange } from 'react-day-picker'
 import { useTranslation } from 'react-i18next'
 
+import { TimeOfDayInput } from '@/components/time-of-day-input'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Popover,
@@ -33,6 +33,7 @@ import {
 import { toIntlLocale } from '@/i18n/languages'
 import dayjs from '@/lib/dayjs'
 import { formatDisplayDate } from '@/lib/format'
+import { parseTimeOfDay } from '@/lib/time-of-day'
 import { cn } from '@/lib/utils'
 
 interface CompactDateTimeRangePickerProps {
@@ -40,30 +41,6 @@ interface CompactDateTimeRangePickerProps {
   end?: Date
   onChange: (range: { start?: Date; end?: Date }) => void
   className?: string
-}
-
-/**
- * A 24-hour time of day typed as `H:mm`, `HH:mm` or `HHmm`, in Latin,
- * Persian or Arabic-Indic digits. The browser's own time inputs follow the
- * browser's locale, not the interface language, so the picker reads text.
- */
-function parseTimeOfDay(
-  value: string
-): { hours: number; minutes: number } | undefined {
-  const latin = value
-    .trim()
-    .replaceAll(/[\u06F0-\u06F9]/g, (digit) =>
-      String(digit.charCodeAt(0) - 0x06f0)
-    )
-    .replaceAll(/[\u0660-\u0669]/g, (digit) =>
-      String(digit.charCodeAt(0) - 0x0660)
-    )
-  const match = /^(\d{1,2}):?(\d{2})$/.exec(latin)
-  if (!match) return undefined
-  const hours = Number(match[1])
-  const minutes = Number(match[2])
-  if (hours > 23 || minutes > 59) return undefined
-  return { hours, minutes }
 }
 
 export function CompactDateTimeRangePicker({
@@ -114,10 +91,18 @@ export function CompactDateTimeRangePicker({
       // The times show the interface's digits; parseTimeOfDay reads them back.
       const today = dayjs()
       setDraftStartTime(
-        formatDisplayDate(start ?? today.startOf('day').toDate(), 'HH:mm', locale)
+        formatDisplayDate(
+          start ?? today.startOf('day').toDate(),
+          'HH:mm:ss',
+          locale
+        )
       )
       setDraftEndTime(
-        formatDisplayDate(end ?? today.endOf('day').toDate(), 'HH:mm', locale)
+        formatDisplayDate(
+          end ?? today.endOf('day').toDate(),
+          'HH:mm:ss',
+          locale
+        )
       )
       setMonth(start ?? end ?? new Date())
     }
@@ -128,26 +113,33 @@ export function CompactDateTimeRangePicker({
     if (!parsedStartTime || !parsedEndTime) return
     const fromDay = draftRange?.from
     const toDay = draftRange?.to ?? fromDay
+    // A time typed without seconds covers its whole minute, so a start
+    // begins at the minute and an end includes all of it, as the presets'
+    // end of day does; with seconds it covers that second.
+    const startUnit =
+      parsedStartTime.seconds === undefined ? 'minute' : 'second'
+    const endUnit = parsedEndTime.seconds === undefined ? 'minute' : 'second'
     let nextStart = fromDay
       ? dayjs(fromDay)
           .hour(parsedStartTime.hours)
           .minute(parsedStartTime.minutes)
-          .startOf('minute')
+          .second(parsedStartTime.seconds ?? 0)
+          .startOf(startUnit)
           .toDate()
       : undefined
-    // An end time includes its whole minute, as the presets' end of day does.
     let nextEnd = toDay
       ? dayjs(toDay)
           .hour(parsedEndTime.hours)
           .minute(parsedEndTime.minutes)
-          .endOf('minute')
+          .second(parsedEndTime.seconds ?? 0)
+          .endOf(endUnit)
           .toDate()
       : undefined
     // A side left as it was keeps its exact value.
-    if (start && nextStart && dayjs(start).isSame(nextStart, 'minute')) {
+    if (start && nextStart && dayjs(start).isSame(nextStart, startUnit)) {
       nextStart = start
     }
-    if (end && nextEnd && dayjs(end).isSame(nextEnd, 'minute')) {
+    if (end && nextEnd && dayjs(end).isSame(nextEnd, endUnit)) {
       nextEnd = end
     }
     onChange({ start: nextStart, end: nextEnd })
@@ -245,31 +237,12 @@ export function CompactDateTimeRangePicker({
                       ? formatDisplayDate(draftRange.from, 'YYYY-MM-DD', locale)
                       : '-'}
                   </span>
-                  <Input
+                  <TimeOfDayInput
                     id={startTimeId}
                     value={draftStartTime}
-                    onChange={(e) => setDraftStartTime(e.target.value)}
-                    onBlur={() => {
-                      if (parsedStartTime) {
-                        setDraftStartTime(
-                          formatDisplayDate(
-                            dayjs()
-                              .hour(parsedStartTime.hours)
-                              .minute(parsedStartTime.minutes)
-                              .toDate(),
-                            'HH:mm',
-                            locale
-                          )
-                        )
-                      }
-                    }}
-                    aria-invalid={!parsedStartTime}
-                    inputMode='numeric'
-                    autoComplete='off'
-                    dir='ltr'
-                    maxLength={5}
-                    placeholder='00:00'
-                    className='h-8 w-18 shrink-0 px-2 text-center text-sm leading-5 tabular-nums'
+                    onValueChange={setDraftStartTime}
+                    placeholder='00:00:00'
+                    className='h-8 w-22 shrink-0 px-2 text-sm leading-5'
                   />
                 </div>
               </div>
@@ -289,31 +262,12 @@ export function CompactDateTimeRangePicker({
                       ? formatDisplayDate(draftEndDay, 'YYYY-MM-DD', locale)
                       : '-'}
                   </span>
-                  <Input
+                  <TimeOfDayInput
                     id={endTimeId}
                     value={draftEndTime}
-                    onChange={(e) => setDraftEndTime(e.target.value)}
-                    onBlur={() => {
-                      if (parsedEndTime) {
-                        setDraftEndTime(
-                          formatDisplayDate(
-                            dayjs()
-                              .hour(parsedEndTime.hours)
-                              .minute(parsedEndTime.minutes)
-                              .toDate(),
-                            'HH:mm',
-                            locale
-                          )
-                        )
-                      }
-                    }}
-                    aria-invalid={!parsedEndTime}
-                    inputMode='numeric'
-                    autoComplete='off'
-                    dir='ltr'
-                    maxLength={5}
-                    placeholder='23:59'
-                    className='h-8 w-18 shrink-0 px-2 text-center text-sm leading-5 tabular-nums'
+                    onValueChange={setDraftEndTime}
+                    placeholder='23:59:59'
+                    className='h-8 w-22 shrink-0 px-2 text-sm leading-5'
                   />
                 </div>
               </div>
