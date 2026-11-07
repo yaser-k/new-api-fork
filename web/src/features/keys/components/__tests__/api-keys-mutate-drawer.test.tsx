@@ -25,6 +25,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { QueryClient, QueryClientProvider } =
   await import('@tanstack/react-query')
+const { Toaster, toast } = await import('sonner')
 const { api } = await import('@/lib/api')
 const { ApiKeysProvider } = await import('../api-keys-provider')
 const { ApiKeysMutateDrawer } = await import('../api-keys-mutate-drawer')
@@ -129,6 +130,7 @@ async function renderCreateDrawer(): Promise<void> {
         <ApiKeysProvider>
           <ApiKeysMutateDrawer open onOpenChange={() => undefined} />
         </ApiKeysProvider>
+        <Toaster duration={60_000} />
       </I18nextProvider>
     </QueryClientProvider>
   )
@@ -198,6 +200,7 @@ function selectComboboxOption(
 afterEach(() => {
   apiClient.get = originalGet
   apiClient.post = originalPost
+  toast.dismiss()
   localStorage.clear()
   if (renderedDrawer) {
     renderedDrawer.queryClient.clear()
@@ -279,6 +282,101 @@ describe('API keys mutate drawer Auto group integration', () => {
     await waitFor(() => expect(createdPayloads).toHaveLength(1))
     expect(createdPayloads[0]?.auto_groups).toEqual(['vip'])
   })
+})
+
+describe('API keys mutate drawer batch quantity', () => {
+  test.each([
+    ['12345678901234567890', 'Count must be between 1 and 100'],
+    ['101', 'Count must be between 1 and 100'],
+    ['2.5', 'Enter a positive integer'],
+    ['', 'Enter a positive integer'],
+  ])(
+    'refuses a quantity of "%s" with "%s" and creates no key',
+    async (quantity, message) => {
+      const createdPayloads: Array<Record<string, unknown>> = []
+      installApiFixtures(createdPayloads)
+      // Refuse every create, so a quantity that slips past the form makes
+      // one request and stops instead of looping over a huge count.
+      apiClient.post = async (_url, data) => {
+        createdPayloads.push(data as Record<string, unknown>)
+        return { data: { success: false, message: 'refused' } }
+      }
+      await renderCreateDrawer()
+
+      changeInput(getControlByLabel('Name'), 'batch')
+      const quantityInput = getControlByLabel('Quantity')
+      changeInput(quantityInput, quantity)
+      fireEvent.click(findButton('Save changes', true))
+
+      expect(await screen.findByText(message)).toBeVisible()
+      expect(quantityInput).toHaveAttribute('aria-invalid', 'true')
+      expect(createdPayloads).toEqual([])
+    }
+  )
+
+  test('creates exactly 3 keys for a quantity of 3', async () => {
+    const createdPayloads: Array<Record<string, unknown>> = []
+    installApiFixtures(createdPayloads)
+    await renderCreateDrawer()
+
+    changeInput(getControlByLabel('Name'), 'trio')
+    changeInput(getControlByLabel('Quantity'), '3')
+    fireEvent.click(findButton('Save changes', true))
+
+    expect(
+      await screen.findByText('Successfully created 3 API Key(s)')
+    ).toBeVisible()
+    expect(createdPayloads).toHaveLength(3)
+    expect(createdPayloads[0]?.name).toBe('trio')
+  })
+
+  test.each([
+    {
+      refusal: 'the per-user key limit',
+      refuse: async () => ({
+        data: {
+          success: false,
+          message: 'Maximum number of tokens reached (1000)',
+          message_key: 'Maximum number of tokens reached ({{max}})',
+          message_params: { max: 1000 },
+        },
+      }),
+      reason: 'Maximum number of tokens reached (1000)',
+    },
+    {
+      refusal: 'a rate-limited request',
+      refuse: async () => {
+        throw Object.assign(new Error('Request failed with status code 429'), {
+          isAxiosError: true,
+          response: { status: 429, data: '' },
+        })
+      },
+      reason: 'Request failed with status code 429',
+    },
+  ])(
+    'stops at $refusal on the 2nd of 5 keys and reports 1 of 5 created',
+    async ({ refuse, reason }) => {
+      const createdPayloads: Array<Record<string, unknown>> = []
+      installApiFixtures(createdPayloads)
+      apiClient.post = async (_url, data) => {
+        createdPayloads.push(data as Record<string, unknown>)
+        if (createdPayloads.length === 1) {
+          return { data: { success: true, data: {} } }
+        }
+        return refuse()
+      }
+      await renderCreateDrawer()
+
+      changeInput(getControlByLabel('Name'), 'five')
+      changeInput(getControlByLabel('Quantity'), '5')
+      fireEvent.click(findButton('Save changes', true))
+
+      expect(await screen.findByText('Created 1 of 5 API keys')).toBeVisible()
+      expect(screen.getByText(reason)).toBeVisible()
+      expect(createdPayloads).toHaveLength(2)
+      expect(screen.queryByText('Successfully created 1 API Key(s)')).toBe(null)
+    }
+  )
 })
 
 describe('API key expiry across editing sessions', () => {
