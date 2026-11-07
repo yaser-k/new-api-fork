@@ -726,7 +726,7 @@ func TestNovaStreamRelaysOpenAIChunks(t *testing.T) {
 		}
 		return newAwsStreamResponse(request, io.NopCloser(bytes.NewReader(body.Bytes()))), nil
 	}))
-	adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true, ClientMode: ClientModeAKSK}
+	adaptor := &Adaptor{AwsClient: client, AwsReq: newAwsStreamInput(), IsNova: true}
 	recorder := httptest.NewRecorder()
 	c := newAwsTestContext(recorder, context.Background())
 	info := newAwsTestRelayInfo()
