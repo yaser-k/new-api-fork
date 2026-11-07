@@ -20,6 +20,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { Pricing } from '@/features/pricing'
+import { currencyViewLifecycle } from '@/features/pricing/hooks/use-currency-view'
 import { getModuleAccessForGuard } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -34,6 +35,7 @@ const pricingSearchSchema = z.object({
   tokenUnit: z.enum(['M', 'K']).optional(),
   view: z.enum(['card', 'table']).optional().catch(undefined),
   rechargePrice: z.boolean().optional(),
+  currency: z.enum(['site', 'USD']).optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/pricing/')({
@@ -53,5 +55,6 @@ export const Route = createFileRoute('/pricing/')({
       }
     }
   },
+  ...currencyViewLifecycle,
   component: Pricing,
 })
