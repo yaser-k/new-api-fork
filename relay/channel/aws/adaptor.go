@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -18,15 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ClientMode int
-
-const (
-	ClientModeApiKey ClientMode = iota + 1
-	ClientModeAKSK
-)
-
 type Adaptor struct {
-	ClientMode ClientMode
 	AwsClient  *bedrockruntime.Client
 	AwsModelId string
 	AwsReq     any
@@ -100,25 +91,14 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle {
 		return mantleRequestURL(info)
 	}
-	if info.ChannelOtherSettings.AwsKeyType == dto.AwsKeyTypeApiKey {
-		awsModelId := getAwsModelID(info.UpstreamModelName)
-		a.ClientMode = ClientModeApiKey
-		awsSecret := strings.Split(info.ApiKey, "|")
-		if len(awsSecret) != 2 {
-			return "", errors.New("invalid aws api key, should be in format of <api-key>|<region>")
-		}
-		return fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com/model/%s/converse", awsModelId, awsSecret[1]), nil
-	} else {
-		a.ClientMode = ClientModeAKSK
-		return "", nil
-	}
+	// InvokeModel goes through the AWS SDK, which builds the URL from the region
+	// in the key. Both key types work there: "<api-key>|<region>" and
+	// "<ak>|<sk>|<region>".
+	return "", nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	claude.CommonClaudeHeadersOperation(c, req, info)
-	if a.ClientMode == ClientModeApiKey {
-		req.Set("Authorization", "Bearer "+info.ApiKey)
-	}
 	return nil
 }
 
@@ -186,17 +166,13 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	default:
 		return nil, errors.New("invalid AWS API type")
 	}
-	if a.ClientMode == ClientModeApiKey {
-		return channel.DoApiRequest(a, c, info, requestBody)
-	} else {
-		return doAwsClientRequest(c, info, a, requestBody)
-	}
+	return doAwsClientRequest(c, info, a, requestBody)
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	// A Mantle channel answers in the Messages API for Claude models only;
 	// newMantleRequest refuses Nova and the Converse models before sending.
-	if a.IsConverse && a.ClientMode != ClientModeApiKey && info.ChannelOtherSettings.AwsApiType != dto.AwsApiTypeMantle {
+	if a.IsConverse && info.ChannelOtherSettings.AwsApiType != dto.AwsApiTypeMantle {
 		if info.IsStream {
 			err, usage = converseStreamHandler(c, info, a)
 		} else {
@@ -204,7 +180,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		}
 		return
 	}
-	if info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle || a.ClientMode == ClientModeApiKey {
+	if info.ChannelOtherSettings.AwsApiType == dto.AwsApiTypeMantle {
 		claudeAdaptor := claude.Adaptor{}
 		usage, err = claudeAdaptor.DoResponse(c, resp, info)
 	} else {
