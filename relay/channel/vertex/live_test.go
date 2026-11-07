@@ -154,7 +154,11 @@ func newLiveGateway(t *testing.T, upstreamURL string, channelID int) (string, ch
 
 func liveRelayInfo(baseURL, model string, channelID int) *relaycommon.RelayInfo {
 	// The service account's token is the one cached for the channel, so no call reaches Google.
-	Cache.SetDefault(fmt.Sprintf("access-token-%d", channelID), "test-token")
+	accessTokens.Store(fmt.Sprintf("%d", channelID), cachedAccessToken{
+		token:     "test-token",
+		identity:  "relay@my-project.iam.gserviceaccount.com\x00",
+		expiresAt: time.Now().Add(time.Hour),
+	})
 	return &relaycommon.RelayInfo{
 		RelayMode:       relayconstant.RelayModeRealtime,
 		RelayFormat:     types.RelayFormatOpenAIRealtime,
