@@ -3006,6 +3006,7 @@
     "Grok": "Grok",
     "Grok Settings": "Paramètres Grok",
     "Group": "Groupe",
+    "Group {{group}} is unavailable or unauthorized": "Le groupe {{group}} est indisponible ou non autorisé",
     "Group {{path}}": "Groupe {{path}}",
     "Group & Quota": "Groupe et Quota",
     "Group #{{index}} category name cannot exceed 50 characters": "Le nom de catégorie du groupe n° {{index}} ne peut pas dépasser 50 caractères",
