@@ -1676,6 +1676,7 @@
     "Create, revoke, and audit API tokens.": "APIトークンを作成、取り消し、監査。",
     "Created": "作成済み",
     "Created {{count}} redemption codes named {{name}} ({{quota}} each)": "{{count}} 件の引換コード {{name}} を作成しました（各 {{quota}}）",
+    "Created {{created}} of {{total}} API keys": "{{total}}個中{{created}}個のAPIキーを作成しました",
     "Created {{time}}": "作成日時 {{time}}",
     "Created a custom OAuth provider": "カスタム OAuth プロバイダーを作成しました",
     "Created a deployment": "デプロイメントを作成しました",
