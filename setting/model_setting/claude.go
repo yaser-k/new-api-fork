@@ -3,6 +3,7 @@ package model_setting
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -21,6 +22,12 @@ type ClaudeSettings struct {
 	DefaultMaxTokens                      map[string]int                 `json:"default_max_tokens"`
 	ThinkingAdapterEnabled                bool                           `json:"thinking_adapter_enabled"`
 	ThinkingAdapterBudgetTokensPercentage float64                        `json:"thinking_adapter_budget_tokens_percentage"`
+	// RefusalBillingWaiverEnabled settles a refusal that arrives before any
+	// output at zero, as Anthropic bills it on every platform.
+	RefusalBillingWaiverEnabled bool `json:"refusal_billing_waiver_enabled"`
+	// RefusalBilledCategories lists the stop_details categories whose refusals
+	// before any output Anthropic still bills.
+	RefusalBilledCategories []string `json:"refusal_billed_categories"`
 }
 
 // 默认配置
@@ -31,6 +38,9 @@ var defaultClaudeSettings = ClaudeSettings{
 		"default": 8192,
 	},
 	ThinkingAdapterBudgetTokensPercentage: 0.8,
+	RefusalBillingWaiverEnabled:           true,
+	// https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#how-refusals-are-billed
+	RefusalBilledCategories: []string{"bio", "frontier_llm", "reasoning_extraction"},
 }
 
 // 全局实例
@@ -81,6 +91,17 @@ func normalizeHeaderListValues(values []string) []string {
 		}
 	}
 	return normalizedValues
+}
+
+// IsRefusalCategoryBilled reports whether a refusal before any output in this
+// stop_details category is billed. A null category is never billed.
+func (c *ClaudeSettings) IsRefusalCategoryBilled(category string) bool {
+	if category == "" {
+		return false
+	}
+	return slices.ContainsFunc(c.RefusalBilledCategories, func(billed string) bool {
+		return strings.EqualFold(strings.TrimSpace(billed), category)
+	})
 }
 
 func (c *ClaudeSettings) GetDefaultMaxTokens(model string) int {
