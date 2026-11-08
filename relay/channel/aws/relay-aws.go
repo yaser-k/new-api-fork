@@ -118,6 +118,10 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 		return nil, err
 	}
 	for key, value := range headerOverride {
+		if value == "" {
+			requestHeader.Del(key)
+			continue
+		}
 		requestHeader.Set(key, value)
 	}
 
