@@ -105,6 +105,7 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import { RetiredModelNotice } from './retired-models'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -1612,6 +1613,7 @@ export function ModelDetails() {
     usableGroup,
     endpointMap,
     autoGroups,
+    retiredModels,
     isLoading,
     priceRate,
     usdExchangeRate,
@@ -1624,6 +1626,11 @@ export function ModelDetails() {
     if (!models || !modelId) return null
     return models.find((m) => m.model_name === modelId) || null
   }, [models, modelId])
+
+  const retiredModel = useMemo(
+    () => retiredModels.find((m) => m.model_name === modelId) || null,
+    [retiredModels, modelId]
+  )
 
   const handleBack = () => {
     navigate({ to: '/pricing', search })
@@ -1649,6 +1656,25 @@ export function ModelDetails() {
               <Skeleton key={`section-${key}`} className='h-24 w-full' />
             ))}
           </div>
+        </div>
+      </PublicLayout>
+    )
+  }
+
+  if (!model && retiredModel) {
+    return (
+      <PublicLayout>
+        <div className='mx-auto max-w-5xl px-4 sm:px-6'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={handleBack}
+            className='text-muted-foreground hover:text-foreground mb-4 h-auto gap-1 px-0 py-1 text-xs'
+          >
+            <ArrowLeft className='size-3.5' />
+            {t('Back')}
+          </Button>
+          <RetiredModelNotice model={retiredModel} />
         </div>
       </PublicLayout>
     )
