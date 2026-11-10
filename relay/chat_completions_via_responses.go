@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 )
 
@@ -84,6 +85,10 @@ func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adapto
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
+		chatJSON, err = relaycommon.SetUpstreamEndUserID(chatJSON, info)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
 
 		if len(info.ParamOverride) > 0 {
 			chatJSON, err = relaycommon.ApplyParamOverrideWithRelayInfo(chatJSON, info)
@@ -136,6 +141,15 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 	jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	// After a param_override on the chat request, keep the field as the
+	// override and the conversion left it; write it again only where the
+	// conversion or the filter above dropped it.
+	if !paramOverrideApplied || !ojson.GetBytes(jsonData, info.ChannelOtherSettings.UpstreamEndUserIDField).Exists() {
+		jsonData, err = relaycommon.SetUpstreamEndUserID(jsonData, info)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
 	}
 	if !paramOverrideApplied && len(info.ParamOverride) > 0 {
 		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
