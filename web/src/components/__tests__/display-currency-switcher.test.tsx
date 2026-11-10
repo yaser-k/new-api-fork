@@ -176,24 +176,22 @@ describe('display currency switch', () => {
     expect(useDisplayCurrencyStore.getState().displayCurrency).toBe('USD')
   })
 
-  test('sits beside the language switch in the public header', async () => {
+  test('is not in the public header, on wide or narrow screens', async () => {
     showSite('CUSTOM')
 
     await renderInRouter(<PublicHeader showNotifications={false} />)
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Change language' })
-          .nextElementSibling
-      ).toHaveAccessibleName('Select currency')
+    await screen.findByRole('button', { name: 'Change language' })
+    // The compact bar and the menu of narrow screens are rendered too.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Toggle navigation menu' })
     )
-    // The compact bar of narrow screens carries it too.
+
     expect(
-      screen.getAllByRole('button', { name: 'Select currency' })
-    ).toHaveLength(2)
+      screen.queryAllByRole('button', { name: 'Select currency' })
+    ).toHaveLength(0)
   })
 
-  test('sits beside the language switch in the console header', async () => {
+  test('is not in the console header', async () => {
     showSite('CNY')
 
     await renderInRouter(
@@ -203,12 +201,10 @@ describe('display currency switch', () => {
         </SidebarProvider>
       </SearchProvider>
     )
+    await screen.findByRole('button', { name: 'Change language' })
 
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Change language' })
-          .nextElementSibling
-      ).toHaveAccessibleName('Select currency')
-    )
+    expect(
+      screen.queryAllByRole('button', { name: 'Select currency' })
+    ).toHaveLength(0)
   })
 })
