@@ -822,6 +822,8 @@
     "Built-in: phone fingerprint/face, or Windows Hello; External: USB security key": "داخلی: اثر انگشت یا چهرۀ گوشی، یا Windows Hello؛ خارجی: کلید امنیتی USB",
     "Bulk actions for {{count}} selected records": "عملیات گروهی برای {{count}} رکورد انتخاب‌شده",
     "by": "از",
+    "By clicking sign in, you agree to our": "با کلیک روی «ورود»، می‌پذیرید:",
+    "By creating an account, you agree to our": "با ساخت حساب کاربری، می‌پذیرید:",
     "By model author": "بر اساس سازندۀ مدل",
     "By quota": "بر اساس سهمیه",
     "By requests": "بر اساس درخواست",
