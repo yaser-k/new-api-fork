@@ -232,3 +232,70 @@ func TestGetTokenAutoGroupsReturnsFullFilteredGlobalOrderAndLimit(t *testing.T) 
 	assert.Equal(t, []string{"vip", "default"}, data.Groups)
 	assert.Equal(t, 1, data.MaxCount)
 }
+
+func TestTokenGroupMustBeUsableOnCreateAndUpdate(t *testing.T) {
+	tests := []struct {
+		name    string
+		group   string
+		message string
+	}{
+		{name: "group the user may not use", group: "vip", message: "Group vip is unavailable or unauthorized"},
+		{name: "usable group", group: "default"},
+		{name: "auto", group: "auto"},
+		{name: "empty group", group: ""},
+	}
+
+	for _, test := range tests {
+		t.Run("create "+test.name, func(t *testing.T) {
+			configureTokenAutoGroupsTest(t, "5", `["default"]`)
+			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+			user := setupTokenAutoGroupsControllerTest(t)
+			request := baseAutoTokenRequest("created")
+			request["group"] = test.group
+
+			ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
+			AddToken(ctx)
+
+			response := decodeAPIResponse(t, recorder)
+			var tokens []model.Token
+			require.NoError(t, model.DB.Find(&tokens).Error)
+			if test.message != "" {
+				assert.False(t, response.Success)
+				assert.Equal(t, test.message, response.Message)
+				assert.Empty(t, tokens)
+				return
+			}
+			require.True(t, response.Success, response.Message)
+			require.Len(t, tokens, 1)
+			assert.Equal(t, test.group, tokens[0].Group)
+		})
+
+		t.Run("update "+test.name, func(t *testing.T) {
+			configureTokenAutoGroupsTest(t, "5", `["default"]`)
+			require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+			user := setupTokenAutoGroupsControllerTest(t)
+			token := seedToken(t, model.DB, user.Id, "saved", "saved-key")
+			request := baseAutoTokenRequest("updated")
+			request["id"] = token.Id
+			request["status"] = common.TokenStatusEnabled
+			request["group"] = test.group
+
+			ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPut, "/api/token/", request, user.Id)
+			UpdateToken(ctx)
+
+			response := decodeAPIResponse(t, recorder)
+			var saved model.Token
+			require.NoError(t, model.DB.First(&saved, token.Id).Error)
+			if test.message != "" {
+				assert.False(t, response.Success)
+				assert.Equal(t, test.message, response.Message)
+				assert.Equal(t, "saved", saved.Name)
+				assert.Equal(t, "default", saved.Group)
+				return
+			}
+			require.True(t, response.Success, response.Message)
+			assert.Equal(t, "updated", saved.Name)
+			assert.Equal(t, test.group, saved.Group)
+		})
+	}
+}

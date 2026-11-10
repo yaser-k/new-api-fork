@@ -3006,6 +3006,7 @@
     "Grok": "Grok",
     "Grok Settings": "Grok 設定",
     "Group": "分組",
+    "Group {{group}} is unavailable or unauthorized": "分組 {{group}} 不可用或無權存取",
     "Group {{path}}": "群組 {{path}}",
     "Group & Quota": "分組與配額",
     "Group #{{index}} category name cannot exceed 50 characters": "第 {{index}} 個分組的分類名稱長度不能超過 50 字元",

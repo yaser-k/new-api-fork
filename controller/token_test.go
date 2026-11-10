@@ -536,6 +536,7 @@ func TestUpdateTokenMasksKeyInResponse(t *testing.T) {
 	}
 
 	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+	ctx.Set("group", "default")
 	UpdateToken(ctx)
 
 	response := decodeAPIResponse(t, recorder)
