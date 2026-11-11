@@ -1,10 +1,17 @@
 package vertex
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -57,6 +64,53 @@ func TestGetRequestURLWithAPIKey(t *testing.T) {
 			got, err := adaptor.GetRequestURL(info)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// A Vertex AI Gemini answer can report promptTokenCount 0 with a totalTokenCount that holds the
+// prompt; the chat path bills the remainder, not zero.
+func TestVertexGeminiChatBillsPromptFromTotalWhenPromptCountMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldStreamingTimeout
+	})
+	const frame = `{"candidates":[{"content":{"role":"model","parts":[{"text":"summary"}]},"finishReason":"STOP"}],` +
+		`"usageMetadata":{"promptTokenCount":0,"candidatesTokenCount":50,"totalTokenCount":5050}}`
+
+	for _, stream := range []bool{false, true} {
+		t.Run(map[bool]string{false: "non-stream", true: "stream"}[stream], func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				RelayMode:       relayconstant.RelayModeChatCompletions,
+				OriginModelName: "gemini-2.5-flash",
+				IsStream:        stream,
+				ChannelMeta: &relaycommon.ChannelMeta{
+					UpstreamModelName:    "gemini-2.5-flash",
+					ChannelOtherSettings: dto.ChannelOtherSettings{VertexKeyType: dto.VertexKeyTypeAPIKey},
+				},
+			}
+			info.SetEstimatePromptTokens(8)
+			body := frame
+			if stream {
+				body = "data: " + frame + "\ndata: [DONE]\n"
+			}
+			adaptor := &Adaptor{}
+			adaptor.Init(info)
+			require.Equal(t, RequestModeGemini, adaptor.RequestMode)
+
+			result, apiErr := adaptor.DoResponse(c, &http.Response{Body: io.NopCloser(strings.NewReader(body))}, info)
+			require.Nil(t, apiErr)
+			usage, ok := result.(*dto.Usage)
+			require.True(t, ok)
+			billed, ok := usage.BillingUsage.CanonicalUsage()
+			require.True(t, ok)
+			assert.Equal(t, 5000, usage.PromptTokens, "usage prompt tokens")
+			assert.Equal(t, 5000, billed.PromptTokens, "billed prompt tokens")
+			assert.Equal(t, 50, billed.CompletionTokens, "billed completion tokens")
 		})
 	}
 }
