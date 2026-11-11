@@ -1676,6 +1676,7 @@
     "Create, revoke, and audit API tokens.": "建立、撤銷和審計 API 令牌。",
     "Created": "建立時間",
     "Created {{count}} redemption codes named {{name}} ({{quota}} each)": "建立 {{count}} 個兌換碼 {{name}}（每個 {{quota}}）",
+    "Created {{created}} of {{total}} API keys": "已建立 {{created}}/{{total}} 個 API 金鑰",
     "Created {{time}}": "建立於 {{time}}",
     "Created a custom OAuth provider": "建立了一個自訂 OAuth 提供方",
     "Created a deployment": "建立了一個部署",
