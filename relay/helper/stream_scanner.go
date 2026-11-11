@@ -329,6 +329,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		if ctx.Err() != nil {
 			return
 		}
+		// The upstream request follows the client's context, so a client that
+		// leaves also ends the upstream read: that is the client's end, not a
+		// scanner error.
+		if err := c.Request.Context().Err(); err != nil {
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
+			return
+		}
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, common.LogText("scanner error: %s", err.Error()))
