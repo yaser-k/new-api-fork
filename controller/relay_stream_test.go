@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -24,6 +26,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -322,4 +325,118 @@ func TestStreamKeepAliveCancellation(t *testing.T) {
 	_, err := c.Writer.WriteString("data: done\n\n")
 	require.NoError(t, err)
 	require.True(t, strings.HasSuffix(recorder.Body.String(), "data: done\n\n"))
+}
+
+// A client that leaves ends its non-streaming upstream request: the upstream sees the request
+// cancelled at once, no other attempt starts, and the reservation is returned because no answer
+// reached the client. A slow answer the client still waits for is read in full and billed.
+func TestRelayUpstreamRequestFollowsTheClient(t *testing.T) {
+	const hold = 2 * time.Second
+	for _, tc := range []struct {
+		name         string
+		headersFirst bool
+		clientLeaves bool
+	}{
+		{name: "client leaves before the upstream headers", clientLeaves: true},
+		{name: "client leaves after the upstream headers", headersFirst: true, clientLeaves: true},
+		{name: "slow but live answer", headersFirst: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(*websocket.Conn, *http.Request) {})
+			previousRetries, previousErrorLog := common.RetryTimes, constant.ErrorLogEnabled
+			common.RetryTimes, constant.ErrorLogEnabled = 2, true
+			t.Cleanup(func() { common.RetryTimes, constant.ErrorLogEnabled = previousRetries, previousErrorLog })
+			var attempts atomic.Int64
+			requested, upstreamCancelled := make(chan struct{}, 3), make(chan struct{}, 3)
+			fixture.httpUpstream = func(w http.ResponseWriter, r *http.Request) {
+				attempts.Add(1)
+				// Reading the request lets the server notice when the gateway drops it.
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				if tc.headersFirst {
+					w.WriteHeader(http.StatusOK)
+					w.(http.Flusher).Flush()
+				}
+				requested <- struct{}{}
+				wait := hold
+				if !tc.clientLeaves {
+					wait = 300 * time.Millisecond
+				}
+				select {
+				case <-r.Context().Done():
+					upstreamCancelled <- struct{}{}
+					return
+				case <-time.After(wait):
+				}
+				_, _ = fmt.Fprint(w, `{"id":"resp_1","object":"response","status":"completed","model":"gpt-4o","output":[],"usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}`)
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			request, err := http.NewRequestWithContext(ctx, http.MethodPost, fixture.gatewayURL+"/v1/responses", strings.NewReader(`{"model":"ws-billing","input":"hello"}`))
+			require.NoError(t, err)
+			request.Header.Set("Authorization", "Bearer sk-"+fixture.token.Key)
+			request.Header.Set("Content-Type", "application/json")
+			status := make(chan int, 1)
+			go func() {
+				response, err := http.DefaultClient.Do(request)
+				if err != nil {
+					status <- 0
+					return
+				}
+				_, _ = io.Copy(io.Discard, response.Body)
+				_ = response.Body.Close()
+				status <- response.StatusCode
+			}()
+			select {
+			case <-requested:
+			case <-time.After(3 * time.Second):
+				t.Fatal("the upstream never received the request")
+			}
+			if tc.clientLeaves {
+				cancel()
+				select {
+				case <-upstreamCancelled:
+				case <-time.After(hold / 2):
+					t.Error("the upstream request was not cancelled when the client left")
+				}
+			}
+			select {
+			case <-fixture.httpDone:
+			case <-time.After(2 * hold):
+				t.Fatal("HTTP request did not finish")
+			}
+			if !tc.clientLeaves {
+				assert.Equal(t, http.StatusOK, <-status)
+			}
+
+			charged, consumeRows, errorRows := 0, int64(0), int64(1)
+			if !tc.clientLeaves {
+				charged, consumeRows, errorRows = 1000, 1, 0
+			}
+			assert.Equal(t, int64(1), attempts.Load(), "no other attempt starts")
+			// A refund is applied asynchronously.
+			quotas := func() (int, int) {
+				var user model.User
+				var token model.Token
+				_ = model.DB.First(&user, fixture.user.Id).Error
+				_ = model.DB.First(&token, fixture.token.Id).Error
+				return user.Quota, token.RemainQuota
+			}
+			assert.Eventually(t, func() bool {
+				userQuota, tokenQuota := quotas()
+				return userQuota == 100000-charged && tokenQuota == 3000-charged
+			}, 2*time.Second, 20*time.Millisecond)
+			userQuota, tokenQuota := quotas()
+			assert.Equal(t, 100000-charged, userQuota, "user quota")
+			assert.Equal(t, 3000-charged, tokenQuota, "token quota")
+			countRows := func(logType int) int64 {
+				var count int64
+				require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("token_id = ? AND type = ?", fixture.token.Id, logType).Count(&count).Error)
+				return count
+			}
+			assert.Equal(t, consumeRows, countRows(model.LogTypeConsume), "consume rows")
+			assert.Equal(t, errorRows, countRows(model.LogTypeError), "error rows: one per attempt")
+		})
+	}
 }
