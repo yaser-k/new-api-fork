@@ -27,9 +27,11 @@ export type ResponseModelObservation = NonNullable<
  *
  * Mirrors relay/common/response_model.go: ignoring case, the returned name is
  * compatible when it starts with the requested or upstream model (dated
- * versions, variants) or ends with it (provider paths such as
- * "deepseek/deepseek-v4.1-flash"). Nothing is stored; every row is judged
- * with the current rule.
+ * versions, variants), ends with it (provider paths such as
+ * "deepseek/deepseek-v4.1-flash"), or starts with that model less its routing
+ * prefix (an inference profile such as "global.vendor.model" answers with
+ * "vendor.model"). Nothing is stored; every row is judged with the current
+ * rule.
  */
 export function isResponseModelMismatch(
   observation: ResponseModelObservation | undefined
@@ -44,6 +46,12 @@ export function isResponseModelMismatch(
     const expected = (candidate ?? '').toLowerCase()
     if (expected === '') continue
     if (returned.startsWith(expected) || returned.endsWith(expected)) {
+      return false
+    }
+    const dot = expected.indexOf('.')
+    const prefix = expected.slice(0, dot)
+    const name = expected.slice(dot + 1)
+    if (dot > 0 && name !== '' && !prefix.includes('/') && returned.startsWith(name)) {
       return false
     }
   }
