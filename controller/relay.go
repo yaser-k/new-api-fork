@@ -216,6 +216,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if newAPIError == nil {
 			service.MarkRequestPolicySuccess(c, relayInfo.StreamStatus)
+			if failure := relayInfo.ChannelStreamFailure; failure != nil {
+				// The failure already reached the client inside its stream, so it is reported
+				// without another answer or a retry, and the session leaves this channel.
+				service.ClearCurrentChannelAffinityCache(c)
+				processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), failure, relayInfo)
+			}
 			relayInfo.LastError = nil
 			return
 		}

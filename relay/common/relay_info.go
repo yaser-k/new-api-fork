@@ -163,6 +163,10 @@ type RelayInfo struct {
 	RuntimeHeadersOverride                map[string]any
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
+	// ChannelStreamFailure is the upstream's own failure (server error, capacity) that ended a
+	// stream after it reached the client; the relay reports it to the channel-error path
+	// without answering the client again or retrying.
+	ChannelStreamFailure *types.NewAPIError
 
 	PriceData hosttypes.PriceData
 
