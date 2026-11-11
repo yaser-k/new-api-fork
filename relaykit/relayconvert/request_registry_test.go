@@ -1111,6 +1111,31 @@ func mustMarshalRequestJSON(t *testing.T, value any) []byte {
 	return raw
 }
 
+func TestGeminiToClaudeToolOnlyModelTurnHasNoPlaceholderText(t *testing.T) {
+	maxOutputTokens := uint(256)
+	request := &dto.GeminiChatRequest{GenerationConfig: dto.GeminiChatGenerationConfig{MaxOutputTokens: &maxOutputTokens}, Contents: []dto.GeminiChatContent{
+		{Role: "user", Parts: []dto.GeminiPart{{Text: "What is the weather in Paris?"}}},
+		{Role: "model", Parts: []dto.GeminiPart{{FunctionCall: &dto.FunctionCall{
+			ID: "call_weather", FunctionName: "get_weather", Arguments: map[string]any{"city": "Paris"},
+		}}}},
+		{Role: "user", Parts: []dto.GeminiPart{{FunctionResponse: &dto.GeminiFunctionResponse{
+			ID: json.RawMessage(`"call_weather"`), Name: "get_weather", Response: map[string]any{"temperature": 20},
+		}}}},
+	}}
+	result, err := ConvertRequest(context.Background(), &convmeta.Values{
+		UpstreamModelName: "claude-test", ChannelMetaAttached: true,
+	}, types.RelayFormatClaude, request)
+	require.NoError(t, err)
+	converted, ok := result.Value.(*dto.ClaudeRequest)
+	require.True(t, ok)
+
+	require.Len(t, converted.Messages, 3)
+	assert.Equal(t, "assistant", converted.Messages[1].Role)
+	content, err := kitutil.Marshal(converted.Messages[1].Content)
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{"type":"tool_use","id":"call_weather","name":"get_weather","input":{"city":"Paris"}}]`, string(content))
+}
+
 func TestGeminiToOpenAIChatPreservesTextAlongsideToolCalls(t *testing.T) {
 	const text = "I will check the weather."
 	call := dto.GeminiPart{FunctionCall: &dto.FunctionCall{
