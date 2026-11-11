@@ -373,8 +373,12 @@ export function getDynamicPriceEntries(
         shortLabel,
         labelKind: 'i18n' as const,
         value,
-        formatted: formatDynamicUnitPrice(value, options),
-        unit: 'token' as const,
+        // A second-unit price (vid_sec) is per second, not per token unit.
+        formatted:
+          variable.unit === 'second'
+            ? formatTaskUsageUnitPrice(value, options)
+            : formatDynamicUnitPrice(value, options),
+        unit: variable.unit ?? ('token' as const),
         variable,
       },
     ]
