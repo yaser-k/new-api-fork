@@ -2361,6 +2361,7 @@
     "Enter password": "Nhập mật khẩu",
     "Enter password (8-20 characters)": "Nhập mật khẩu (8-20 ký tự)",
     "Enter password (8–128 characters)": "Nhập mật khẩu (8–128 ký tự)",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "Nhập cổng từ 1 đến 65535 hoặc dải cổng như 8000-9000, phân cách bằng dấu phẩy",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "Nhập các tên miền cũ, mỗi dòng một tên miền, không kèm giao thức, cổng hay đường dẫn. Các cổng khác nhau trên cùng tên miền không cần thêm vào danh sách tên miền tương thích.",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "Nhập các tên miền khóa truy cập cũ, mỗi dòng một tên miền. Các khóa hiện có vẫn xác minh được với những tên miền này; khóa mới dùng tên miền chính.",
     "Enter quota in {{currency}}": "Nhập hạn mức bằng {{currency}}",
