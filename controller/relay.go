@@ -147,6 +147,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			perfmetrics.RecordRelayResult(c.Request.Context(), relayInfo, resultErr)
 		}
 		if recovered != nil {
+			// The refund below acts on newAPIError only, which a panic does not
+			// set. Release the pre-consumed quota as a failed request does; the
+			// billing session refunds at most once and never after settling.
+			relay.RefundFailedRequestBilling(c, relayInfo, resultErr)
 			panic(recovered)
 		}
 	}()
