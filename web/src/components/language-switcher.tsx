@@ -38,6 +38,57 @@ import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+/**
+ * The letter that stands for each interface language's script on the language
+ * button. Languages written in Latin share `A`.
+ */
+const LANGUAGE_SCRIPT_MARKS: Record<string, string> = {
+  en: 'A',
+  fr: 'A',
+  vi: 'A',
+  ru: 'Я',
+  ja: 'あ',
+  zhCN: '文',
+  zhTW: '文',
+  fa: 'ف',
+}
+
+/**
+ * The language button's picture for a two-language menu: the other script's
+ * mark at the top left and lucide's `A` at the bottom right, in the layout of
+ * lucide's `Languages`.
+ */
+function LanguagePairIcon(props: { mark: string; className?: string }) {
+  return (
+    <svg
+      xmlns='http://www.w3.org/2000/svg'
+      viewBox='0 0 24 24'
+      fill='none'
+      stroke='currentColor'
+      strokeWidth={2}
+      strokeLinecap='round'
+      strokeLinejoin='round'
+      aria-hidden='true'
+      data-mark={props.mark}
+      className={props.className}
+    >
+      <text
+        x='7'
+        y='12'
+        textAnchor='middle'
+        fontSize='15'
+        fontWeight='700'
+        fill='currentColor'
+        stroke='none'
+      >
+        {props.mark}
+      </text>
+      <path d='m22 22-5-10-5 10' />
+      <path d='M14 18h6' />
+    </svg>
+  )
+}
+
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
@@ -46,6 +97,15 @@ export function LanguageSwitcher() {
     readInterfaceLanguageSettings(status as Record<string, unknown> | null)
   )
   const currentLanguage = normalizeInterfaceLanguage(i18n.language)
+  // A menu of exactly two languages, one of them written in Latin, shows the
+  // other one's script beside the A; any other menu keeps lucide's icon.
+  const offeredMarks = offeredLanguages.map(
+    (lang) => LANGUAGE_SCRIPT_MARKS[lang.code]
+  )
+  const pairMark =
+    offeredMarks.length === 2 && offeredMarks.includes('A')
+      ? offeredMarks.find((mark) => mark && mark !== 'A')
+      : undefined
   const handleChangeLanguage = useCallback(
     async (code: string) => {
       rememberChosenInterfaceLanguage(code)
@@ -66,7 +126,11 @@ export function LanguageSwitcher() {
       <DropdownMenuTrigger
         render={<Button variant='ghost' size='icon' className='h-9 w-9' />}
       >
-        <Languages className='size-[1.2rem]' />
+        {pairMark ? (
+          <LanguagePairIcon mark={pairMark} className='size-[1.2rem]' />
+        ) : (
+          <Languages className='size-[1.2rem]' />
+        )}
         <span className='sr-only'>{t('Change language')}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>
