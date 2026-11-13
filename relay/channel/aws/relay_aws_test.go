@@ -401,6 +401,39 @@ func TestDoAwsClientRequest_PreservesSafeguards(t *testing.T) {
 	}
 }
 
+func TestConvertClaudeRequestForwardsSearchResultBlocks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const block = `{"type":"search_result","source":"https://example.com/a","title":"A","content":[{"type":"text","text":"First fact."}],"citations":{"enabled":true}}`
+	body := `{"model":"claude-sonnet-5","max_tokens":64,"messages":[{"role":"user","content":[` + block + `,{"type":"text","text":"Answer from the result."}]}]}`
+	var request dto.ClaudeRequest
+	require.NoError(t, common.UnmarshalJsonStr(body, &request))
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "claude-sonnet-5",
+		RelayFormat:     relaytypes.RelayFormatClaude,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ApiKey:            "access-key|secret-key|us-east-1",
+			UpstreamModelName: "global.anthropic.claude-sonnet-5",
+		},
+	}
+	converted, err := (&Adaptor{}).ConvertClaudeRequest(ctx, info, &request)
+	require.NoError(t, err)
+
+	encoded, err := common.Marshal(converted)
+	require.NoError(t, err)
+	var forwarded struct {
+		Messages []struct {
+			Content []json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, common.Unmarshal(encoded, &forwarded))
+	require.Len(t, forwarded.Messages, 1)
+	require.Len(t, forwarded.Messages[0].Content, 2)
+	assert.JSONEq(t, block, string(forwarded.Messages[0].Content[0]))
+}
+
 func TestNewAwsInvokeContextInheritsParent(t *testing.T) {
 	originalRelayTimeout := common.RelayTimeout
 	t.Cleanup(func() {
