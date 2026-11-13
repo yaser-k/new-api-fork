@@ -165,6 +165,10 @@ type RelayInfo struct {
 	RuntimeRemovedHeaders                 []string // removed by param override; never sent upstream
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
+	// ChannelStreamFailure is the upstream's own failure (server error, capacity) that ended a
+	// stream after it reached the client; the relay reports it to the channel-error path
+	// without answering the client again or retrying.
+	ChannelStreamFailure *types.NewAPIError
 	// RequestPluginSteps is the audit of the request plugin runs, every
 	// stage and attempt in order.
 	RequestPluginSteps []RequestPluginStep
