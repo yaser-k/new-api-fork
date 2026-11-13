@@ -33,12 +33,16 @@ relay.model_price_not_configured: "مدیر هنوز برای مدل ⁨{{.Model
 relay.model_price_not_configured_admin: "قیمت مدل ⁨{{.Model}}⁩ پیکربندی نشده است. در «تنظیمات سیستم ← تنظیمات عملیاتی» حالت استفادۀ شخصی را فعال کنید، یا قیمت مدل را در «تنظیمات سیستم ← قیمت‌گذاری گروه‌ها و مدل‌ها» پیکربندی کنید."
 relay.task_usage_price_unsupported: "مدل ⁨{{.Model}}⁩ از عبارت مصرف وظیفه استفاده می‌کند؛ قیمت‌گذاری درخواست‌های عادی و عبارت‌های جداگانۀ محاسبۀ هزینه برای افزونه‌ها را پیکربندی کنید"
 relay.shared_task_price_needs_override: "مدل ⁨{{.Model}}⁩ عبارت محاسبۀ هزینۀ خود را با افزونۀ وظیفۀ ⁨{{.Plugin}}⁩ مشترک دارد؛ پیش از استفاده از قیمت‌گذاری درخواست‌های عادی، یک عبارت محاسبۀ هزینۀ جداگانه برای افزونه پیکربندی کنید"
+relay.task_price_not_configured: "مدل ⁨{{.Model}}⁩ برای افزونۀ ⁨{{.Plugin}}⁩ قیمت وظیفه ندارد؛ در قیمت‌گذاری مدل‌ها برای این افزونه یک قیمت جداگانه تعیین کنید"
 relay.task_channel_disabled: "کانال این وظیفه غیرفعال شده است"
 relay.group_saturated: "ظرفیت گروه فعلی پر است. بعداً دوباره تلاش کنید یا برای دریافت خدمات بهتر، حساب خود را ارتقا دهید."
 relay.group_upstream_saturated: "ظرفیت بالادستی گروه فعلی پر است. بعداً دوباره تلاش کنید"
 relay.retry_get_channel_failed: "دریافت کانال در دسترس برای مدل ⁨{{.Model}}⁩ در گروه ⁨{{.Group}}⁩ ناموفق بود (retry): ⁨{{.Error}}⁩"
 relay.retry_no_available_channel: "برای مدل ⁨{{.Model}}⁩ در گروه ⁨{{.Group}}⁩ هیچ کانالی در دسترس نیست (retry)"
 relay.access_token_unsupported: "اینجا از توکن‌های دسترسی پشتیبانی نمی‌شود"
+relay.request_rejected: "درخواست بر اساس سیاست رد شد"
+relay.request_plugin_failed: "یک افزونۀ پردازش درخواست با خطا روبه‌رو شد"
+relay.response_rejected: "پاسخ بر اساس سیاست متوقف شد"
 
 # Emails and the name of the token created at registration
 user.default_token_name: "کلید API اولیۀ {{.Username}}"
@@ -96,3 +100,5 @@ channel.upstream_update_added_models: "نمونۀ مدل‌های افزوده�
 channel.upstream_update_removed_models: "نمونۀ مدل‌های حذف‌شده (نمایش ⁨{{.Shown}}/{{.Total}}⁩): ⁨{{.Models}}⁩"
 channel.upstream_update_failed_channels: "شناسه‌های کانال‌های ناموفق (نمایش ⁨{{.Shown}}/{{.Total}}⁩): ⁨{{.Ids}}⁩"
 channel.upstream_update_more_omitted: " ({{.Count}} مورد دیگر نمایش داده نشد)"
+
+channel.notify_scheduled_subject: "اعلان افزونۀ کانال «⁨{{.Name}}⁩» (⁨#{{.Id}}⁩)"
