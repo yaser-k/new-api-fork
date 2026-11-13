@@ -112,6 +112,49 @@ func TestOpenAIChatRequestToClaudeMessagesNormalizesToolInputSchema(t *testing.T
 	}
 }
 
+func TestOpenAIChatRequestToClaudeMessagesAssistantPlaceholder(t *testing.T) {
+	toolCalls := []dto.ToolCallRequest{{
+		ID:       "call_a",
+		Type:     "function",
+		Function: dto.FunctionRequest{Name: "lookup", Arguments: `{"q":"a"}`},
+	}}
+	toolUse := `{"type":"tool_use","id":"call_a","name":"lookup","input":{"q":"a"}}`
+
+	tests := []struct {
+		name          string
+		content       any
+		toolCalls     []dto.ToolCallRequest
+		wantAssistant string
+	}{
+		{name: "tool calls with null content", content: nil, toolCalls: toolCalls, wantAssistant: `[` + toolUse + `]`},
+		{name: "tool calls with empty content", content: "", toolCalls: toolCalls, wantAssistant: `[` + toolUse + `]`},
+		{name: "text and tool calls", content: "Checking a.", toolCalls: toolCalls, wantAssistant: `[{"type":"text","text":"Checking a."},` + toolUse + `]`},
+		{name: "empty turn without tool calls", content: nil, wantAssistant: `"..."`},
+		{name: "empty string turn without tool calls", content: "", wantAssistant: `"..."`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assistant := dto.Message{Role: "assistant", Content: tt.content}
+			if tt.toolCalls != nil {
+				assistant.SetToolCalls(tt.toolCalls)
+			}
+			maxTokens := uint(1024)
+			got, err := OpenAIChatRequestToClaudeMessages(context.Background(), nil, dto.GeneralOpenAIRequest{
+				Model:     "claude-test",
+				MaxTokens: &maxTokens,
+				Messages:  []dto.Message{{Role: "user", Content: "Look up a."}, assistant},
+			})
+			require.NoError(t, err)
+
+			require.Len(t, got.Messages, 2)
+			assert.Equal(t, "assistant", got.Messages[1].Role)
+			content, err := kitutil.Marshal(got.Messages[1].Content)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.wantAssistant, string(content))
+		})
+	}
+}
+
 func TestOpenAIChatRequestToClaudeMessagesMergesAdjacentAssistantToolCalls(t *testing.T) {
 	toolCall := func(id string) []dto.ToolCallRequest {
 		return []dto.ToolCallRequest{{
@@ -143,7 +186,6 @@ func TestOpenAIChatRequestToClaudeMessagesMergesAdjacentAssistantToolCalls(t *te
 				{Role: "tool", ToolCallId: "call_a", Content: "result a"},
 				{Role: "tool", ToolCallId: "call_b", Content: "result b"},
 			},
-			wantTexts:    []string{"..."},
 			wantToolUses: []string{"call_a", "call_b"},
 		},
 		{
@@ -194,7 +236,7 @@ func TestOpenAIChatRequestToClaudeMessagesMergesAdjacentAssistantToolCalls(t *te
 			wantToolUses: []string{"call_a"},
 		},
 		{
-			name: "three tool-only assistants keep one placeholder",
+			name: "three tool-only assistants carry only tool_use blocks",
 			messages: []dto.Message{
 				{Role: "user", Content: "Look up a, b and c."},
 				assistant(nil, toolCall("call_a")),
@@ -204,7 +246,6 @@ func TestOpenAIChatRequestToClaudeMessagesMergesAdjacentAssistantToolCalls(t *te
 				{Role: "tool", ToolCallId: "call_b", Content: "result b"},
 				{Role: "tool", ToolCallId: "call_c", Content: "result c"},
 			},
-			wantTexts:    []string{"..."},
 			wantToolUses: []string{"call_a", "call_b", "call_c"},
 		},
 		{
