@@ -514,6 +514,31 @@ func TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns(t *testing.T)
 	assert.NotContains(t, body, "second")
 }
 
+// clientBoundBody is an upstream body whose request follows the client's context, as
+// DoApiRequest builds it: the read ends with the context's error once the client leaves.
+type clientBoundBody struct{ ctx context.Context }
+
+func (b clientBoundBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (b clientBoundBody) Close() error { return nil }
+
+func TestStreamScannerHandler_ClientCancelEndingTheUpstreamReadIsClientGone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(ctx)
+	info := &relaycommon.RelayInfo{DisablePing: true, ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	time.AfterFunc(20*time.Millisecond, cancel)
+	StreamScannerHandler(c, &http.Response{Body: clientBoundBody{ctx: ctx}}, info, func(string, *StreamResult) {})
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+	assert.ErrorIs(t, info.StreamStatus.EndError, context.Canceled)
+}
+
 // ---------- Ping tests ----------
 
 func TestStreamScannerHandler_PingSentDuringSlowUpstream(t *testing.T) {
