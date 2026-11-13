@@ -28,6 +28,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PluginCard } from '../components/plugin-card'
 import { PluginMetadataCard } from '../components/plugin-metadata-card'
 import { PluginModelList } from '../components/plugin-model-list'
+import { resolvePluginParts } from '../lib/plugin-parts'
 import type { TaskPluginListItem, TaskPluginMeta } from '../types'
 
 // Icon rendering is outside these count checks (see plugin-card.test.tsx).
@@ -45,6 +46,8 @@ const meta: TaskPluginMeta = {
   fetchMode: 'proxy',
   sortPriority: 10,
 }
+
+const parts = resolvePluginParts({ meta })
 
 const item: TaskPluginListItem = {
   meta,
@@ -66,7 +69,7 @@ function PluginCardHarness() {
     columns,
     getCoreRowModel: getCoreRowModel(),
   })
-  return <PluginCard row={table.getRowModel().rows[0]} />
+  return <PluginCard row={table.getRowModel().rows[0]} kind='task' />
 }
 
 afterEach(async () => {
@@ -77,7 +80,7 @@ afterEach(async () => {
 describe('task plugin counts', () => {
   it('in English, keeps the model count, priority and hidden model count', async () => {
     await i18next.changeLanguage('en')
-    render(<PluginMetadataCard meta={meta} />)
+    render(<PluginMetadataCard meta={meta} parts={parts} />)
 
     expect(screen.getByText('12')).toBeInTheDocument()
     expect(screen.getByText('10')).toBeInTheDocument()
@@ -85,7 +88,7 @@ describe('task plugin counts', () => {
 
   it('in Persian, writes the model count and priority with Persian digits', async () => {
     await i18next.changeLanguage('fa')
-    render(<PluginMetadataCard meta={meta} />)
+    render(<PluginMetadataCard meta={meta} parts={parts} />)
 
     expect(screen.getByText('۱۲')).toBeInTheDocument()
     expect(screen.getByText('۱۰')).toBeInTheDocument()
