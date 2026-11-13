@@ -86,7 +86,7 @@ func TestRequestPolicyDatabaseMatrix(t *testing.T) {
 			require.NoError(t, UpdateOption("AutomaticRetryKeywords", "Key Monthly Cap Hit\n  quota window closed  "))
 			assert.Equal(t, "Key Monthly Cap Hit\n  quota window closed  ", CurrentRequestPolicy().Options["AutomaticRetryKeywords"])
 			assert.Equal(t, "key monthly cap hit\nquota window closed", operation_setting.AutomaticRetryKeywordsToString())
-			loadOptionsFromDatabase()
+			require.NoError(t, LoadOptionsFromDatabase())
 			assert.Equal(t, "key monthly cap hit\nquota window closed", operation_setting.AutomaticRetryKeywordsToString(), "the stored list survives a reload")
 			require.NoError(t, UpdateRequestPolicyOptions(map[string]string{"AutomaticRetryKeywords": ""}))
 			assert.Empty(t, CurrentRequestPolicy().Options["AutomaticRetryKeywords"])
