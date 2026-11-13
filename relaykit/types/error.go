@@ -234,7 +234,7 @@ func (e *NewAPIError) ToClaudeError(upstreamURLs ...string) ClaudeError {
 		if openAIError, ok := e.RelayError.(OpenAIError); ok {
 			result = ClaudeError{
 				Message: e.Error(),
-				Type:    fmt.Sprintf("%v", openAIError.Code),
+				Type:    anthropicErrorType(openAIError.Type, e.StatusCode),
 			}
 		}
 	case ErrorTypeClaudeError:
@@ -254,6 +254,37 @@ func (e *NewAPIError) ToClaudeError(upstreamURLs ...string) ClaudeError {
 		result.Message = string(e.errorType)
 	}
 	return result
+}
+
+// anthropicErrorType is the Anthropic error type a Claude-shaped answer carries
+// for a relay error of another shape: the relay error's own type when it is
+// already an Anthropic error type, else the type its HTTP status means.
+func anthropicErrorType(relayErrorType string, statusCode int) string {
+	switch relayErrorType {
+	case "invalid_request_error", "authentication_error", "billing_error", "permission_error",
+		"not_found_error", "request_too_large", "rate_limit_error", "api_error", "overloaded_error":
+		return relayErrorType
+	}
+	switch statusCode {
+	case http.StatusUnauthorized:
+		return "authentication_error"
+	case http.StatusPaymentRequired:
+		return "billing_error"
+	case http.StatusForbidden:
+		return "permission_error"
+	case http.StatusNotFound:
+		return "not_found_error"
+	case http.StatusRequestEntityTooLarge:
+		return "request_too_large"
+	case http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case 529:
+		return "overloaded_error"
+	}
+	if statusCode >= 400 && statusCode < 500 {
+		return "invalid_request_error"
+	}
+	return "api_error"
 }
 
 type NewAPIErrorOptions func(*NewAPIError)
