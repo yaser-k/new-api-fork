@@ -60,3 +60,25 @@ func TestGetRequestURLWithAPIKey(t *testing.T) {
 		})
 	}
 }
+
+// Mistral's rawPredict URL needs the project of a service account; an API key channel is refused before
+// any request goes out, as it is for the open-source endpoint.
+func TestGetRequestURLRefusesMistralWithAPIKey(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "mistral-medium-3",
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ApiVersion:        `{"default":"europe-west4"}`,
+			ApiKey:            "test-key",
+			UpstreamModelName: "mistral-medium-3",
+			ChannelOtherSettings: dto.ChannelOtherSettings{
+				VertexKeyType:   dto.VertexKeyTypeAPIKey,
+				VertexProjectID: "my-project",
+			},
+		},
+	}
+	adaptor := &Adaptor{}
+	adaptor.Init(info)
+
+	_, err := adaptor.GetRequestURL(info)
+	require.EqualError(t, err, "vertex mistral models need a service account key, not an API key")
+}
