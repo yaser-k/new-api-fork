@@ -599,11 +599,7 @@ func (m *MediaContent) ToFileSource() types.FileSource {
 		if audio == nil || audio.Data == "" {
 			return nil
 		}
-		mimeType := ""
-		if audio.Format != "" {
-			mimeType = "audio/" + audio.Format
-		}
-		return types.NewFileSourceFromData(audio.Data, mimeType)
+		return types.NewFileSourceFromData(audio.Data, InputAudioMimeType(audio.Format))
 	case ContentTypeFile:
 		file := m.GetFile()
 		if file == nil || file.FileData == "" {
@@ -635,6 +631,17 @@ func (m *MessageImageUrl) IsRemoteImage() bool {
 type MessageInputAudio struct {
 	Data   string `json:"data"` //base64
 	Format string `json:"format"`
+}
+
+// InputAudioMimeType returns the MIME type of an input_audio format: a bare name such as "mp3"
+// gets the "audio/" prefix, a value that already names a type such as "audio/mpeg" is kept, and
+// an empty format stays empty.
+func InputAudioMimeType(format string) string {
+	format = strings.TrimSpace(format)
+	if format == "" || strings.Contains(format, "/") {
+		return format
+	}
+	return "audio/" + format
 }
 
 type MessageFile struct {
