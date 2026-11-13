@@ -51,6 +51,7 @@ import {
   formatCurrencyFromUSD,
   formatQuotaWithCurrency,
   getCurrencyLabel,
+  stripCurrencyIsolates,
 } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -391,7 +392,7 @@ export function BalanceCell({ channel }: { channel: Channel }) {
     })
   )
   const usedDisplay =
-    usedFull.length > MAX_INLINE_BALANCE_CHARS
+    stripCurrencyIsolates(usedFull).length > MAX_INLINE_BALANCE_CHARS
       ? withSuffix(
           formatQuotaWithCurrency(usedQuota, {
             compact: true,
@@ -404,7 +405,7 @@ export function BalanceCell({ channel }: { channel: Channel }) {
     formatCurrencyFromUSD(balance, balanceFormatOptions)
   )
   let remainingDisplay =
-    remainingFull.length > MAX_INLINE_BALANCE_CHARS
+    stripCurrencyIsolates(remainingFull).length > MAX_INLINE_BALANCE_CHARS
       ? withSuffix(
           formatCurrencyFromUSD(balance, {
             compact: true,
@@ -428,7 +429,7 @@ export function BalanceCell({ channel }: { channel: Channel }) {
       locale,
     })
     remainingDisplay =
-      remainingFull.length > MAX_INLINE_BALANCE_CHARS
+      stripCurrencyIsolates(remainingFull).length > MAX_INLINE_BALANCE_CHARS
         ? formatChannelBalanceSummary(detail, balance, {
             compact: true,
             locale,
