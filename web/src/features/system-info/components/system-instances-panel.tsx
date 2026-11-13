@@ -41,6 +41,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
   TableBody,
@@ -72,7 +73,14 @@ import {
   deleteStaleSystemInstances,
   listSystemInstances,
 } from '../api'
-import type { SystemInstance, SystemInstanceStatus } from '../types'
+import { useNodeSync } from '../hooks/use-node-sync'
+import {
+  nodeSyncState,
+  registeredSyncTopics,
+  syncTopicLabel,
+  type NodeSyncState,
+} from '../lib/node-sync'
+import type { NodeSync, SystemInstance, SystemInstanceStatus } from '../types'
 
 const INSTANCE_POLL_INTERVAL_MS = 30_000
 const INSTANCE_SKELETON_KEYS = [
@@ -242,8 +250,96 @@ function ResourceCell(props: ResourceCellProps) {
   )
 }
 
+const SYNC_BADGE_CLASS_NAME: Record<NodeSyncState, string> = {
+  synced: STATUS_CLASS_NAME.online,
+  updating: '',
+  failed: 'bg-destructive/10 text-destructive dark:bg-destructive/20',
+}
+
+type SyncCellProps = {
+  instance: SystemInstance
+  sync?: NodeSync
+}
+
+/** Whether a node has loaded the latest settings, channels, plugins and so on. */
+function SyncCell(props: SyncCellProps) {
+  const { t } = useTranslation()
+  const node = props.sync?.nodes.find(
+    (item) => item.node_name === props.instance.node_name
+  )
+  if (
+    !props.sync ||
+    !node ||
+    props.instance.status !== 'online' ||
+    !props.instance.info?.sync
+  ) {
+    return <span className='text-muted-foreground text-xs'>-</span>
+  }
+  const stateText: Record<NodeSyncState, string> = {
+    synced: t('Synced'),
+    updating: t('Updating'),
+    failed: t('Update failed'),
+  }
+  const topics = registeredSyncTopics(props.sync)
+  const state = nodeSyncState(node, topics)
+
+  return (
+    <TooltipProvider delay={100}>
+      <Tooltip>
+        <TooltipTrigger className='inline-flex shrink-0 rounded-full focus-visible:ring-2 focus-visible:outline-none'>
+          <Badge
+            variant='secondary'
+            className={cn('gap-1.5', SYNC_BADGE_CLASS_NAME[state])}
+          >
+            {state === 'updating' ? (
+              <Spinner aria-hidden='true' />
+            ) : (
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  state === 'failed'
+                    ? 'bg-destructive'
+                    : STATUS_DOT_CLASS_NAME.online
+                )}
+                aria-hidden='true'
+              />
+            )}
+            {stateText[state]}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className='max-w-80'>
+          <ul className='space-y-1.5 text-xs'>
+            {topics.map((topic) => {
+              const entry = node.topics[topic]
+              return (
+                <li key={topic}>
+                  <div className='flex justify-between gap-6'>
+                    <span>{syncTopicLabel(topic, t)}</span>
+                    <span className='font-medium'>
+                      {stateText[nodeSyncState(node, [topic])]}
+                    </span>
+                  </div>
+                  {entry?.error && (
+                    <div className='break-words opacity-70'>{entry.error}</div>
+                  )}
+                  {Object.entries(entry?.errors ?? {}).map(([key, message]) => (
+                    <div key={key} className='break-words opacity-70'>
+                      {key}: {message}
+                    </div>
+                  ))}
+                </li>
+              )
+            })}
+          </ul>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 type SystemInstancesTableProps = {
   instances: SystemInstance[]
+  sync?: NodeSync
   deletingNodeName: string | null
   isDeletingInstance: boolean
   onDeleteStaleInstance: (instance: SystemInstance) => void
@@ -255,7 +351,7 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
 
   return (
     <div className='overflow-x-auto rounded-md border'>
-      <Table className='min-w-[1230px]'>
+      <Table className='min-w-[1340px]'>
         <TableHeader>
           <TableRow className='bg-muted/40 hover:bg-muted/40'>
             <TableHead className='h-9 min-w-[240px] px-4 text-xs'>
@@ -265,6 +361,9 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
               {t('Status')}
             </TableHead>
             <TableHead className='h-9 w-[100px] text-xs'>{t('Role')}</TableHead>
+            <TableHead className='h-9 w-[110px] text-xs'>
+              {t('Sync status')}
+            </TableHead>
             <TableHead className='h-9 w-[96px] text-xs'>{t('CPU')}</TableHead>
             <TableHead className='h-9 w-[96px] text-xs'>
               {t('Memory')}
@@ -398,6 +497,9 @@ function SystemInstancesList(props: SystemInstancesTableProps) {
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
+                </TableCell>
+                <TableCell className='py-2.5 align-middle'>
+                  <SyncCell instance={instance} sync={props.sync} />
                 </TableCell>
                 <TableCell className='py-2.5 align-middle'>
                   <ResourceCell value={resources?.cpu?.usage_percent} />
@@ -538,6 +640,7 @@ export function SystemInstancesPanel() {
     retry: false,
     refetchInterval: INSTANCE_POLL_INTERVAL_MS,
   })
+  const syncQuery = useNodeSync()
 
   const instances = instancesQuery.data ?? []
   const staleInstances = instances.filter(
@@ -646,6 +749,7 @@ export function SystemInstancesPanel() {
       <div className='p-4 sm:p-5'>
         <SystemInstancesList
           instances={instances}
+          sync={syncQuery.data}
           deletingNodeName={deletingNodeName}
           isDeletingInstance={
             isMutatingInstance || deleteStaleInstancesMutation.isPending
@@ -711,7 +815,10 @@ export function SystemInstancesPanel() {
               type='button'
               variant='outline'
               size='sm'
-              onClick={() => void instancesQuery.refetch()}
+              onClick={() => {
+                void instancesQuery.refetch()
+                void syncQuery.refetch()
+              }}
               disabled={instancesQuery.isFetching}
               aria-label={t('Refresh')}
             >

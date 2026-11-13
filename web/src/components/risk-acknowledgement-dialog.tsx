@@ -42,7 +42,6 @@ type RequiredTextPart = {
 
 type NormalizedRequiredTextPart = RequiredTextPart & {
   inputIndex?: number
-  key: string
 }
 
 type RiskAcknowledgementDialogProps = {
@@ -102,12 +101,10 @@ export function RiskAcknowledgementDialog({
     }>(
       (acc, part) => {
         if (part.type !== 'input') {
-          const key = `static-${acc.parts.length}`
-          return { ...acc, parts: [...acc.parts, { ...part, key }] }
+          return { ...acc, parts: [...acc.parts, part] }
         }
-        const key = `input-${acc.parts.length}`
         return {
-          parts: [...acc.parts, { ...part, inputIndex: acc.inputIndex, key }],
+          parts: [...acc.parts, { ...part, inputIndex: acc.inputIndex }],
           inputIndex: acc.inputIndex + 1,
         }
       },
@@ -247,22 +244,35 @@ export function RiskAcknowledgementDialog({
               </div>
               {hasSegmentedRequiredText ? (
                 <div className='flex flex-col gap-2'>
-                  {normalizedRequiredTextParts.map((part) =>
+                  {normalizedRequiredTextParts.map((part, index) =>
                     part.type === 'static' ? (
                       <span
-                        key={part.key}
+                        // oxlint-disable-next-line react/no-array-index-key -- Punctuation can repeat in the fixed sentence order.
+                        key={`static-${index}`}
                         className='text-muted-foreground bg-background/70 border-border w-fit rounded-md border px-2 py-1.5 font-mono text-sm select-none'
                       >
                         {part.text}
                       </span>
                     ) : (
                       <Textarea
-                        key={part.key}
+                        key={`input-${part.inputIndex}`}
                         value={typedTextParts[part.inputIndex ?? 0] ?? ''}
                         onChange={(event) =>
                           handleTextPartChange(
                             part.inputIndex ?? 0,
-                            event.target.value
+                            event.currentTarget.value
+                          )
+                        }
+                        onCompositionEnd={(event) =>
+                          handleTextPartChange(
+                            part.inputIndex ?? 0,
+                            event.currentTarget.value
+                          )
+                        }
+                        onBlur={(event) =>
+                          handleTextPartChange(
+                            part.inputIndex ?? 0,
+                            event.currentTarget.value
                           )
                         }
                         placeholder={
@@ -283,7 +293,11 @@ export function RiskAcknowledgementDialog({
               ) : (
                 <Textarea
                   value={typedText}
-                  onChange={(event) => setTypedText(event.target.value)}
+                  onChange={(event) => setTypedText(event.currentTarget.value)}
+                  onCompositionEnd={(event) =>
+                    setTypedText(event.currentTarget.value)
+                  }
+                  onBlur={(event) => setTypedText(event.currentTarget.value)}
                   placeholder={
                     inputPlaceholder ?? t('Type the confirmation text here')
                   }
