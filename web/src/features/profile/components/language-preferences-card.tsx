@@ -37,6 +37,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { updateUserLanguage } from '../api'
 import { parseUserSettings } from '../lib'
 import type { UserProfile } from '../types'
+import { DisplayCurrencyPreference } from './display-currency-preference'
 
 type LanguagePreferencesCardProps = {
   profile: UserProfile | null
@@ -140,6 +141,7 @@ export function LanguagePreferencesCard(props: LanguagePreferencesCardProps) {
           )}
         </div>
       </div>
+      <DisplayCurrencyPreference onProfileUpdate={props.onProfileUpdate} />
     </TitledCard>
   )
 }

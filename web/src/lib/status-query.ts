@@ -100,7 +100,8 @@ export function mapStatusDataToConfig(
     displayTokenStatEnabled: data.display_token_stat_enabled as
       | boolean
       | undefined,
-    currency,
+    // The site's own values; the store derives what this viewer reads.
+    siteCurrency: currency,
   }
 }
 
