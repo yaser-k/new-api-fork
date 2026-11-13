@@ -21,6 +21,7 @@ import i18next from 'i18next'
 import { toast } from 'sonner'
 
 import { handleServerError } from '@/lib/handle-server-error'
+import { getServerMessage } from '@/lib/server-error-message'
 
 import {
   copyChannel,
@@ -38,6 +39,8 @@ import {
   editTagChannels,
   testAllChannels,
   updateAllChannelsBalance,
+  getChannelBalanceTask,
+  type ChannelBalanceTask,
 } from '../api'
 import { CHANNEL_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import type { ChannelTestResponse, CopyChannelParams } from '../types'
@@ -55,6 +58,8 @@ export const channelsQueryKeys = {
     [...channelsQueryKeys.lists(), params] as const,
   details: () => [...channelsQueryKeys.all, 'detail'] as const,
   detail: (id: number) => [...channelsQueryKeys.details(), id] as const,
+  pluginCredentials: (id: number) =>
+    [...channelsQueryKeys.detail(id), 'plugin_credentials'] as const,
 }
 
 function getChannelTestResponseTime(
@@ -316,7 +321,8 @@ export async function handleTestChannel(
       }
       onTestComplete?.(true, responseTime)
     } else {
-      const errorMsg = response.message || i18next.t(ERROR_MESSAGES.TEST_FAILED)
+      const errorMsg =
+        getServerMessage(response) || i18next.t(ERROR_MESSAGES.TEST_FAILED)
       if (!options?.silent) {
         handleServerError(response, undefined, {
           title: i18next.t('{{target}} test failed', { target }),
@@ -328,9 +334,10 @@ export async function handleTestChannel(
       onTestComplete?.(false, responseTime, errorMsg, response.error_code)
     }
   } catch (_error: unknown) {
-    const err = _error as { response?: { data?: { message?: string } } }
+    const err = _error as { response?: { data?: unknown } }
     const errorMsg =
-      err?.response?.data?.message || i18next.t(ERROR_MESSAGES.TEST_FAILED)
+      getServerMessage(err?.response?.data) ||
+      i18next.t(ERROR_MESSAGES.TEST_FAILED)
     const target = getChannelTestLabel(options)
     if (!options?.silent) {
       handleServerError(_error, undefined, {
@@ -653,8 +660,60 @@ export async function handleTestAllChannels(
   }
 }
 
+/** How often the progress of a balance update is checked. */
+const BALANCE_UPDATE_POLL_MS = 5_000
+
+/** Balance updates this page follows, so a second click adds no follower. */
+const followedBalanceUpdates = new Set<string>()
+
 /**
- * Update balance for all enabled channels
+ * Follows an update of all balances until it ends. The list reloads whenever
+ * more channels have been queried and once more at the end, which is then
+ * reported. A failed progress check stops following after one last reload.
+ */
+async function followBalanceUpdate(
+  taskId: string,
+  queryClient?: QueryClient
+): Promise<void> {
+  const reloadList = () =>
+    queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+  let reloadedAt = 0
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, BALANCE_UPDATE_POLL_MS))
+    let task: ChannelBalanceTask | null | undefined
+    try {
+      const response = await getChannelBalanceTask(taskId)
+      task = response.success ? response.data : null
+    } catch {
+      task = null
+    }
+    if (!task) {
+      void reloadList()
+      return
+    }
+    const processed = task.state?.processed ?? 0
+    const ended = task.status === 'succeeded' || task.status === 'failed'
+    if (ended || processed > reloadedAt) {
+      reloadedAt = processed
+      void reloadList()
+    }
+    if (task.status === 'succeeded') {
+      toast.success(i18next.t('All balances updated'))
+      return
+    }
+    if (task.status === 'failed') {
+      toast.error(i18next.t('Balance update failed'), {
+        description: task.error || undefined,
+      })
+      return
+    }
+  }
+}
+
+/**
+ * Update balance for all enabled channels. The server runs the update in the
+ * background; the list follows its progress until it ends. A run already in
+ * progress is reported and followed the same way.
  */
 export async function handleUpdateAllBalances(
   queryClient?: QueryClient,
@@ -662,16 +721,29 @@ export async function handleUpdateAllBalances(
 ): Promise<void> {
   try {
     const response = await updateAllChannelsBalance()
-    if (response.success) {
+    if (!response.success) {
+      handleServerError(response, i18next.t('Failed to update all balances'))
+      return
+    }
+    if (response.data?.started === false) {
+      toast.info(
+        getServerMessage(response) ||
+          i18next.t('A balance update is already running')
+      )
+    } else {
       toast.success(
         i18next.t(
-          'Updating all channel balances. This may take a while. Please refresh to see results.'
+          'Balances are updating in the background. The list will refresh on its own.'
         )
       )
-      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
       onSuccess?.()
-    } else {
-      handleServerError(response, i18next.t('Failed to update all balances'))
+    }
+    const taskId = response.data?.task_id
+    if (taskId && !followedBalanceUpdates.has(taskId)) {
+      followedBalanceUpdates.add(taskId)
+      void followBalanceUpdate(taskId, queryClient).finally(() =>
+        followedBalanceUpdates.delete(taskId)
+      )
     }
   } catch (error) {
     handleServerError(error, i18next.t('Failed to update all balances'))

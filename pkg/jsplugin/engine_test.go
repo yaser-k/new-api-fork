@@ -3,10 +3,20 @@ package jsplugin
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -18,9 +28,12 @@ import (
 	"unsafe"
 	"weak"
 
+	"github.com/MoeForge/moejs"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,6 +72,182 @@ export const meta = { apiVersion: 1, key: "mock" };
 	meta, err := engine.Export(context.Background(), "meta")
 	require.NoError(t, err)
 	assert.Equal(t, map[string]any{"apiVersion": int64(1), "key": "mock"}, meta)
+}
+
+// TestUtilsSigningReproducesPublishedVectors rebuilds published request
+// signatures in plugin JavaScript from utils.sha256 and utils.hmacSHA256, with
+// the chained signing keys passed on as bytes.
+func TestUtilsSigningReproducesPublishedVectors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		source            string
+		wantCanonicalHash string
+		wantSignature     string
+	}{
+		{
+			// The AWS Signature Version 4 example (IAM ListUsers) of the AWS
+			// General Reference, archived at
+			// https://web.archive.org/web/20220119151157/http://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
+			// and https://web.archive.org/web/20220307204322/https://docs.aws.amazon.com/general/latest/gr/sigv4-calculate-signature.html
+			name: "AWS SigV4",
+			source: `
+export function sign() {
+  const canonicalRequest = [
+    "GET", "/", "Action=ListUsers&Version=2010-05-08",
+    "content-type:application/x-www-form-urlencoded; charset=utf-8\nhost:iam.amazonaws.com\nx-amz-date:20150830T123600Z\n",
+    "content-type;host;x-amz-date", utils.sha256(""),
+  ].join("\n");
+  const canonicalHash = utils.sha256(canonicalRequest);
+  const stringToSign = ["AWS4-HMAC-SHA256", "20150830T123600Z", "20150830/us-east-1/iam/aws4_request", canonicalHash].join("\n");
+  let signingKey = utils.hmacSHA256("20150830", "AWS4wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "bytes");
+  for (const part of ["us-east-1", "iam", "aws4_request"]) {
+    signingKey = utils.hmacSHA256(part, signingKey, "bytes");
+  }
+  return {canonicalHash, signature: utils.hmacSHA256(stringToSign, signingKey)};
+}`,
+			wantCanonicalHash: "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59",
+			wantSignature:     "5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7",
+		},
+		{
+			// The TC3-HMAC-SHA256 example (CVM DescribeInstances) of Tencent
+			// Cloud's signature v3 document, archived with its EXAMPLE keys
+			// unmasked at
+			// https://web.archive.org/web/20190822032928/https://cloud.tencent.com/document/api/213/30654
+			name: "Tencent Cloud TC3",
+			source: `
+export function sign() {
+  const payload = '{"Limit": 1, "Filters": [{"Values": ["\\u672a\\u547d\\u540d"], "Name": "instance-name"}]}';
+  const canonicalRequest = [
+    "POST", "/", "",
+    "content-type:application/json; charset=utf-8\nhost:cvm.tencentcloudapi.com\n",
+    "content-type;host", utils.sha256(payload),
+  ].join("\n");
+  const canonicalHash = utils.sha256(canonicalRequest);
+  const stringToSign = ["TC3-HMAC-SHA256", "1551113065", "2019-02-25/cvm/tc3_request", canonicalHash].join("\n");
+  let signingKey = utils.hmacSHA256("2019-02-25", "TC3Gu5t9xGARNpq86cd98joQYCN3EXAMPLE", "bytes");
+  for (const part of ["cvm", "tc3_request"]) {
+    signingKey = utils.hmacSHA256(part, signingKey, "bytes");
+  }
+  return {canonicalHash, signature: utils.hmacSHA256(stringToSign, signingKey)};
+}`,
+			wantCanonicalHash: "5ffe6a04c0664d6b969fab9a13bdab201d63ee709638e2749d62a09ca18d7031",
+			wantSignature:     "72e494ea809ad7a8c8f7a4507b9bddcbaa8e581f516e8da2f66e2c5a96525168",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			engine, err := Compile(test.source, Options{Key: "sign", Version: "1"})
+			require.NoError(t, err)
+			result, err := engine.Call(t.Context(), "sign")
+			require.NoError(t, err)
+			assert.Equal(t, map[string]any{"canonicalHash": test.wantCanonicalHash, "signature": test.wantSignature}, result)
+		})
+	}
+}
+
+func TestUtilsSignRS256BuildsVerifiableJWT(t *testing.T) {
+	t.Parallel()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	engine, err := Compile(`
+export function jwt(ctx) {
+  const header = utils.base64URL(JSON.stringify({alg: "RS256", typ: "JWT"}));
+  const claims = utils.base64URL(JSON.stringify({
+    iss: "signer@example.iam.gserviceaccount.com",
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: 1762128000,
+    exp: 1762131600,
+  }));
+  const input = header + "." + claims;
+  return input + "." + utils.signRS256(input, ctx.privateKey);
+}`, Options{Key: "jwt", Version: "1"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		block *pem.Block
+	}{
+		{name: "PKCS #8 PRIVATE KEY", block: &pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}},
+		{name: "PKCS #1 RSA PRIVATE KEY", block: &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := engine.Call(t.Context(), "jwt", map[string]any{"privateKey": string(pem.EncodeToMemory(test.block))})
+			require.NoError(t, err)
+			token, ok := result.(string)
+			require.True(t, ok)
+
+			parsed, err := jwt.Parse(token, func(*jwt.Token) (any, error) { return &key.PublicKey, nil },
+				jwt.WithValidMethods([]string{"RS256"}), jwt.WithoutClaimsValidation())
+			require.NoError(t, err)
+			assert.Equal(t, "JWT", parsed.Header["typ"])
+			assert.Equal(t, jwt.MapClaims{
+				"iss":   "signer@example.iam.gserviceaccount.com",
+				"scope": "https://www.googleapis.com/auth/cloud-platform",
+				"aud":   "https://oauth2.googleapis.com/token",
+				"iat":   float64(1762128000),
+				"exp":   float64(1762131600),
+			}, parsed.Claims)
+		})
+	}
+}
+
+func TestUtilsSigningEncodingsAndErrors(t *testing.T) {
+	t.Parallel()
+	abc := sha256.Sum256([]byte("abc"))
+	_, edPrivate, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	edPKCS8, err := x509.MarshalPKCS8PrivateKey(edPrivate)
+	require.NoError(t, err)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	rsaPublic, err := x509.MarshalPKIXPublicKey(&rsaKey.PublicKey)
+	require.NoError(t, err)
+	keys := map[string]any{
+		"ed25519":   string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: edPKCS8})),
+		"rsaPublic": string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: rsaPublic})),
+	}
+
+	tests := []struct {
+		name       string
+		expression string
+		want       any
+	}{
+		{name: "hex by default", expression: `utils.sha256("abc")`, want: hex.EncodeToString(abc[:])},
+		{name: "base64 padded", expression: `utils.sha256("abc", "base64")`, want: base64.StdEncoding.EncodeToString(abc[:])},
+		{name: "base64url unpadded", expression: `utils.sha256("abc", "base64url")`, want: base64.RawURLEncoding.EncodeToString(abc[:])},
+		{name: "bytes as ArrayBuffer", expression: `utils.sha256(new TextEncoder().encode("abc"), "bytes")`, want: abc[:]},
+		{name: "DataView reads only its view", expression: `utils.sha256(new DataView(new TextEncoder().encode("xabcx").buffer, 1, 3))`, want: hex.EncodeToString(abc[:])},
+		{name: "byte HMAC key equals its string", expression: `utils.hmacSHA256("hello", new TextEncoder().encode("secret"))`, want: "88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b"},
+		{name: "unknown encoding", expression: `utils.sha256("abc", "binary")`, want: "TypeError: utils.sha256 encoding must be hex, base64, base64url or bytes"},
+		{name: "input over 64 MiB", expression: `utils.sha256(new Uint8Array(64 * 1024 * 1024 + 1))`, want: "RangeError: utils.sha256 input exceeds 64 MiB"},
+		{name: "not PEM", expression: `utils.signRS256("data", "not a key")`, want: "TypeError: utils.signRS256 private key is not PEM text"},
+		{name: "public key PEM", expression: `utils.signRS256("data", ctx.rsaPublic)`, want: "TypeError: utils.signRS256 requires a PRIVATE KEY or RSA PRIVATE KEY PEM block"},
+		{name: "non-RSA PKCS #8 key", expression: `utils.signRS256("data", ctx.ed25519)`, want: "TypeError: utils.signRS256 private key is not a valid RSA private key"},
+		{name: "PEM over 16 KiB", expression: `utils.signRS256("data", "x".repeat(16 * 1024 + 1))`, want: "RangeError: utils.signRS256 private key PEM exceeds 16 KiB"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			engine, err := Compile(`
+export function run(ctx) {
+  try {
+    return `+test.expression+`;
+  } catch (error) {
+    return error.name + ": " + error.message;
+  }
+}`, Options{Key: "encode", Version: "1"})
+			require.NoError(t, err)
+			result, err := engine.Call(t.Context(), "run", keys)
+			require.NoError(t, err)
+			assert.Equal(t, test.want, result)
+		})
+	}
 }
 
 func TestEngineJSONCloneProducesIndependentNativeContainers(t *testing.T) {
@@ -514,6 +703,56 @@ func TestEngineInterruptsLongRunningHook(t *testing.T) {
 	assert.Equal(t, int64(1), value, "an interrupted runtime must be discarded")
 }
 
+func TestEngineMemoryLimitIsPerHookCall(t *testing.T) {
+	engine, err := Compile(`let calls = 0;
+export function run(mib) {
+  calls++;
+  if (mib < 0) {
+    try { const kept = []; for (;;) kept.push([mib]); } catch (e) { return "caught"; }
+  }
+  for (let i = 0; i < mib; i++) new ArrayBuffer(1 << 20);
+  return calls;
+}`, Options{Key: "memory", Version: "1", Concurrency: 1})
+	require.NoError(t, err)
+
+	// Each call on the one pooled runtime allocates three quarters of the
+	// budget and keeps none of it; the next call is not stopped.
+	for want := range int64(3) {
+		value, err := engine.Call(t.Context(), "run", callMemoryLimit()>>20*3/4)
+		require.NoError(t, err)
+		assert.Equal(t, want+1, value)
+	}
+
+	_, err = engine.Call(t.Context(), "run", -1)
+	require.ErrorIs(t, err, moejs.ErrMemoryLimit, "the limit stops the hook, which cannot catch it, before its timeout")
+	var hookErr *HookError
+	assert.False(t, errors.As(err, &hookErr))
+	value, err := engine.Call(t.Context(), "run", 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), value, "a runtime stopped by the memory limit is discarded")
+}
+
+func TestEngineMemoryLimitFollowsSetting(t *testing.T) {
+	previous := constant.PluginMemoryLimitMB
+	t.Cleanup(func() { constant.PluginMemoryLimitMB = previous })
+	// Many small objects: past the limit the runtime stops the call, where a
+	// single large ArrayBuffer would throw a RangeError instead.
+	const source = `export function run(n) { const keep = []; for (let i = 0; i < n; i++) keep.push({i}); return keep.length; }`
+
+	constant.PluginMemoryLimitMB = 8
+	limited, err := Compile(source, Options{Key: "memory", Version: "1", Concurrency: 1})
+	require.NoError(t, err)
+	_, err = limited.Call(t.Context(), "run", 400_000)
+	require.ErrorIs(t, err, moejs.ErrMemoryLimit)
+
+	constant.PluginMemoryLimitMB = 0
+	unlimited, err := Compile(source, Options{Key: "memory", Version: "1", Concurrency: 1})
+	require.NoError(t, err)
+	value, err := unlimited.Call(t.Context(), "run", 400_000)
+	require.NoError(t, err, "0 means no limit")
+	assert.Equal(t, int64(400_000), value)
+}
+
 func TestEngineDoesNotReinitializeIdleRuntimeAfterGC(t *testing.T) {
 	var initialized atomic.Int64
 	engine, err := Compile(`console.log("initialized"); export function run(){return 42;}`, Options{
@@ -544,6 +783,66 @@ func TestEngineIdleRuntimeReleasesLastCallArguments(t *testing.T) {
 	assert.Equal(t, int64(2), value)
 }
 
+func TestPooledRuntimeKeepsNoCallData(t *testing.T) {
+	plugin, err := CompilePlugin(transformMeta+`
+let calls = 0;
+export function ingress(ctx, req) {
+  calls++;
+  const fetched = utils.fetch({url: "https://api.example/data", responseType: "bytes"});
+  /secret-(\d+)/.test(req.body.text);
+  return {action: "continue", findings: [{rule: "fetched", count: fetched.body.byteLength}]};
+}
+export function egress(ctx, req) {
+  calls++;
+  const seen = {calls, regexp: RegExp.input + RegExp.lastMatch + RegExp.leftContext + RegExp.rightContext + RegExp.$1};
+  try { utils.fetch({url: "https://api.example/data"}); } catch (e) { seen.fetch = e.message; }
+  try { utils.paramOverride({}, {}); } catch (e) { seen.paramOverride = e.message; }
+  return {action: "continue", effects: [seen]};
+}`, Options{Concurrency: 1})
+	require.NoError(t, err)
+
+	// Each tracked value is large enough to have memory of its own, as in
+	// TestEngineIdleRuntimeReleasesLastCallArguments; the context holds
+	// marker for as long as it lives.
+	padding := strings.Repeat("x", 64<<10)
+	fetches := 0
+	var fetchedBody weak.Pointer[byte]
+	marker := new([64 << 10]byte)
+	contextReleased := weak.Make(marker)
+	ctx := WithFetcher(context.WithValue(context.Background(), marker, "marker"), func(context.Context, FetchRequest) (FetchResponse, error) {
+		fetches++
+		body := bytes.Repeat([]byte{'f'}, 64<<10)
+		fetchedBody = weak.Make(&body[0])
+		return FetchResponse{Status: http.StatusOK, Body: body}, nil
+	})
+	body := []byte(`{"text":"secret-1234","padding":"` + padding + `"}`)
+	config := []byte(`{"limit":7,"padding":"` + padding + `"}`)
+	bodyReleased, configReleased := weak.Make(&body[0]), weak.Make(&config[0])
+	result, err := plugin.CallTransform(ctx, TransformContext{Stage: "ingress", Config: config}, TransformRequest{Body: body})
+	require.NoError(t, err)
+	assert.Equal(t, []TransformFinding{{Rule: "fetched", Count: 64 << 10}}, result.Findings)
+
+	// The host keeps none of the finished call: its arguments, its context,
+	// its transform context (whose config is also an argument) and what
+	// utils.fetch returned to it.
+	runtime.GC()
+	runtime.GC()
+	assert.Nil(t, bodyReleased.Value(), "request body")
+	assert.Nil(t, configReleased.Value(), "instance config")
+	assert.Nil(t, fetchedBody.Value(), "utils.fetch response")
+	assert.Nil(t, contextReleased.Value(), "call context")
+
+	// The next call on the same runtime sees module scope, which is shared by
+	// design, and none of the last call's data through host utilities or the
+	// RegExp statics.
+	result, err = plugin.CallTransform(context.Background(), TransformContext{Stage: "egress"}, TransformRequest{Body: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	assert.JSONEq(t, `[{"calls":2,"regexp":"",
+		"fetch":"utils.fetch is not available in egress",
+		"paramOverride":"utils.paramOverride is not available in egress"}]`, string(result.Effects))
+	assert.Equal(t, 1, fetches)
+}
+
 func TestEngineBoundsConcurrentCallsAndCancelsAnOccupiedRuntime(t *testing.T) {
 	entered := make(chan struct{}, 2)
 	release := make(chan struct{})
@@ -572,6 +871,193 @@ func TestEngineBoundsConcurrentCallsAndCancelsAnOccupiedRuntime(t *testing.T) {
 	release <- struct{}{}
 	require.ErrorIs(t, <-canceled, context.Canceled)
 	require.NoError(t, <-healthy)
+}
+
+func TestEngineFetchContract(t *testing.T) {
+	engine, err := Compile(`
+export function run(request) { return utils.fetch(request); }
+export function fetchBytes(url) { return Array.from(new Uint8Array(utils.fetch({url: url, responseType: "bytes"}).body)); }
+export function fetchFiveTimes() {
+  const failures = [];
+  for (let i = 0; i < 5; i++) {
+    try { utils.fetch({url: "https://api.example/json"}); } catch (e) { failures.push(e.message); }
+  }
+  return failures;
+}`, Options{Key: "fetch"})
+	require.NoError(t, err)
+	var requests []FetchRequest
+	ctx := WithFetcher(t.Context(), func(_ context.Context, request FetchRequest) (FetchResponse, error) {
+		requests = append(requests, request)
+		switch request.URL {
+		case "https://api.example/json":
+			return FetchResponse{Status: http.StatusOK, Headers: map[string]string{"Content-Type": "application/json"}, Body: []byte(`{"file":{"id":7}}`)}, nil
+		case "https://api.example/text":
+			return FetchResponse{Status: http.StatusNotFound, Body: []byte("not found")}, nil
+		case "https://api.example/bytes":
+			return FetchResponse{Status: http.StatusPartialContent, Body: []byte{0, 0x80, 0xff, '{'}}, nil
+		case "https://api.example/large":
+			return FetchResponse{Status: http.StatusOK, Body: bytes.Repeat([]byte("a"), MaxFetchBodyBytes+1)}, nil
+		case "https://api.example/down?token=secret":
+			return FetchResponse{}, &url.Error{Op: "Get", URL: request.URL, Err: errors.New("connection refused")}
+		}
+		return FetchResponse{Status: http.StatusOK, Body: []byte(`{"ignored":true}`)}, nil
+	})
+
+	_, err = engine.Call(t.Context(), "run", map[string]any{"url": "https://api.example/json"})
+	assert.ErrorContains(t, err, "utils.fetch is not available in run")
+
+	value, err := engine.Call(ctx, "run", map[string]any{"url": "https://api.example/json", "headers": map[string]any{"Authorization": "Bearer key"}})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"status":  int64(http.StatusOK),
+		"headers": map[string]any{"Content-Type": "application/json"},
+		"body":    map[string]any{"file": map[string]any{"id": int64(7)}},
+	}, value)
+	assert.Equal(t, []FetchRequest{{Hook: "run", URL: "https://api.example/json", Method: http.MethodGet, Headers: map[string]string{"Authorization": "Bearer key"}}}, requests)
+
+	value, err = engine.Call(ctx, "run", map[string]any{"url": "https://api.example/text"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"status": int64(http.StatusNotFound), "headers": map[string]any{}, "body": "not found"}, value)
+
+	value, err = engine.Call(ctx, "run", map[string]any{"url": "https://api.example/head", "method": "head"})
+	require.NoError(t, err)
+	assert.Equal(t, "", value.(map[string]any)["body"])
+	assert.Equal(t, http.MethodHead, requests[len(requests)-1].Method)
+
+	// Bytes that are neither JSON nor UTF-8 reach the plugin unchanged.
+	value, err = engine.Call(ctx, "fetchBytes", "https://api.example/bytes")
+	require.NoError(t, err)
+	assert.Equal(t, []any{int64(0), int64(0x80), int64(0xff), int64('{')}, value)
+
+	sent := len(requests)
+	for name, request := range map[string]map[string]any{
+		"unsupported member \"body\"":            {"url": "https://api.example/json", "body": "x"},
+		"only GET and HEAD":                      {"url": "https://api.example/json", "method": "POST"},
+		`responseType must be "json" or "bytes"`: {"url": "https://api.example/json", "responseType": "text"},
+		"request header \"Host\" is not":         {"url": "https://api.example/json?token=secret", "headers": map[string]any{"Host": "other.example"}},
+		"absolute http(s) URL":                   {"url": "/v1/files/retrieve"},
+		"exceeds 65536 bytes":                    {"url": "https://api.example/" + strings.Repeat("a", 64<<10)},
+	} {
+		_, err = engine.Call(ctx, "run", request)
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), name)
+		assert.NotContains(t, err.Error(), "secret")
+	}
+	assert.Len(t, requests, sent, "rejected requests must not reach the fetcher")
+
+	_, err = engine.Call(ctx, "run", map[string]any{"url": "https://api.example/large"})
+	assert.ErrorContains(t, err, "utils.fetch response from api.example exceeds 1048576 bytes")
+
+	_, err = engine.Call(ctx, "run", map[string]any{"url": "https://api.example/down?token=secret"})
+	var hookErr *HookError
+	require.ErrorAs(t, err, &hookErr)
+	assert.Equal(t, "utils.fetch to api.example failed: connection refused", hookErr.Message)
+
+	value, err = engine.Call(ctx, "fetchFiveTimes")
+	require.NoError(t, err)
+	assert.Equal(t, []any{"utils.fetch allows at most 4 requests per hook call"}, value)
+}
+
+func TestEngineFetchLendsItsExecutionSlot(t *testing.T) {
+	engine, err := Compile(`
+export function fetchOnce() { return utils.fetch({url: "https://api.example/slow"}).body; }
+export function plain() { return 42; }`, Options{Key: "fetch-slot", Concurrency: 1})
+	require.NoError(t, err)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	ctx := WithFetcher(t.Context(), func(context.Context, FetchRequest) (FetchResponse, error) {
+		close(entered)
+		<-release
+		return FetchResponse{Status: http.StatusOK, Body: []byte(`"done"`)}, nil
+	})
+	fetched := make(chan any, 1)
+	go func() {
+		value, err := engine.Call(ctx, "fetchOnce")
+		assert.NoError(t, err)
+		fetched <- value
+	}()
+	<-entered
+
+	// The only slot is lent while the fetch waits; without that this call
+	// would wait for its deadline.
+	waitContext, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	value, err := engine.Call(waitContext, "plain")
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), value)
+
+	close(release)
+	assert.Equal(t, "done", <-fetched)
+}
+
+func TestEngineFetchWaitDoesNotCountTowardCallTimeout(t *testing.T) {
+	engine, err := Compile(`export function run() { return utils.fetch({url: "https://api.example/slow"}).status; }`, Options{
+		Key: "fetch-clock", Timeout: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	ctx := WithFetcher(t.Context(), func(context.Context, FetchRequest) (FetchResponse, error) {
+		close(entered)
+		<-release
+		return FetchResponse{Status: http.StatusNoContent}, nil
+	})
+	result := make(chan error, 1)
+	var value any
+	go func() {
+		var err error
+		value, err = engine.Call(ctx, "run")
+		result <- err
+	}()
+	<-entered
+	// Five times the JavaScript timeout: the clock is stopped while waiting.
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+	require.NoError(t, <-result)
+	assert.Equal(t, int64(http.StatusNoContent), value)
+}
+
+func TestEngineInterruptsAFetchThatCannotResume(t *testing.T) {
+	engine, err := Compile(`
+let calls = 0;
+export function run(fetch) {
+  calls++;
+  if (!fetch) return calls;
+  try { utils.fetch({url: "https://api.example/slow"}); } catch (e) { return "caught: " + e.message; }
+  return "resumed";
+}`, Options{Key: "fetch-resume", Concurrency: 1})
+	require.NoError(t, err)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ctx = WithFetcher(ctx, func(context.Context, FetchRequest) (FetchResponse, error) {
+		close(entered)
+		<-release
+		return FetchResponse{Status: http.StatusOK}, nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		_, err := engine.Call(ctx, "run", true)
+		result <- err
+	}()
+	<-entered
+	// Another call takes the lent slot and the caller leaves before the fetch
+	// returns, so the slot cannot be taken back.
+	engine.semaphore <- struct{}{}
+	cancel()
+	close(release)
+	err = <-result
+	<-engine.semaphore
+
+	require.ErrorIs(t, err, context.Canceled)
+	var hookErr *HookError
+	assert.False(t, errors.As(err, &hookErr), "JavaScript must not catch a failed resume")
+	value, err := engine.Call(t.Context(), "run", false)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), value, "an interrupted runtime must be discarded")
+	assert.Empty(t, engine.semaphore)
+	assert.Empty(t, engine.parked)
 }
 
 func TestEnginePreservesMutableExportAndMemberBindings(t *testing.T) {

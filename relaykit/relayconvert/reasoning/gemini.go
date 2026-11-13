@@ -56,7 +56,7 @@ func geminiCapabilitiesFor(model string) geminiCapabilities {
 		return geminiCapabilities{kind: geminiThinkingBudget, supportsDisable: true, minBudget: 512, maxBudget: 24576}
 	case strings.HasPrefix(model, "gemini-2.5-"):
 		return geminiCapabilities{kind: geminiThinkingBudget, supportsDisable: true, maxBudget: 24576}
-	case strings.HasPrefix(model, "gemini-3"):
+	case strings.HasPrefix(model, "gemini-3"), strings.HasPrefix(model, "gemini-4-argon"):
 		return geminiCapabilities{kind: geminiThinkingLevel}
 	default:
 		return geminiCapabilities{}
@@ -64,7 +64,7 @@ func geminiCapabilitiesFor(model string) geminiCapabilities {
 }
 
 // RenderGemini maps a portable intent onto the target model's thinkingConfig.
-// The capability table only maps and clamps: budgets become levels on Gemini 3,
+// The capability table only maps and clamps: budgets become levels on Gemini 3/4,
 // efforts become budgets on Gemini 2.5, out-of-range values are clamped, and
 // models that cannot disable thinking get their lowest setting. Every such
 // coercion is reported in Diagnostics. Errors are reserved for unknown effort
@@ -145,7 +145,7 @@ func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBud
 			}
 			hasBudget = true
 		} else if intent.Effort != "" {
-			budget = gemini25BudgetForEffort(intent.Effort)
+			budget = gemini25BudgetForEffort(intent.Effort, capabilities.maxBudget)
 			hasBudget = true
 		} else if intent.Mode != ModeUnset && maxOutputTokens != nil && *maxOutputTokens > 0 {
 			if uint64(*maxOutputTokens) > uint64(math.MaxInt) {
@@ -215,6 +215,10 @@ func RenderGemini(model string, intent Intent, maxOutputTokens *uint, adapterBud
 func geminiDefaultEffort(model string) Effort {
 	model = strings.ToLower(model)
 	switch {
+	case strings.HasPrefix(model, "gemini-4-argon-cyber-permissive"):
+		return EffortHigh
+	case strings.HasPrefix(model, "gemini-4-argon"):
+		return EffortMedium
 	case model == "gemini-flash-latest",
 		strings.HasPrefix(model, "gemini-3.5-flash") && !strings.HasPrefix(model, "gemini-3.5-flash-lite"),
 		strings.HasPrefix(model, "gemini-3.6-flash"):
@@ -235,7 +239,7 @@ func geminiDefaultEffort(model string) Effort {
 
 // NormalizeGeminiThinkingConfig rewrites a provider-native thinkingConfig in
 // place into the dialect the target model accepts: budgets become levels on
-// Gemini 3, levels become budgets on Gemini 2.5, out-of-range budgets are
+// Gemini 3/4, levels become budgets on Gemini 2.5, out-of-range budgets are
 // clamped, unsupported levels move to the nearest supported one, and models
 // without configurable thinking lose the config entirely. Models missing from
 // the capability table keep their config verbatim. The returned effort is the
@@ -295,7 +299,7 @@ func NormalizeGeminiThinkingConfig(model string, generation *dto.GeminiChatGener
 
 	if capabilities.kind == geminiThinkingBudget {
 		if config.ThinkingLevel != "" {
-			budget := gemini25BudgetForEffort(intent.Effort)
+			budget := gemini25BudgetForEffort(intent.Effort, capabilities.maxBudget)
 			diagnostics = append(diagnostics, geminiReasoningDiagnostic(
 				"gemini_level_to_budget",
 				fmt.Sprintf("model %q uses thinkingBudget; thinkingLevel %q was converted to budget %d", model, config.ThinkingLevel, budget),
@@ -476,14 +480,19 @@ func EquivalentGeminiStrength(model string, left Intent, right Intent) (bool, er
 	return leftConfig.ThinkingBudget == nil || *leftConfig.ThinkingBudget == *rightConfig.ThinkingBudget, nil
 }
 
-func gemini25BudgetForEffort(effort Effort) int {
+// gemini25BudgetForEffort follows Google's OpenAI-compatible mapping, where
+// high is 24576; xhigh and max, which that mapping lacks, take the model's
+// largest budget.
+func gemini25BudgetForEffort(effort Effort, maxBudget int) int {
 	switch effort {
 	case EffortMinimal, EffortLow:
 		return 1024
 	case EffortMedium:
 		return 8192
-	case EffortHigh, EffortXHigh, EffortMax:
+	case EffortHigh:
 		return 24576
+	case EffortXHigh, EffortMax:
+		return maxBudget
 	default:
 		return 0
 	}
@@ -503,7 +512,8 @@ func geminiLevelForEffort(model string, effort Effort) (string, error) {
 			return string(EffortLow), nil
 		}
 		return string(EffortHigh), nil
-	case strings.HasPrefix(model, "gemini-3.1-pro"), model == "gemini-pro-latest":
+	case strings.HasPrefix(model, "gemini-3.1-pro"), model == "gemini-pro-latest",
+		strings.HasPrefix(model, "gemini-4-argon"):
 		if effort == EffortMinimal {
 			return string(EffortLow), nil
 		}
