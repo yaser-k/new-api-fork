@@ -154,7 +154,7 @@ export function RequestProcessing() {
               <TableHead>{t('Plugin')}</TableHead>
               <TableHead>{t('Applies to')}</TableHead>
               <TableHead>{t('Enabled')}</TableHead>
-              <TableHead className='text-right'>{t('Actions')}</TableHead>
+              <TableHead className='text-end'>{t('Actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

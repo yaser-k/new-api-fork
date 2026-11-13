@@ -59,7 +59,7 @@ export function RequestPluginPicker(props: RequestPluginPickerProps) {
             key={plugin.key}
             variant='outline'
             render={<button type='button' />}
-            className='hover:bg-muted/40 hover:border-foreground/15 items-start gap-4 p-4 text-left'
+            className='hover:bg-muted/40 hover:border-foreground/15 items-start gap-4 p-4 text-start'
             onClick={() => props.onPick(plugin.key)}
           >
             <RequestPluginIconTile plugin={plugin} />

@@ -59,7 +59,7 @@ export function PluginTransformSection(props: {
       <div className='space-y-2'>
         <h4 className='text-muted-foreground text-xs'>{t('When it runs')}</h4>
         {props.hooks.length ? (
-          <ol className='list-decimal space-y-1 pl-5 text-sm'>
+          <ol className='list-decimal space-y-1 ps-5 text-sm'>
             {props.hooks.map((hook) => (
               <li key={hook}>{t(REQUEST_PLUGIN_STAGE_LABELS[hook] ?? hook)}</li>
             ))}

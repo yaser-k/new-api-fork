@@ -184,7 +184,11 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                   <FormItem>
                     <FormLabel>{t('Server Address')}</FormLabel>
                     <FormControl>
-                      <Input placeholder='https://yourdomain.com' {...field} />
+                      <Input
+                        dir='ltr'
+                        placeholder='https://yourdomain.com'
+                        {...field}
+                      />
                     </FormControl>
                     <FormDescription>
                       {t(
@@ -204,6 +208,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     <FormLabel>{t('Async Task Public Address')}</FormLabel>
                     <FormControl>
                       <Input
+                        dir='ltr'
                         placeholder='https://media.example.com/tasks'
                         {...field}
                       />
@@ -226,6 +231,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     <FormLabel>{t('Logo URL')}</FormLabel>
                     <FormControl>
                       <Input
+                        dir='ltr'
                         placeholder={t('https://example.com/logo.png')}
                         {...field}
                       />
@@ -246,6 +252,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                     <FormLabel>{t('Documentation Link')}</FormLabel>
                     <FormControl>
                       <Input
+                        dir='ltr'
                         placeholder={t('https://docs.example.com')}
                         {...field}
                       />
