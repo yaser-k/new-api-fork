@@ -31,13 +31,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { toIntlLocale } from '@/i18n/languages'
-import { formatCurrencyFromUSD } from '@/lib/currency'
 import { formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { createServerError } from '@/lib/server-error-message'
 
 import { getCodexUsage, updateChannelBalance } from '../../api'
 import { channelsQueryKeys } from '../../lib'
+import { formatChannelBalanceSummary } from '../../lib/channel-balance'
+import { ChannelBalanceDetails } from '../channel-balance-details'
 import { useChannels } from '../channels-provider'
 import {
   CodexUsageDialog,
@@ -111,6 +112,7 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
           ...currentRow,
           balance: newBalance,
           balance_updated_time: now,
+          balance_detail: response.balance_detail ?? currentRow.balance_detail,
         })
 
         // Invalidate queries to refresh the table
@@ -138,8 +140,9 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
     props.onOpenChange(false)
   }
 
+  // The detail is the upstream's own currency and limits, kept on the row.
   const formatBalance = (bal: number) =>
-    formatCurrencyFromUSD(bal, {
+    formatChannelBalanceSummary(currentRow.balance_detail, bal, {
       digitsLarge: 2,
       digitsSmall: 4,
       abbreviate: false,
@@ -222,6 +225,10 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
                   ? formatBalance(balance)
                   : formatBalance(currentRow.balance)}
               </div>
+              <ChannelBalanceDetails
+                result={currentRow.balance_detail}
+                className='mt-2'
+              />
               <div className='text-muted-foreground mt-2 text-xs'>
                 {t('Last updated:')}{' '}
                 {formatDate(
