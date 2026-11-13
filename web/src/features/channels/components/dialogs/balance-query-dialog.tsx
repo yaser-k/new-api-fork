@@ -53,6 +53,7 @@ type BalanceQueryDialogProps = {
 
 export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const { currentRow, setCurrentRow } = useChannels()
   const queryClient = useQueryClient()
   const [isQuerying, setIsQuerying] = useState(false)
@@ -145,12 +146,12 @@ export function BalanceQueryDialog(props: BalanceQueryDialogProps) {
       digitsLarge: 2,
       digitsSmall: 4,
       abbreviate: false,
-      locale: toIntlLocale(i18n.resolvedLanguage || i18n.language),
+      locale,
     })
 
   const formatDate = (timestamp: number) => {
     if (!timestamp) return 'Never'
-    return formatTimestampToDate(timestamp)
+    return formatTimestampToDate(timestamp, 'seconds', locale)
   }
 
   if (isCodex) {

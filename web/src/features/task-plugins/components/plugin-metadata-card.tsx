@@ -21,6 +21,8 @@ import { useTranslation } from 'react-i18next'
 import { CopyButton } from '@/components/copy-button'
 import { Badge } from '@/components/ui/badge'
 import { getChannelTypeLabel } from '@/features/channels/lib/channel-utils'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 
 import { getPluginWebsite } from '../lib/plugin-website'
 import type { TaskPluginMeta, TaskPluginParts } from '../types'
@@ -40,14 +42,18 @@ type PluginMetadataCardProps = {
 }
 
 export function PluginMetadataCard(props: PluginMetadataCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const models = props.meta.models ?? []
   const relay = props.meta.relay ?? []
   // A plugin that only processes requests has no channel, models or address.
   const hasChannel = props.parts.task || props.parts.provider
   const noChannelType = props.parts.provider ? t('Plugin') : t('Task Plugin')
   const fields = [
-    { label: t('Sort priority'), value: String(props.meta.sortPriority ?? 0) },
+    {
+      label: t('Sort priority'),
+      value: formatNumber(props.meta.sortPriority ?? 0, locale),
+    },
     ...(props.parts.task
       ? [{ label: t('Fetch mode'), value: props.meta.fetchMode }]
       : []),
@@ -135,7 +141,9 @@ export function PluginMetadataCard(props: PluginMetadataCardProps) {
         <section className='rounded-lg border p-4' aria-label={t('Models')}>
           <div className='mb-3 flex items-center gap-2'>
             <h3 className='text-sm font-semibold'>{t('Models')}</h3>
-            <Badge variant='secondary'>{models.length}</Badge>
+            <Badge variant='secondary'>
+              {formatNumber(models.length, locale)}
+            </Badge>
             {models.length > 0 && (
               <CopyButton
                 value={models.join('\n')}
