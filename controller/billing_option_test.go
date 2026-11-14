@@ -1,16 +1,19 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
@@ -18,8 +21,10 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -426,6 +431,171 @@ func TestUpdateOptionValidatesPublicPriceExpressions(t *testing.T) {
 	ok, message = patch(draft)
 	require.True(t, ok, message)
 	assert.JSONEq(t, `{}`, stored())
+}
+
+// Pricing rows of the given caller by model name. role 0 is a signed-out caller.
+func pricingRowsFor(t *testing.T, role, userID int) (map[string]string, string) {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/pricing", nil)
+	if role != 0 {
+		context.Set("role", role)
+		context.Set("id", userID)
+	}
+	GetPricing(context)
+	var response struct {
+		Success bool
+		Data    []json.RawMessage
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response), recorder.Body.String())
+	require.True(t, response.Success)
+	// The pricing version marks whichever row comes first; it is not a price.
+	version := regexp.MustCompile(`,"pricing_version":"[0-9a-f]+"`)
+	rows := make(map[string]string, len(response.Data))
+	for _, raw := range response.Data {
+		var row struct {
+			ModelName string `json:"model_name"`
+		}
+		require.NoError(t, common.Unmarshal(raw, &row))
+		rows[row.ModelName] = version.ReplaceAllString(string(raw), "")
+	}
+	return rows, recorder.Body.String()
+}
+
+// Everyone who is not an administrator sees a model's public price expression
+// wherever its billing expression would be returned, and nothing of the
+// billing expression; an administrator sees both. Models without a public
+// expression are returned exactly as before, to everyone.
+func TestPricingShowsPublicPriceExpressionsToNonAdministrators(t *testing.T) {
+	db := modelManagementDB(t, "sqlite", "")
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	previousExpose := ratio_setting.IsExposeRatioEnabled()
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
+		ratio_setting.SetExposeRatioEnabled(previousExpose)
+		model.InvalidatePricingCache()
+	})
+	for _, key := range []string{"public-alpha", "public-beta"} {
+		source := fmt.Sprintf(`
+export const meta = {
+  apiVersion: 1, key: %q, name: %q, version: "1.0.0", author: {name: "Test"},
+  models: ["public-task-model"], fetchMode: "per_task",
+  usageSchema: {seconds: {type: "number", unit: "second"}}
+};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`, key, key)
+		_, err := jsplugin.DefaultRegistry.Register(source, jsplugin.Options{})
+		require.NoError(t, err)
+		t.Cleanup(func() { jsplugin.DefaultRegistry.Unregister(key) })
+	}
+	require.NoError(t, db.Create(&model.Channel{Id: 1, Type: constant.ChannelTypeOpenAI, Key: "key-1", Status: common.ChannelStatusEnabled, Name: "ch-1"}).Error)
+	require.NoError(t, db.Create(&model.Channel{Id: 2, Type: constant.ChannelTypeTaskPlugin, Key: "key-2", Status: common.ChannelStatusEnabled, Name: "ch-2"}).Error)
+	for _, ability := range []model.Ability{
+		{Group: "default", Model: "public-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "expr-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "ratio-model", ChannelId: 1, Enabled: true},
+		{Group: "default", Model: "public-task-model", ChannelId: 2, Enabled: true},
+	} {
+		require.NoError(t, db.Create(&ability).Error)
+	}
+	user := model.User{Username: "public-price-user", Group: "default", AffCode: "public-price-aff", Role: common.RoleCommonUser}
+	require.NoError(t, db.Create(&user).Error)
+	admin := model.User{Username: "public-price-admin", Group: "default", AffCode: "public-price-admin-aff", Role: common.RoleAdminUser}
+	require.NoError(t, db.Create(&admin).Error)
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"ratio-model":1.5}`))
+
+	const billing = `param("route") == "b" ? tier("route_b", p * 4 + c * 20) : tier("base", p * 3 + c * 15)`
+	const public = `tier("public", p * 4 + c * 20)`
+	const taskBilling = `param("route") == "b" ? tier("route_b", u("seconds") * 0.6) : tier("base", u("seconds") * 0.4)`
+	const taskPublic = `tier("public", u("seconds") * 0.6)`
+	expressions, err := common.Marshal(map[string]string{
+		"public-model": billing, "expr-model": `tier("base", p * 2 + c * 8)`, "public-task-model": taskBilling,
+	})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":          `{"public-model":"tiered_expr","expr-model":"tiered_expr","public-task-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":          string(expressions),
+		billing_setting.PluginBillingExprOption: `{}`,
+		"billing_setting.public_expr":           `{}`,
+	}))
+	ratio_setting.SetExposeRatioEnabled(true)
+	model.InvalidatePricingCache()
+
+	callers := []struct {
+		name     string
+		role, id int
+	}{{"signed out", 0, 0}, {"ordinary user", common.RoleCommonUser, user.Id}, {"administrator", common.RoleAdminUser, admin.Id}}
+	before := make(map[string]map[string]string)
+	for _, caller := range callers {
+		before[caller.name], _ = pricingRowsFor(t, caller.role, caller.id)
+	}
+
+	publicExpressions, err := common.Marshal(map[string]string{"public-model": public, "public-task-model": taskPublic})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.public_expr": string(publicExpressions)}))
+	model.InvalidatePricingCache()
+
+	type pricingRow struct {
+		BillingExpr string  `json:"billing_expr"`
+		PublicExpr  *string `json:"public_expr"`
+		Variants    []struct {
+			PluginKey   string `json:"plugin_key"`
+			BillingExpr string `json:"billing_expr"`
+		} `json:"billing_plugin_variants"`
+	}
+	for _, caller := range callers {
+		t.Run(caller.name, func(t *testing.T) {
+			rows, body := pricingRowsFor(t, caller.role, caller.id)
+			for _, name := range []string{"expr-model", "ratio-model"} {
+				require.Contains(t, rows, name)
+				assert.Equal(t, before[caller.name][name], rows[name], "%s must be returned exactly as before", name)
+			}
+			var priced, task pricingRow
+			require.NoError(t, common.UnmarshalJsonStr(rows["public-model"], &priced))
+			require.NoError(t, common.UnmarshalJsonStr(rows["public-task-model"], &task))
+			require.Len(t, task.Variants, 2)
+			if caller.role >= common.RoleAdminUser {
+				assert.Equal(t, before[caller.name]["public-model"], strings.Replace(rows["public-model"], `,"public_expr":`+strconv.Quote(public), "", 1))
+				assert.Equal(t, billing, priced.BillingExpr)
+				require.NotNil(t, priced.PublicExpr)
+				assert.Equal(t, public, *priced.PublicExpr)
+				assert.Equal(t, taskBilling, task.Variants[0].BillingExpr)
+				assert.Equal(t, taskBilling, task.Variants[1].BillingExpr)
+				require.NotNil(t, task.PublicExpr)
+				assert.Equal(t, taskPublic, *task.PublicExpr)
+				return
+			}
+			assert.Equal(t, public, priced.BillingExpr)
+			assert.Nil(t, priced.PublicExpr)
+			assert.Equal(t, taskPublic, task.BillingExpr)
+			assert.Equal(t, taskPublic, task.Variants[0].BillingExpr)
+			assert.Equal(t, taskPublic, task.Variants[1].BillingExpr)
+			assert.Nil(t, task.PublicExpr)
+			assert.NotContains(t, body, "route_b")
+			assert.NotContains(t, body, "param(")
+		})
+	}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/ratio_config", nil)
+	GetRatioConfig(context)
+	var ratioConfig struct {
+		Success bool
+		Data    struct {
+			BillingExpr map[string]string `json:"billing_expr"`
+		}
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &ratioConfig), recorder.Body.String())
+	require.True(t, ratioConfig.Success)
+	assert.Equal(t, public, ratioConfig.Data.BillingExpr["public-model"])
+	assert.Equal(t, taskPublic, ratioConfig.Data.BillingExpr["public-task-model"])
+	assert.Equal(t, `tier("base", p * 2 + c * 8)`, ratioConfig.Data.BillingExpr["expr-model"])
+	assert.NotContains(t, recorder.Body.String(), "route_b")
 }
 
 // Billing never reads the public price expression: reservation and settlement

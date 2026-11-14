@@ -36,7 +36,11 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 }
 
 func GetPricing(c *gin.Context) {
-	pricing := model.GetPricing()
+	// Only administrators see the billing expressions behind public prices.
+	pricing := model.GetPublicPricing()
+	if c.GetInt("role") >= common.RoleAdminUser {
+		pricing = model.GetPricing()
+	}
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}

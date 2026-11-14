@@ -54,6 +54,10 @@ type Pricing struct {
 	// pay the model-level price: chat requests to a plugin relaying the model,
 	// or requests to ordinary channels.
 	OrdinaryPricing bool `json:"ordinary_pricing,omitempty"`
+	// PublicExpr is the model's public price expression, returned beside the
+	// billing expression to administrators only. Everyone else receives it in
+	// BillingExpr and never sees the billing expression.
+	PublicExpr string `json:"public_expr,omitempty"`
 }
 
 type PricingVendor struct {
@@ -76,6 +80,10 @@ var (
 	modelEnableGroupsLock = sync.RWMutex{}
 )
 
+// publicPricingMap is pricingMap as everyone who is not an administrator sees
+// it: a model's public price expression stands in for its billing expression.
+var publicPricingMap []Pricing
+
 var (
 	modelSupportEndpointTypes = make(map[string][]constant.EndpointType)
 	modelSupportEndpointsLock = sync.RWMutex{}
@@ -95,11 +103,21 @@ func GetPricing() []Pricing {
 	return pricingMap
 }
 
+// GetPublicPricing returns the pricing shown to everyone who is not an
+// administrator: a model with a public price expression carries it in
+// BillingExpr, and every price derived from the expression for display is
+// derived from it. Other models are returned as GetPricing returns them.
+func GetPublicPricing() []Pricing {
+	GetPricing()
+	return publicPricingMap
+}
+
 func InvalidatePricingCache() {
 	updatePricingLock.Lock()
 	defer updatePricingLock.Unlock()
 
 	pricingMap = nil
+	publicPricingMap = nil
 	vendorsList = nil
 	lastGetPricingTime = time.Time{}
 }
@@ -360,6 +378,7 @@ func updatePricing() {
 	}
 
 	pricingMap = make([]Pricing, 0)
+	publicPricing := make([]Pricing, 0, len(modelGroupsMap))
 	for model, groups := range modelGroupsMap {
 		pricing := Pricing{
 			ModelName:              model,
@@ -405,16 +424,19 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
+		publicExpr := ""
 		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
+				publicExpr, _ = billing_setting.GetPublicExpr(model)
 			}
 		} else if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved && target.Declared != "" {
 			if tailMode := billing_setting.GetBillingMode(target.Declared); tailMode == "tiered_expr" {
 				if expr, ok := billing_setting.GetBillingExpr(target.Declared); ok && strings.TrimSpace(expr) != "" {
 					pricing.BillingMode = tailMode
 					pricing.BillingExpr = expr
+					publicExpr, _ = billing_setting.GetPublicExpr(target.Declared)
 				}
 			}
 		}
@@ -432,54 +454,23 @@ func updatePricing() {
 			pricing.BillingUsageExamples = jsplugin.CloneUsageExamples(usageExamples)
 		}
 		providers := pluginGeneration.PluginsByModel(model)
-		hasProviderOverride, relayed := false, false
-		for _, provider := range providers {
-			if _, configured := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); configured {
-				hasProviderOverride = true
-			}
-			relayed = relayed || provider.Meta.RelaysModel(model)
-		}
-		// The model-level price may be only a chat price: a provider also
-		// relays the model, or the expression reads chat request quantities.
-		// List the providers so those whose tasks it cannot price show as
-		// unconfigured.
-		tieredModel := pricing.BillingMode == billing_setting.BillingModeTieredExpr
-		if hasProviderOverride || relayed || tieredModel && (len(providers) >= 2 || billingexpr.UsesChatQuantities(pricing.BillingExpr)) {
-			_, defaultPrice := ratio_setting.GetDefaultModelPriceMap()[model]
-			perCall := pricing.QuotaType == 1 || defaultPrice
-			for _, provider := range providers {
-				schema, examples := provider.Meta.UsageForModel(model)
-				if schema == nil {
-					schema = map[string]jsplugin.UsageFieldSchema{}
-				}
-				expression, overridden, hasExpression := billing_setting.ResolveTaskBillingExpr(provider.Meta.Key, model, "")
-				relaysModel := provider.Meta.RelaysModel(model)
-				mode := billing_setting.BillingModeRatio
-				// Inherited ratio pricing prices the provider's tasks per call
-				// only; with just a token ratio its tasks have no price.
-				if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr || relaysModel && !perCall {
-					mode = billing_setting.BillingModeTieredExpr
-				}
-				if mode == billing_setting.BillingModeTieredExpr && (!billing_setting.TaskExprCompatible(expression, schema) || !billing_setting.TaskPriceExpr(expression, overridden, relaysModel)) {
-					expression = ""
-				}
-				pricing.BillingPluginVariants = append(pricing.BillingPluginVariants, PricingPluginVariant{
-					PluginKey: provider.Meta.Key, PluginName: provider.Meta.Name, Icon: provider.Meta.Icon,
-					BillingExpr: expression, BillingMode: mode,
-					BillingUsageSchema: jsplugin.CloneUsageSchema(schema), BillingUsageExamples: jsplugin.CloneUsageExamples(examples),
-				})
-			}
-			// An expression reading u() prices tasks only; ordinary requests
-			// reject it.
-			pricing.OrdinaryPricing = (relayed || ordinaryChannelModels[model]) && !(tieredModel && billingexpr.UsedVars(pricing.BillingExpr)["u"])
+		setPricingProviders(&pricing, providers, ordinaryChannelModels[model], "")
+		publicRow := pricing
+		if publicExpr != "" {
+			publicRow.BillingExpr = publicExpr
+			setPricingProviders(&publicRow, providers, ordinaryChannelModels[model], publicExpr)
+			pricing.PublicExpr = publicExpr
 		}
 		pricingMap = append(pricingMap, pricing)
+		publicPricing = append(publicPricing, publicRow)
 	}
 
 	// 防止大更新后数据不通用
 	if len(pricingMap) > 0 {
 		pricingMap[0].PricingVersion = "5a90f2b86c08bd983a9a2e6d66c255f4eaef9c4bc934386d2b6ae84ef0ff1f1f"
+		publicPricing[0].PricingVersion = pricingMap[0].PricingVersion
 	}
+	publicPricingMap = publicPricing
 
 	// 刷新缓存映射，供高并发快速查询
 	modelEnableGroupsLock.Lock()
@@ -492,6 +483,60 @@ func updatePricing() {
 	modelEnableGroupsLock.Unlock()
 
 	lastGetPricingTime = time.Now()
+}
+
+// setPricingProviders lists a model's plugin providers with the price each
+// charges, and whether ordinary requests still pay the model-level price, both
+// read from the row's model-level expression. A provider without its own price
+// inherits that expression; inheritedExpr, when set, is shown in its place.
+func setPricingProviders(pricing *Pricing, providers []*jsplugin.LoadedPlugin, ordinaryChannel bool, inheritedExpr string) {
+	model := pricing.ModelName
+	pricing.BillingPluginVariants, pricing.OrdinaryPricing = nil, false
+	hasProviderOverride, relayed := false, false
+	for _, provider := range providers {
+		if _, configured := billing_setting.GetPluginBillingExpr(provider.Meta.Key, model); configured {
+			hasProviderOverride = true
+		}
+		relayed = relayed || provider.Meta.RelaysModel(model)
+	}
+	// The model-level price may be only a chat price: a provider also
+	// relays the model, or the expression reads chat request quantities.
+	// List the providers so those whose tasks it cannot price show as
+	// unconfigured.
+	tieredModel := pricing.BillingMode == billing_setting.BillingModeTieredExpr
+	if !hasProviderOverride && !relayed && !(tieredModel && (len(providers) >= 2 || billingexpr.UsesChatQuantities(pricing.BillingExpr))) {
+		return
+	}
+	_, defaultPrice := ratio_setting.GetDefaultModelPriceMap()[model]
+	perCall := pricing.QuotaType == 1 || defaultPrice
+	for _, provider := range providers {
+		schema, examples := provider.Meta.UsageForModel(model)
+		if schema == nil {
+			schema = map[string]jsplugin.UsageFieldSchema{}
+		}
+		expression, overridden, hasExpression := billing_setting.ResolveTaskBillingExpr(provider.Meta.Key, model, "")
+		if hasExpression && !overridden && inheritedExpr != "" {
+			expression = inheritedExpr
+		}
+		relaysModel := provider.Meta.RelaysModel(model)
+		mode := billing_setting.BillingModeRatio
+		// Inherited ratio pricing prices the provider's tasks per call
+		// only; with just a token ratio its tasks have no price.
+		if hasExpression || billing_setting.GetBillingMode(model) == billing_setting.BillingModeTieredExpr || relaysModel && !perCall {
+			mode = billing_setting.BillingModeTieredExpr
+		}
+		if mode == billing_setting.BillingModeTieredExpr && (!billing_setting.TaskExprCompatible(expression, schema) || !billing_setting.TaskPriceExpr(expression, overridden, relaysModel)) {
+			expression = ""
+		}
+		pricing.BillingPluginVariants = append(pricing.BillingPluginVariants, PricingPluginVariant{
+			PluginKey: provider.Meta.Key, PluginName: provider.Meta.Name, Icon: provider.Meta.Icon,
+			BillingExpr: expression, BillingMode: mode,
+			BillingUsageSchema: jsplugin.CloneUsageSchema(schema), BillingUsageExamples: jsplugin.CloneUsageExamples(examples),
+		})
+	}
+	// An expression reading u() prices tasks only; ordinary requests
+	// reject it.
+	pricing.OrdinaryPricing = (relayed || ordinaryChannel) && !(tieredModel && billingexpr.UsedVars(pricing.BillingExpr)["u"])
 }
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射
