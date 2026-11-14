@@ -2458,6 +2458,7 @@
     "Enter only the domain, without https://, a port or a page path. example.com and www.example.com are different Passkey domains; changing between them does not migrate existing Passkeys.": "Введите только домен, без https://, порта и пути страницы. example.com и www.example.com — разные домены для ключей доступа; переключение между ними не переносит существующие ключи.",
     "Enter password": "Введите пароль",
     "Enter password (8–128 characters)": "Введите пароль (8–128 символов)",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "Укажите порты от 1 до 65535 или диапазоны вида 8000-9000 через запятую",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "Укажите прежние домены, по одному на строку, без протокола, порта и пути. Разные порты одного домена не требуют добавления совместимых доменов.",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "Введите прежние домены ключей доступа, по одному в строке. Существующие ключи продолжат работать с этими доменами, а новые будут использовать основной домен.",
     "Enter quota in {{currency}}": "Введите квоту в {{currency}}",
