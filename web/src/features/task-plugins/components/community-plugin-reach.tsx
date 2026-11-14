@@ -94,7 +94,7 @@ export function CommunityPluginReach(props: CommunityPluginReachProps) {
       <AlertTriangle />
       <AlertTitle>{t('What this plugin can reach')}</AlertTitle>
       <AlertDescription className='text-foreground'>
-        <ul className='list-disc space-y-0.5 pl-4 break-words'>
+        <ul className='list-disc space-y-0.5 ps-4 break-words'>
           {lines.map((line) => (
             <li key={line}>{line}</li>
           ))}

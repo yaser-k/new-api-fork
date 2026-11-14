@@ -76,7 +76,7 @@ export function RequestPluginRunLine(props: {
           key={hook}
           className={cn(
             (failure || index < hooks.length - 1) &&
-              "after:ml-2 after:content-['·']"
+              "after:ms-2 after:content-['·']"
           )}
         >
           {t(REQUEST_PLUGIN_STAGE_LABELS[hook] ?? hook)}

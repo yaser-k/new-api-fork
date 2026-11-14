@@ -181,6 +181,7 @@ export function PasteStep(props: {
                 <FormControl>
                   <Textarea
                     {...field}
+                    dir='ltr'
                     rows={3}
                     placeholder={example}
                     inputMode='url'

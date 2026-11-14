@@ -129,6 +129,7 @@ export function BotProtectionSection({
                 <FormLabel>{t('Site Key')}</FormLabel>
                 <FormControl>
                   <Input
+                    dir='ltr'
                     placeholder={t('Your Turnstile site key')}
                     autoComplete='off'
                     {...field}

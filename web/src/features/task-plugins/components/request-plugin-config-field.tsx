@@ -296,7 +296,7 @@ export function RequestPluginConfigField(props: RequestPluginConfigFieldProps) {
           onChange={(event) => props.onChange(event.target.value)}
         />
         {filledLines > 0 && (
-          <p className='text-muted-foreground text-right text-xs tabular-nums'>
+          <p className='text-muted-foreground text-end text-xs tabular-nums'>
             {t('Lines: {{value}}', {
               value: formatNumber(filledLines, locale),
             })}

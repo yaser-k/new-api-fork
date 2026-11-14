@@ -280,7 +280,7 @@ export function RequestPluginConfigRows(props: RequestPluginConfigRowsProps) {
           type='button'
           variant='ghost'
           size='sm'
-          className='text-muted-foreground -ml-2'
+          className='text-muted-foreground -ms-2'
           disabled={props.disabled || full}
           onClick={() =>
             props.onChange([
