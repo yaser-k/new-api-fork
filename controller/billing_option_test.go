@@ -28,6 +28,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestUpdateOptionRejectsInvalidTaskBillingExpressions(t *testing.T) {
@@ -334,10 +335,28 @@ func TestPreConsumeMultiplierRejectsInvalidRuntimeAndOverflow(t *testing.T) {
 // compile, reads the request, or leaves the model without a billing expression
 // is refused with a message naming the model, and stores nothing.
 func TestUpdateOptionValidatesPublicPriceExpressions(t *testing.T) {
-	db := modelManagementDB(t, "sqlite", "")
+	for _, dialect := range []struct{ kind, env string }{{"sqlite", ""}, {"mysql", "TEST_MYSQL_DSN"}, {"postgres", "TEST_POSTGRES_DSN"}} {
+		t.Run(dialect.kind, func(t *testing.T) {
+			if dialect.env != "" && os.Getenv(dialect.env) == "" {
+				t.Skip("set " + dialect.env + " to run this database")
+			}
+			testPublicPriceExpressionSaves(t, modelManagementDB(t, dialect.kind, os.Getenv(dialect.env)))
+		})
+	}
+}
+
+func testPublicPriceExpressionSaves(t *testing.T, db *gorm.DB) {
 	previousConfig := config.GlobalConfig.ExportAllConfigs()
 	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig)) })
 	const publicKey = "billing_setting.public_expr"
+	// A database written before public prices has every other pricing option
+	// row; the first pricing save adds the public one.
+	for _, key := range []string{
+		"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio", "CreateCacheRatio", "ImageRatio",
+		"ModelPrice", "ModelRatio", "billing_setting.billing_expr", "billing_setting.billing_mode", billing_setting.PluginBillingExprOption,
+	} {
+		require.NoError(t, db.Create(&model.Option{Key: key, Value: "{}"}).Error)
+	}
 	put := func(key string, value map[string]string) (bool, string) {
 		t.Helper()
 		encoded, err := common.Marshal(value)
