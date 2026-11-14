@@ -81,7 +81,8 @@ export function Wallet(props: WalletProps) {
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(true)
 
   const { status } = useStatus()
-  const { currency } = useSystemConfig()
+  // The top-up is charged in the site's currency whatever the viewer reads.
+  const { siteCurrency: currency } = useSystemConfig()
   const { topupInfo, presetAmounts, loading: topupLoading } = useTopupInfo()
 
   // Calculate effective exchange rate - when display type is USD, use rate of 1
@@ -363,6 +364,7 @@ export function Wallet(props: WalletProps) {
         processing={processing || waffoProcessing || pancakeProcessing}
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
+        priceRatio={(status?.price as number) || 1}
       />
 
       <TransferDialog
