@@ -754,3 +754,73 @@ func TestGeminiHandlersCountGroundingQueries(t *testing.T) {
 		})
 	}
 }
+
+// A Gemini upstream that closes before any finishReason was cut short: the
+// client gets one error event in its own format instead of [DONE] or a
+// synthetic message_stop.
+func TestGeminiChatStreamHandlerUpstreamInterruption(t *testing.T) {
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	t.Cleanup(func() { constant.StreamingTimeout = oldStreamingTimeout })
+
+	partial := `{"candidates":[{"content":{"role":"model","parts":[{"text":"partial answer"}]}}]}`
+	finished := `{"candidates":[{"content":{"role":"model","parts":[{"text":"partial answer"}]},"finishReason":"STOP"}]}`
+	tests := []struct {
+		name         string
+		format       types.RelayFormat
+		frame        string
+		wantContains []string
+		wantMissing  []string
+	}{
+		{
+			name:         "openai client: cut ends with an error, not [DONE]",
+			format:       types.RelayFormatOpenAI,
+			frame:        partial,
+			wantContains: []string{"partial answer", `"code":"stream_interrupted"`},
+			wantMissing:  []string{"[DONE]"},
+		},
+		{
+			name:         "claude client: cut ends with an error event, not message_stop",
+			format:       types.RelayFormatClaude,
+			frame:        partial,
+			wantContains: []string{"partial answer", "event: error\n", `"type":"api_error"`},
+			wantMissing:  []string{"message_stop"},
+		},
+		{
+			name:         "openai client: finishReason without [DONE] is complete",
+			format:       types.RelayFormatOpenAI,
+			frame:        finished,
+			wantContains: []string{"partial answer", "data: [DONE]"},
+			wantMissing:  []string{"stream_interrupted"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				RelayFormat:     tt.format,
+				OriginModelName: "gemini-2.5-flash",
+				ChannelMeta:     &relaycommon.ChannelMeta{UpstreamModelName: "gemini-2.5-flash"},
+				ClaudeConvertInfo: &relaycommon.ClaudeConvertInfo{
+					LastMessagesType: relaycommon.LastMessageTypeNone,
+				},
+			}
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader("data: " + tt.frame + "\n\n"))}
+
+			usage, apiErr := GeminiChatStreamHandler(c, info, resp)
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			assert.Positive(t, usage.CompletionTokens)
+
+			got := recorder.Body.String()
+			for _, want := range tt.wantContains {
+				assert.Contains(t, got, want)
+			}
+			for _, missing := range tt.wantMissing {
+				assert.NotContains(t, got, missing)
+			}
+		})
+	}
+}
