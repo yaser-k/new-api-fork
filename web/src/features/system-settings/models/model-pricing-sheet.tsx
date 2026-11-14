@@ -61,6 +61,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import {
   previewModelPricing,
   previewModelPricingConversion,
@@ -134,6 +135,9 @@ type ModelPricingEditorPanelProps = Omit<
 > & {
   className?: string
   embedded?: boolean
+  // Offer the public price expression. Only hosts that save the committed
+  // draft as the model's whole price set it.
+  publicPriceEditable?: boolean
 }
 
 export type ModelPricingEditorPanelHandle = {
@@ -203,11 +207,13 @@ export const ModelPricingEditorPanel = forwardRef<
     onDirtyChange,
     embedded = false,
     scrollHeader,
+    publicPriceEditable = false,
   },
   ref
 ) {
   const { t } = useTranslation()
   const promptPriceId = useId()
+  const publicExprId = useId()
   const formElementRef = useRef<HTMLFormElement>(null)
   const currencyConfig = useSystemConfigStore((state) => state.config.currency)
   const preference = usePricingPreferencesStore((state) => state.currency)
@@ -238,6 +244,7 @@ export const ModelPricingEditorPanel = forwardRef<
     meta: { errorToast: false },
   })
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [publicExpr, setPublicExpr] = useState('')
   const [pluginExpressions, setPluginExpressions] = useState<
     Record<string, string>
   >({})
@@ -361,6 +368,7 @@ export const ModelPricingEditorPanel = forwardRef<
     conversionGeneration.current += 1
     setConversionReason('')
     setPluginExpressions(editData?.pluginBillingExpr ?? {})
+    setPublicExpr(editData?.publicExpr ?? '')
     setOrdinaryPricingModel(null)
     setWasConverted(false)
     setConversionPreview(null)
@@ -424,6 +432,7 @@ export const ModelPricingEditorPanel = forwardRef<
         pricingMode !== initialPricingMode ||
         billingExpr !== initialBillingExpr ||
         requestRuleExpr !== (editData?.requestRuleExpr ?? '') ||
+        publicExpr !== (editData?.publicExpr ?? '') ||
         !pluginExpressionsEqual(pluginExpressions, editData?.pluginBillingExpr)
     )
   }, [
@@ -432,6 +441,7 @@ export const ModelPricingEditorPanel = forwardRef<
     pricingMode,
     billingExpr,
     requestRuleExpr,
+    publicExpr,
     editData,
     initialPricingMode,
     initialBillingExpr,
@@ -709,6 +719,7 @@ export const ModelPricingEditorPanel = forwardRef<
       if (pricingMode === 'tiered_expr') {
         data.billingExpr = resolvedBillingExpr
         data.requestRuleExpr = requestRuleExpr
+        if (publicPriceEditable) data.publicExpr = publicExpr
       }
 
       return data
@@ -716,6 +727,8 @@ export const ModelPricingEditorPanel = forwardRef<
     [
       pricingMode,
       requestRuleExpr,
+      publicPriceEditable,
+      publicExpr,
       resolvedBillingExpr,
       pluginExpressions,
       editData,
@@ -1178,6 +1191,33 @@ export const ModelPricingEditorPanel = forwardRef<
                     <TabsContent value='tiered_expr' className='pt-0'>
                       <FieldGroup className='gap-5'>
                         {expressionEditor}
+                        {publicPriceEditable && (
+                          <Field className='min-w-0'>
+                            <FieldLabel htmlFor={publicExprId}>
+                              {t('Public price expression')}
+                            </FieldLabel>
+                            <FieldDescription
+                              id={`${publicExprId}-description`}
+                              className={embedded ? 'text-xs' : undefined}
+                            >
+                              {t(
+                                'Optional. Everyone who is not an administrator sees this price instead of the billing expression. It cannot read the request or the time, and billing never uses it.'
+                              )}
+                            </FieldDescription>
+                            <Textarea
+                              id={publicExprId}
+                              aria-describedby={`${publicExprId}-description`}
+                              value={publicExpr}
+                              onChange={(event) =>
+                                setPublicExpr(event.target.value)
+                              }
+                              placeholder='tier("base", p * 3 + c * 15)'
+                              rows={3}
+                              className='font-mono text-xs'
+                              spellCheck={false}
+                            />
+                          </Field>
+                        )}
                       </FieldGroup>
                     </TabsContent>
                   </Tabs>
