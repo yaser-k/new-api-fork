@@ -322,6 +322,52 @@ func TestDecideRelayRetryReasons(t *testing.T) {
 	}
 }
 
+func TestDecideRelayRetryKeywords(t *testing.T) {
+	const message = "Key monthly cap hit: this prompt could cost more than is left of this key's monthly cap on spend."
+	upstream := func(status int, message string) *types.NewAPIError {
+		return types.NewOpenAIError(errors.New(message), types.ErrorCodeBadResponseStatusCode, status)
+	}
+	matched := PolicyDecision{Action: "retry", Reason: "retry_keyword_matched", Source: "global"}
+	notRetryable := PolicyDecision{Action: "stop", Reason: "status_not_retryable", Source: "global"}
+	for _, tc := range []struct {
+		name     string
+		keywords string
+		err      *types.NewAPIError
+		retries  int
+		setup    func(*gin.Context)
+		want     PolicyDecision
+	}{
+		{name: "configured phrase retries a final status", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 1, want: matched},
+		{name: "empty list keeps the status final", err: upstream(http.StatusBadRequest, message), retries: 1, want: notRetryable},
+		{name: "match ignores case", keywords: "KEY Monthly CAP hit", err: upstream(http.StatusBadRequest, strings.ToUpper(message)), retries: 1, want: matched},
+		{name: "unmatched message keeps the status final", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, "unsupported parameter: foo"), retries: 1, want: notRetryable},
+		{name: "retry status keeps its own reason", keywords: "key monthly cap hit", err: upstream(http.StatusTooManyRequests, message), retries: 1, want: PolicyDecision{Action: "retry", Reason: "retry_status_matched", Source: "global"}},
+		{name: "always skipped status still stops", keywords: "key monthly cap hit", err: upstream(http.StatusGatewayTimeout, message), retries: 1, want: PolicyDecision{Action: "stop", Reason: "system_retry_exclusion", Source: "system"}},
+		{name: "success status still stops", keywords: "key monthly cap hit", err: upstream(http.StatusOK, message), retries: 1, want: PolicyDecision{Action: "stop", Reason: "system_retry_exclusion", Source: "system"}},
+		{name: "attempt budget still stops", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 0, want: PolicyDecision{Action: "stop", Reason: "attempt_budget_exhausted", Source: "global"}},
+		{name: "skip retry error still stops", keywords: "key monthly cap hit", err: types.NewErrorWithStatusCode(errors.New(message), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry()), retries: 1, want: PolicyDecision{Action: "stop", Reason: "non_retryable_error", Source: "system"}},
+		{name: "pinned channel still stops", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 1, setup: func(c *gin.Context) {
+			GetChannelConstraints(c).AddPin(dto.ChannelPin{ChannelId: 1, Source: dto.PinSourceToken, Rank: dto.PinRankToken, RetryMode: dto.PinRetrySingleAttempt})
+		}, want: PolicyDecision{Action: "stop", Reason: "pinned_channel", Source: "channel_constraint"}},
+		{name: "strict session still stops", keywords: "key monthly cap hit", err: upstream(http.StatusBadRequest, message), retries: 1, setup: func(c *gin.Context) {
+			c.Set(ginKeyChannelAffinitySkipRetry, true)
+			RequestPolicy(c).SessionModeSource = "global"
+		}, want: PolicyDecision{Action: "stop", Reason: "strict_session", Source: "global"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := operation_setting.AutomaticRetryKeywordsToString()
+			operation_setting.AutomaticRetryKeywordsFromString(tc.keywords)
+			t.Cleanup(func() { operation_setting.AutomaticRetryKeywordsFromString(previous) })
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			if tc.setup != nil {
+				tc.setup(c)
+			}
+			assert.Equal(t, tc.want, DecideRelayRetry(c, tc.err, tc.retries))
+			assert.Equal(t, tc.want.Action == "retry", ShouldRetryRelayError(c, tc.err, tc.retries))
+		})
+	}
+}
+
 func TestRequestPolicyEventsReachLogAdminInfo(t *testing.T) {
 	previousAutoDisable := common.AutomaticDisableChannelEnabled
 	common.AutomaticDisableChannelEnabled = true
