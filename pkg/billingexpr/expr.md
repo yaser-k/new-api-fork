@@ -473,6 +473,42 @@ On save, the expression is validated:
 1. Compiled via `billingexpr.CompileFromCache()` — syntax check
 2. Smoke-tested with sample token vectors — ensures non-negative results
 
+#### Public Price Expression
+
+`billing_setting.public_expr` is a third map, `{ "model-name": "<expression>" }`,
+saved through the option endpoint and the per-model pricing API
+(`PATCH /api/option/model_pricing`) like the billing expression. A model can be
+billed by conditions that stay internal, such as a request parameter or the time
+of day, while the public sees one plain price, typically the highest price a
+request can be charged.
+
+- **Who sees which expression.** `GET /api/pricing` returns a model's public
+  expression in `billing_expr` to every caller who is not an administrator,
+  signed out or signed in, and derives from it the provider variants that
+  inherit the model-level expression and `ordinary_pricing`. Administrators
+  receive the billing expression in `billing_expr` as before and the public
+  expression in `public_expr`. `GET /api/ratio_config`, which anyone may read
+  while the ratio configuration is exposed, carries the public expression in
+  its `billing_expr` map. A model without a public expression is returned
+  exactly as before, to everyone, and the pricing page renders a public
+  expression as it renders any expression.
+- **Billing ignores it.** Pre-consume, settlement, the billing snapshot and the
+  consume log (`expr_b64`, `matched_tier`, `request_rules`) use the billing
+  expression only, so a user's own consume logs still show the billing
+  expression of the requests that user made.
+- **Validation at save.** A public expression must compile and pass the checks
+  the model's billing expression would (smoke tests, task usage keys), must not
+  call a request probe (the functions listed under Request Rule Tracing), and
+  needs a billing expression to stand in for: the model's own or a built-in one.
+  An invalid entry is refused with a message naming the model and nothing is
+  stored; removing the billing expression behind a public one is refused too.
+- **Console.** The model drawer's pricing editor has an optional public price
+  expression field under the billing expression. The bulk price-table editor
+  keeps the saved public expression, and drops it from a model whose draft no
+  longer has a billing expression.
+- Plugin provider overrides (`billing_setting.plugin_billing_expr`) have no
+  public counterpart and are shown as stored.
+
 ### 3. Pre-consume (Quota Estimation)
 
 **File**: `relay/helper/price.go` → `modelPriceHelperTiered()`
