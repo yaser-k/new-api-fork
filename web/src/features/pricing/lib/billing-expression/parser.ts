@@ -409,7 +409,10 @@ function checkExpressionTypes(ast: ExpressionNode): void {
         requireType(node.args[0], 'string')
         requireType(node.args[1], 'number')
         result = 'number'
-      } else if ((TIME_FUNCTIONS as readonly string[]).includes(node.name)) {
+      } else if (
+        node.name === 'channel' ||
+        (TIME_FUNCTIONS as readonly string[]).includes(node.name)
+      ) {
         result = 'number'
       } else if (
         ['fixed', 'min', 'max', 'abs', 'ceil', 'floor'].includes(node.name)
@@ -506,7 +509,7 @@ export function compileBillingExpression(source: string): CompilationResult {
       const calls = expressionDependencies(node.condition).functions
       if (
         ![...calls].some((name) =>
-          ['param', 'header', ...TIME_FUNCTIONS].includes(name)
+          ['param', 'header', 'channel', ...TIME_FUNCTIONS].includes(name)
         )
       ) {
         return

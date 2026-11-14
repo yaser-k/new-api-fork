@@ -19,6 +19,7 @@ import (
 //   - len              — total input context length for tier conditions (never reduced by sub-category exclusion)
 //   - cr, cc, cc1h, cc12h — cache read / creation / creation-1h / creation-12h tokens
 //   - tier(name, value) — trace callback that records which tier matched
+//   - param, header, channel, hour, minute, weekday, month, day — request probes
 //   - max, min, abs, ceil, floor — standard math helpers
 //
 // Returns the resulting float64 quota (before group ratio) and a TraceResult
@@ -124,6 +125,7 @@ func runProgram(prog *vm.Program, requestRules []RequestRuleTrace, usedVars map[
 			}
 			return result.Value()
 		},
+		"channel": func() int { return request.ChannelID },
 		"u": func(name string) any {
 			if request.Usage == nil {
 				return nil

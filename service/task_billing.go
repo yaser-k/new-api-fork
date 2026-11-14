@@ -439,16 +439,17 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 }
 
 // EvaluateTaskCompletionUsage evaluates actual facts against the frozen task
-// expression. It neither mutates the snapshot nor moves funds: synchronous
-// submission and polling have different persistence and settlement barriers.
-func EvaluateTaskCompletionUsage(snap *billingexpr.BillingSnapshot, facts map[string]any) (billingexpr.TieredResult, map[string]any, error) {
+// expression on channelID, the channel executing the task. It neither mutates
+// the snapshot nor moves funds: synchronous submission and polling have
+// different persistence and settlement barriers.
+func EvaluateTaskCompletionUsage(snap *billingexpr.BillingSnapshot, facts map[string]any, channelID int) (billingexpr.TieredResult, map[string]any, error) {
 	if snap == nil {
 		return billingexpr.TieredResult{}, nil, fmt.Errorf("task billing snapshot is missing")
 	}
 	usage := make(map[string]any, len(snap.UsageFacts)+len(facts))
 	maps.Copy(usage, snap.UsageFacts)
 	maps.Copy(usage, facts)
-	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usage})
+	result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: usage, ChannelID: channelID})
 	if err == nil && (result.ActualQuotaBeforeGroup < 0 || math.IsNaN(result.ActualQuotaBeforeGroup)) {
 		err = fmt.Errorf("task completion expression produced an invalid cost")
 	}

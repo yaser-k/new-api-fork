@@ -1749,6 +1749,52 @@ func TestSettle_TieredSnapshotWriteBackUsesSettledFactsAndMatchedTier(t *testing
 	assert.NotContains(t, other, "seconds")
 }
 
+// A polled task settles with the channel it was submitted to and runs on.
+func TestSettle_TieredChannelExpressionUsesTheExecutingChannel(t *testing.T) {
+	expression := `channel() == 3 ? tier("route_b", u("seconds") * 2) : tier("base", u("seconds"))`
+	for _, tc := range []struct {
+		name               string
+		channelID          int
+		preConsumed, quota int
+		tier               string
+	}{
+		{"priced channel", 3, 10, 16, "route_b"},
+		{"another channel", 5, 5, 8, "base"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const userID = 39
+			const initialQuota = 10_000
+			seedUser(t, userID, initialQuota)
+			task := makeTask(userID, tc.channelID, tc.preConsumed, 0, BillingSourceWallet, 0)
+			task.PrivateData.BillingContext.TieredSnapshot = &billingexpr.BillingSnapshot{
+				ExprString:       expression,
+				ExprHash:         billingexpr.ExprHashString(expression),
+				GroupRatio:       1,
+				QuotaPerUnit:     1,
+				ExprVersion:      1,
+				TaskUsageBilling: true,
+				UsageFacts:       map[string]any{"seconds": float64(5)},
+				EstimatedTier:    tc.tier,
+			}
+
+			settled := settleTaskBillingOnComplete(context.Background(), &mockAdaptor{}, task, &relaycommon.TaskInfo{
+				Status:     model.TaskStatusSuccess,
+				UsageFacts: map[string]any{"seconds": float64(8)},
+			})
+
+			require.True(t, settled)
+			assert.Equal(t, tc.quota, task.Quota)
+			assert.Equal(t, initialQuota-(tc.quota-tc.preConsumed), getUserQuota(t, userID))
+			log := getLastLog(t)
+			require.NotNil(t, log)
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+			assert.Equal(t, tc.tier, other["matched_tier"])
+		})
+	}
+}
+
 func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
 	previousRatios := ratio_setting.ModelRatio2JSONString()
 	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":1}`))

@@ -73,6 +73,23 @@
     ]
   },
   {
+    "name": "channel reads zero without a serving channel",
+    "expression": "(channel() == 3 ? tier(\"route_b\", p * 0.72) : tier(\"base\", p * 0.6)) * (channel() == 0 ? 2 : 1) * (channel() == 3 ? 1.2 : 1)",
+    "tokens": {
+      "p": 100
+    },
+    "cost": 120,
+    "tier": "base",
+    "multipliers": [
+      2,
+      1.2
+    ],
+    "matched": [
+      true,
+      false
+    ]
+  },
+  {
     "name": "noncanonical factor still evaluates",
     "expression": "tier(\"base\", 10) * (param(\"priority\") == true ? 2 : 1.5)",
     "body": {},

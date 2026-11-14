@@ -182,6 +182,7 @@ OpenAI 已于 2026-05-12 下线 DALL·E 2/3；其校验、默认值和倍率保�
 | `fixed` | `fixed(amount) → float64` | A USD price per request, used only as the complete price in `tier(name, fixed(amount))` |
 | `param` | `param(path) → any` | Reads a JSON path from the request body (uses ojson, gjson path syntax) |
 | `header` | `header(key) → string` | Reads a request header value |
+| `channel` | `channel() → int` | Id of the channel serving the request; 0 when no channel is known |
 | `has` | `has(source, substr) → bool` | Substring check |
 | `hour` | `hour(tz) → int` | Current hour in timezone (0-23) |
 | `minute` | `minute(tz) → int` | Current minute (0-59) |
@@ -220,6 +221,32 @@ tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)
 # p is left unpriced by not naming it
 tier("base", c * 7.5 + vid_sec * 490)
 ```
+
+### Channel Pricing
+
+`channel()` lets channels that cost differently price one model differently,
+as a branch or as a request rule (the rule is written in its stored form):
+
+```
+# A branch per channel
+channel() == 3
+  ? tier("route_b", p * 0.72 + c * 2.64)
+  : tier("base", p * 0.6 + c * 2.2)
+
+# A request rule per channel
+(tier("base", p * 0.6 + c * 2.2)) * (channel() == 3 ? 1.2 : 1)
+```
+
+Pre-consume prices the channel selected for the attempt it reserves for: a
+request's reservation is made once, before the retry loop, on the first
+attempt's channel, while an image request priced by `image_count` and every
+task attempt reserve again on their own attempt's channel.
+Settlement prices the channel of the attempt that produced the answer, and
+nothing frozen with the request keeps a channel, so a retry onto another
+channel is charged, and logged with, that channel's tier and request rules.
+`channel()` reads 0 where no channel serves the request: saving and smoke
+tests, price previews and the console's simulator. Tasks settle on the
+channel stored with the task.
 
 ### Fixed Request Prices
 
@@ -273,7 +300,7 @@ At compile time, the engine instruments ternary factors with this exact shape:
 <request-probe condition> ? <numeric literal> : 1
 ```
 
-The condition must reference at least one request probe (`param`, `header`, `hour`, `minute`, `weekday`, `month`, or `day`). Both branches must be numeric literals and the fallback must equal `1`. Other conditionals, including `(condition ? 2 : 1.5)`, are evaluated normally but are not traced. Integer-only factors use an integer-preserving trace callback, so instrumentation does not change expressions that require an integer operand (for example, `%`). The internal trace callback names are reserved and cannot be used in stored expressions.
+The condition must reference at least one request probe (`param`, `header`, `channel`, `hour`, `minute`, `weekday`, `month`, or `day`). Both branches must be numeric literals and the fallback must equal `1`. Other conditionals, including `(condition ? 2 : 1.5)`, are evaluated normally but are not traced. Integer-only factors use an integer-preserving trace callback, so instrumentation does not change expressions that require an integer operand (for example, `%`). The internal trace callback names are reserved and cannot be used in stored expressions.
 
 The compiled cache stores the canonical condition and multiplier for every instrumented node. Each run starts with the full detected rule list marked as unmatched; callbacks mark rules that actually evaluate true. Rules skipped by normal expression short-circuiting remain unmatched. This keeps the expression's numeric result unchanged and avoids reparsing it on each request.
 

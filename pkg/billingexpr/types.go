@@ -14,6 +14,10 @@ type RequestInput struct {
 	// ImageCount is a validated billing quantity, separate from the frozen
 	// request's n. Settlement can replace it with the actual returned count.
 	ImageCount *int
+	// ChannelID is the channel serving the attempt being priced, read by
+	// channel(); 0 when no channel is known. It is never frozen: each
+	// evaluation sets it, so settlement prices the channel that answered.
+	ChannelID int
 }
 
 // TokenParams holds all token dimensions passed into an Expr evaluation.

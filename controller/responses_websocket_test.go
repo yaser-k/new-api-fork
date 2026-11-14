@@ -1187,6 +1187,94 @@ func TestResponsesHTTPHealthCountsFinalResult(t *testing.T) {
 	}
 }
 
+// A channel() expression is settled on the channel that answered, not on the
+// channel that failed first and fixed the request's reservation.
+func TestChannelExpressionSettlesOnTheRetriedChannel(t *testing.T) {
+	const tiers = `channel() == %d ? tier("route_b", p * 0.72 + c * 2.64) : tier("base", p * 0.6 + c * 2.2)`
+	const rule = `(tier("base", p * 0.6 + c * 2.2)) * (channel() == %d ? 1.2 : 1)`
+	for _, tc := range []struct {
+		name       string
+		expression string
+		priceFirst bool
+		quota      int
+		tier       string
+		matched    *bool
+	}{
+		// usage 1000 in / 500 out; base 1700, route_b 2040, per 1M at 500000 quota per unit.
+		{name: "branch of the failed channel is not charged", expression: tiers, priceFirst: true, quota: 850, tier: "base"},
+		{name: "branch of the answering channel is charged", expression: tiers, quota: 1020, tier: "route_b"},
+		{name: "rule of the failed channel is unmatched", expression: rule, priceFirst: true, quota: 850, tier: "base", matched: common.GetPointer(false)},
+		{name: "rule of the answering channel is matched", expression: rule, quota: 1020, tier: "base", matched: common.GetPointer(true)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newResponsesWSBillingTest(t, `tier("base", p)`, func(*websocket.Conn, *http.Request) {})
+			oldRetries := common.RetryTimes
+			common.RetryTimes = 1
+			t.Cleanup(func() { common.RetryTimes = oldRetries })
+			answering := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"id":"completed","status":"completed","usage":{"input_tokens":1000,"output_tokens":500,"total_tokens":1500}}`)
+			}))
+			t.Cleanup(answering.Close)
+			require.NoError(t, model.DB.Model(fixture.channel).Update("base_url", answering.URL).Error)
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = fmt.Fprint(w, `{"error":{"type":"server_error","code":"server_error","message":"test failure"}}`)
+			}))
+			t.Cleanup(failing.Close)
+			// The higher priority serves the first attempt; the retry moves down
+			// to the fixture's channel.
+			priority := int64(10)
+			first := &model.Channel{Name: "channel-billing-first", Key: "first-key", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeOpenAI, Group: "default", Models: "ws-billing", BaseURL: &failing.URL, Priority: &priority}
+			require.NoError(t, model.DB.Create(first).Error)
+			require.NoError(t, model.DB.Create(&model.Ability{ChannelId: first.Id, Model: "ws-billing", Group: "default", Enabled: true, Priority: &priority}).Error)
+			t.Cleanup(func() {
+				require.NoError(t, model.DB.Where("channel_id = ?", first.Id).Delete(&model.Ability{}).Error)
+				require.NoError(t, model.DB.Delete(first).Error)
+			})
+			priced := fixture.channel.Id
+			if tc.priceFirst {
+				priced = first.Id
+			}
+			expressions, err := common.Marshal(map[string]string{"ws-billing": fmt.Sprintf(tc.expression, priced)})
+			require.NoError(t, err)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.billing_expr": string(expressions)}))
+
+			request, err := http.NewRequest(http.MethodPost, fixture.gatewayURL+"/v1/responses", strings.NewReader(`{"model":"ws-billing","input":"hello"}`))
+			require.NoError(t, err)
+			request.Header.Set("Authorization", "Bearer sk-"+fixture.token.Key)
+			request.Header.Set("Content-Type", "application/json")
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			_, err = io.Copy(io.Discard, response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			select {
+			case <-fixture.httpDone:
+			case <-time.After(3 * time.Second):
+				t.Fatal("HTTP request did not finish")
+			}
+			fixture.closeAndWait(t)
+			require.Equal(t, http.StatusOK, response.StatusCode)
+
+			var logs []model.Log
+			require.NoError(t, model.LOG_DB.Where("token_id = ? AND type = ?", fixture.token.Id, model.LogTypeConsume).Find(&logs).Error)
+			require.Len(t, logs, 1)
+			assert.Equal(t, fixture.channel.Id, logs[0].ChannelId)
+			assert.Equal(t, tc.quota, logs[0].Quota)
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(logs[0].Other, &other))
+			assert.Equal(t, tc.tier, other["matched_tier"])
+			if tc.matched == nil {
+				assert.NotContains(t, other, "request_rules")
+				return
+			}
+			assert.Equal(t, []any{map[string]any{"cond": fmt.Sprintf("channel() == %d", priced), "multiplier": 1.2, "matched": *tc.matched}}, other["request_rules"])
+		})
+	}
+}
+
 func TestResponsesWebSocketLocalErrorsKeepStreamIdentity(t *testing.T) {
 	fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(*websocket.Conn, *http.Request) {
 		t.Error("local rejection reached upstream")

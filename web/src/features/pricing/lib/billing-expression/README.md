@@ -48,7 +48,7 @@
 
 支持默认版本和 `v1:`，十进制数及科学计数法、单/双引号字符串及常用转义、`true` / `false` / `nil`、括号、`+ - * / %`、比较、`!`、`&&`、`||` 和三元条件。
 
-函数：`tier`、`param`、`header`、`has`、`u`、`hour`、`minute`、`weekday`、`month`、`day`、`min`、`max`、`abs`、`ceil`、`floor`。
+函数：`tier`、`param`、`header`、`channel`、`has`、`u`、`hour`、`minute`、`weekday`、`month`、`day`、`min`、`max`、`abs`、`ceil`、`floor`。
 
 - 逻辑运算与条件分支短路执行；条件必须为布尔值，不采用 JavaScript 的 truthy 规则。
 - 数值与字符串不做 JavaScript 隐式转换。除法返回数值；取模要求整数操作数，token 和 JSON 数值按后端浮点语义处理。
@@ -56,6 +56,7 @@
 - 请求头名称忽略大小写，名称和值去除首尾空白；空名称和值跳过，不存在返回空字符串。
 - `has` 区分空子串、nil；JSON 容器采用后端 `fmt.Sprint` 的表示形式。
 - `u` 读取显式任务事实，缺失字段返回 nil，缺失整个任务上下文报告 `missing_context`。
+- `channel()` 是请求探针，返回服务本次请求的渠道 ID。浏览器模拟没有服务渠道，与后端未知渠道时一致返回 0。
 - 五个时间函数按表达式指定的 IANA 时区计算。小时 0–23、分钟 0–59、星期日 0、月份 1–12。空时区或无效时区回退 UTC。`Local` 依赖服务端进程时区，浏览器明确不支持。
 - 规则轨迹遵循后端：条件包含请求/时间探针、两个分支为数值字面量且 fallback 为 1 的三元节点才记录。被短路跳过的规则保留为未匹配。
 
