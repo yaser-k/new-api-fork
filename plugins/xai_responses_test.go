@@ -180,7 +180,7 @@ func TestXAIModeratedVideoKeepsItsCharge(t *testing.T) {
 				return
 			}
 			assert.Equal(t, tc.wantFacts, result.UsageFacts)
-			settled, _, err := service.EvaluateTaskCompletionUsage(snapshot, result.UsageFacts)
+			settled, _, err := service.EvaluateTaskCompletionUsage(snapshot, result.UsageFacts, 0)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTier, settled.MatchedTier)
 			assert.Equal(t, tc.wantQuota, settled.ActualQuotaAfterGroup)
@@ -601,7 +601,7 @@ func TestXAIEditSettlesOnOutputResolution(t *testing.T) {
 				assert.JSONEq(t, `{"extension_seconds":6,"output_resolution":"`+tc.wantResolution+`"}`, string(result.PluginState))
 			}
 			assert.Equal(t, wantFacts, result.UsageFacts)
-			settled, _, err := service.EvaluateTaskCompletionUsage(snapshot, result.UsageFacts)
+			settled, _, err := service.EvaluateTaskCompletionUsage(snapshot, result.UsageFacts, 0)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantTier, settled.MatchedTier)
 			assert.Equal(t, tc.wantQuota, settled.ActualQuotaAfterGroup)
