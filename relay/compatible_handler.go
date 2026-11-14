@@ -133,6 +133,10 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
+		jsonData, err = relaycommon.SetUpstreamEndUserID(jsonData, info)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
 
 		if jsonData, newAPIError = requestplugin.Outbound(c, info, jsonData); newAPIError != nil {
 			return newAPIError
