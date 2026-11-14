@@ -42,6 +42,7 @@ import {
   ADMIN_PERMISSION_RESOURCES,
   hasPermission,
 } from '@/lib/admin-permissions'
+import { formatGregorianTitle } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
   getServerMessage,
@@ -266,7 +267,7 @@ export function MultiKeyManageDialog({
 
   const formatKeyTimestamp = (timestamp?: number) => {
     if (!timestamp) return '-'
-    return formatTimestamp(timestamp)
+    return formatTimestamp(timestamp, locale)
   }
 
   if (!currentRow) return null
@@ -493,7 +494,13 @@ export function MultiKeyManageDialog({
                     header: t('Disabled Time'),
                     className: 'w-44',
                     cellClassName: 'text-muted-foreground text-sm',
-                    cell: (key) => formatKeyTimestamp(key.disabled_time),
+                    cell: (key) => (
+                      <span
+                        title={formatGregorianTitle(key.disabled_time, locale)}
+                      >
+                        {formatKeyTimestamp(key.disabled_time)}
+                      </span>
+                    ),
                   },
                   {
                     id: 'actions',
