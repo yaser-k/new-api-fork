@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table'
 import { Badge } from '@/components/ui/badge'
+import { isolateCurrencySymbol } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 import { useSystemConfigStore } from '@/stores/system-config-store'
 
@@ -301,7 +302,7 @@ export function DynamicPricingBreakdown({
     }
     if (currency.quotaDisplayType === 'CUSTOM') {
       return {
-        symbol: currency.customCurrencySymbol || '¤',
+        symbol: isolateCurrencySymbol(currency.customCurrencySymbol || '¤'),
         rate: currency.customCurrencyExchangeRate || 1,
       }
     }
