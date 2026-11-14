@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -790,6 +791,62 @@ func TestInputPreConsumeMultiplierLegacyAndRequestPrices(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTieredReservationPricesTheSelectedChannel(t *testing.T) {
+	previous := config.GlobalConfig.ExportAllConfigs()
+	previousMultiplier := operation_setting.GetQuotaSetting().PreConsumeMultiplier
+	t.Cleanup(func() {
+		operation_setting.GetQuotaSetting().PreConsumeMultiplier = previousMultiplier
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previous))
+	})
+	operation_setting.GetQuotaSetting().PreConsumeMultiplier = 1
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"channel-route-model":"tiered_expr","channel-image-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":    `{"channel-route-model":"channel() == 3 ? tier(\"route_b\", p * 0.72 + c * 2.64) : tier(\"base\", p * 0.6 + c * 2.2)","channel-image-model":"channel() == 3 ? tier(\"route_b\", p * 6) * image_count : tier(\"base\", p * 3) * image_count"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+	newContext := func(channelID int) *gin.Context {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		if channelID != 0 {
+			common.SetContextKey(ctx, constant.ContextKeyChannelId, channelID)
+		}
+		return ctx
+	}
+
+	for _, tc := range []struct {
+		name    string
+		channel int
+		quota   int
+		tier    string
+	}{
+		// 1000 estimated input tokens: route_b 720, base 600 per 1M.
+		{"first attempt on the priced channel", 3, 360, "route_b"},
+		{"first attempt on another channel", 5, 300, "base"},
+		{"no channel selected", 0, 300, "base"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{OriginModelName: "channel-route-model", UserGroup: "default", UsingGroup: "default", BillingRequestInput: &billingexpr.RequestInput{}}
+			price, err := ModelPriceHelper(newContext(tc.channel), info, 1000, &types.TokenCountMeta{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.quota, price.QuotaToPreConsume)
+			assert.Equal(t, tc.tier, info.TieredBillingSnapshot.EstimatedTier)
+		})
+	}
+
+	// An image retry reserves again on the channel of the new attempt.
+	info := &relaycommon.RelayInfo{OriginModelName: "channel-image-model", UserGroup: "default", UsingGroup: "default", BillingRequestInput: &billingexpr.RequestInput{}}
+	price, err := ModelPriceHelper(newContext(5), info, 100, &types.TokenCountMeta{})
+	require.NoError(t, err)
+	require.Equal(t, 150, price.QuotaToPreConsume)
+	reservation := &priceTestReservation{held: price.QuotaToPreConsume}
+	info.Billing = reservation
+	retry := newContext(3)
+	info.InitChannelMeta(retry)
+	require.Nil(t, service.PrepareImageBillingForRequest(retry, info, 2))
+	assert.Equal(t, 600, reservation.held)
+	assert.Equal(t, "route_b", info.TieredBillingSnapshot.EstimatedTier)
 }
 
 // priceTestReservation observes the reservation requested before image submission.
