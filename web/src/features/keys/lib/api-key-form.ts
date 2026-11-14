@@ -21,7 +21,7 @@ import { z } from 'zod'
 
 import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 
-import { DEFAULT_GROUP } from '../constants'
+import { API_KEY_VALIDATION, DEFAULT_GROUP } from '../constants'
 import type { ApiKey, ApiKeyFormData } from '../types'
 
 // ============================================================================
@@ -31,6 +31,11 @@ import type { ApiKey, ApiKeyFormData } from '../types'
 export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
   const autoGroupLimit =
     Number.isInteger(maxAutoGroups) && maxAutoGroups > 0 ? maxAutoGroups : 5
+  const countIntegerMessage = t('Enter a positive integer')
+  const countRangeMessage = t('Count must be between {{min}} and {{max}}', {
+    min: API_KEY_VALIDATION.COUNT_MIN,
+    max: API_KEY_VALIDATION.COUNT_MAX,
+  })
 
   return z
     .object({
@@ -45,7 +50,13 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
       auto_groups_mode: z.enum(['inherit', 'custom']),
       auto_groups: z.array(z.string()),
       cross_group_retry: z.boolean().optional(),
-      tokenCount: z.number().min(1).optional(),
+      // Range before integer, so an oversized number reports the range.
+      tokenCount: z
+        .number({ error: countIntegerMessage })
+        .min(API_KEY_VALIDATION.COUNT_MIN, countRangeMessage)
+        .max(API_KEY_VALIDATION.COUNT_MAX, countRangeMessage)
+        .int(countIntegerMessage)
+        .optional(),
     })
     .superRefine((data, ctx) => {
       if (data.group === 'auto') {

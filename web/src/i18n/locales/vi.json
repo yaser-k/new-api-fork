@@ -1757,6 +1757,7 @@
     "Create, revoke, and audit API tokens.": "Tạo, thu hồi và kiểm toán token API.",
     "Created": "Đã tạo",
     "Created {{count}} redemption codes named {{name}} ({{quota}} each)": "Đã tạo {{count}} mã đổi thưởng tên {{name}} (mỗi mã {{quota}})",
+    "Created {{created}} of {{total}} API keys": "Đã tạo {{created}}/{{total}} khóa API",
     "Created {{time}}": "Tạo lúc {{time}}",
     "Created a custom OAuth provider": "Đã tạo nhà cung cấp OAuth tùy chỉnh",
     "Created a deployment": "Đã tạo một triển khai",
