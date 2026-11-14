@@ -163,6 +163,7 @@ export function ModelPricingPanel(props: {
     <div className='flex min-h-0 min-w-0 flex-1 flex-col gap-3'>
       <ModelPricingEditorPanel
         embedded
+        publicPriceEditable
         ref={editor}
         editData={editData}
         usageSchema={entry.usage_schema}

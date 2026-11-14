@@ -70,6 +70,7 @@ var modelPricingOptionKeys = []string{
 	"AudioCompletionRatio", "AudioRatio", "CacheRatio", "CompletionRatio",
 	"CreateCacheRatio", "ImageRatio", "ModelPrice", "ModelRatio",
 	"billing_setting.billing_expr", "billing_setting.billing_mode", billing_setting.PluginBillingExprOption,
+	billing_setting.PublicExprOption,
 }
 
 var modelPricingMutationMu sync.Mutex
@@ -541,6 +542,37 @@ func validateModelPricing(name string, values, previous PricingValues) error {
 		}
 		if !IsModelPricingOption(key) {
 			return fmt.Errorf("unsupported pricing field: %s", key)
+		}
+		if key == billing_setting.PublicExprOption {
+			expression, ok := value.(string)
+			if !ok || strings.TrimSpace(expression) == "" {
+				return fmt.Errorf("model %s: public price expression is required", name)
+			}
+			if _, err := billingexpr.CompileFromCache(expression); err != nil {
+				return fmt.Errorf("model %s: public price expression: %w", name, err)
+			}
+			if billingexpr.UsesRequestProbe(expression) {
+				return fmt.Errorf("model %s: a public price expression cannot read the request or the time it is served", name)
+			}
+			_, hasExpression := values["billing_setting.billing_expr"]
+			if _, builtin := billing_setting.GetBuiltinBillingExpr(name); !hasExpression && !builtin {
+				return fmt.Errorf("model %s: a public price expression needs a billing expression to stand in for", name)
+			}
+			// It is checked as the model's billing expression would be, so the
+			// public price is one the model could be billed by.
+			publicDraft := PricingValues{"billing_setting.billing_expr": expression}
+			publicPrevious := PricingValues{}
+			if previousPublic, exists := previous[key]; exists {
+				publicPrevious["billing_setting.billing_expr"] = previousPublic
+			}
+			if variants, exists := values[billing_setting.PluginBillingExprOption]; exists {
+				publicDraft[billing_setting.PluginBillingExprOption] = variants
+				publicPrevious[billing_setting.PluginBillingExprOption] = variants
+			}
+			if err := validateModelPricing(name, publicDraft, publicPrevious); err != nil {
+				return fmt.Errorf("public price expression of %w", err)
+			}
+			continue
 		}
 		if key == "billing_setting.billing_mode" {
 			if value != "ratio" && value != "tiered_expr" {
