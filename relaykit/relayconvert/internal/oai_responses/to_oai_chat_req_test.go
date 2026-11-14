@@ -8,6 +8,7 @@ import (
 	"github.com/MoeForge/moego/ojson"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -121,6 +122,29 @@ func TestResponsesRequestToChatCompletionsRequestMultimodalInput(t *testing.T) {
 	assert.Equal(t, "wav", parts[3].GetInputAudio().Format)
 	assert.Equal(t, dto.ContentTypeVideoUrl, parts[4].Type)
 	assert.Equal(t, "https://example.test/v.mp4", parts[4].GetVideoUrl().Url)
+}
+
+func TestContentPartToFileSourceInputAudioMimeType(t *testing.T) {
+	tests := []struct {
+		name     string
+		format   string
+		wantMime string
+	}{
+		{name: "bare mp3", format: "mp3", wantMime: "audio/mp3"},
+		{name: "bare wav", format: "wav", wantMime: "audio/wav"},
+		{name: "full mime type", format: "audio/mpeg", wantMime: "audio/mpeg"},
+		{name: "empty format", format: "", wantMime: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			source, ok := ContentPartToFileSource(map[string]any{
+				"type":        "input_audio",
+				"input_audio": map[string]any{"data": "UklGRg==", "format": tt.format},
+			}).(*types.Base64Source)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantMime, source.MimeType)
+		})
+	}
 }
 
 func TestResponsesRequestToChatCompletionsRequestAssistantTextAndFunctionCallCoexist(t *testing.T) {
