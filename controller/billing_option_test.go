@@ -323,3 +323,169 @@ func TestPreConsumeMultiplierRejectsInvalidRuntimeAndOverflow(t *testing.T) {
 		assert.Nil(t, info.Billing)
 	}
 }
+
+// A model's public price expression is saved through the same option endpoint
+// and per-model pricing API as its billing expression. A save that does not
+// compile, reads the request, or leaves the model without a billing expression
+// is refused with a message naming the model, and stores nothing.
+func TestUpdateOptionValidatesPublicPriceExpressions(t *testing.T) {
+	db := modelManagementDB(t, "sqlite", "")
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig)) })
+	const publicKey = "billing_setting.public_expr"
+	put := func(key string, value map[string]string) (bool, string) {
+		t.Helper()
+		encoded, err := common.Marshal(value)
+		require.NoError(t, err)
+		var response struct {
+			Success bool
+			Message string
+		}
+		modelManagementRequest(t, UpdateOption, http.MethodPut, "/api/option/", OptionUpdateRequest{Key: key, Value: string(encoded)}, &response)
+		return response.Success, response.Message
+	}
+	stored := func() string {
+		t.Helper()
+		var options []model.Option
+		require.NoError(t, db.Where(&model.Option{Key: publicKey}).Find(&options).Error)
+		if len(options) == 0 {
+			return ""
+		}
+		return options[0].Value
+	}
+	const billing = `param("route") == "b" ? tier("route_b", p * 4 + c * 20) : tier("base", p * 3 + c * 15)`
+	const public = `tier("public", p * 4 + c * 20)`
+	ok, message := put("billing_setting.billing_expr", map[string]string{"public-model": billing})
+	require.True(t, ok, message)
+	ok, message = put("billing_setting.billing_mode", map[string]string{"public-model": "tiered_expr"})
+	require.True(t, ok, message)
+
+	for _, tc := range []struct{ name, model, expression, reason string }{
+		{"does not compile", "public-model", `tier("public",`, "compile"},
+		{"is empty", "public-model", " ", "required"},
+		{"reads a request parameter", "public-model", `(tier("public", p * 4 + c * 20)) * (param("route") == "b" ? 2 : 1)`, "request"},
+		{"reads a request header", "public-model", `has(header("x-route"), "b") ? tier("b", p * 4) : tier("a", p * 3)`, "request"},
+		{"reads the time", "public-model", `hour("UTC") < 8 ? tier("night", p * 2) : tier("day", p * 4)`, "request"},
+		{"cannot price the model", "public-model", `tier("public", p * 4 - c * 20)`, "non-negative"},
+		{"has no billing expression", "unpriced-model", public, "billing expression"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ok, message := put(publicKey, map[string]string{tc.model: tc.expression})
+			assert.False(t, ok, "the save must be refused")
+			assert.Contains(t, message, tc.model)
+			assert.Contains(t, message, tc.reason)
+			assert.NotContains(t, stored(), tc.model)
+			assert.NotContains(t, config.GlobalConfig.ExportAllConfigs()[publicKey], tc.model)
+		})
+	}
+
+	ok, message = put(publicKey, map[string]string{"public-model": public})
+	require.True(t, ok, message)
+	want, err := common.Marshal(map[string]string{"public-model": public})
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), stored())
+	assert.JSONEq(t, string(want), config.GlobalConfig.ExportAllConfigs()[publicKey])
+
+	ok, message = put("billing_setting.billing_expr", map[string]string{})
+	assert.False(t, ok, "removing the billing expression behind a public one must be refused")
+	assert.Contains(t, message, "public-model")
+
+	var snapshot struct {
+		Success bool
+		Data    model.ModelPricingSnapshot
+	}
+	modelManagementRequest(t, GetModelPricingConfig, http.MethodGet, "/api/option/model_pricing?model=public-model", nil, &snapshot)
+	require.True(t, snapshot.Success)
+	require.Len(t, snapshot.Data.Entries, 1)
+	entry := snapshot.Data.Entries[0]
+	assert.Equal(t, public, entry.Configured[publicKey])
+	assert.Equal(t, billing, entry.Configured["billing_setting.billing_expr"])
+
+	patch := func(pricing model.PricingValues) (bool, string) {
+		t.Helper()
+		var response struct {
+			Success bool
+			Message string
+		}
+		modelManagementRequest(t, UpdateModelPricingConfig, http.MethodPatch, "/api/option/model_pricing", gin.H{
+			"changes": []model.ModelPricingChange{{ModelName: "public-model", ExpectedVersion: entry.Version, Pricing: pricing}},
+		}, &response)
+		return response.Success, response.Message
+	}
+	draft := model.PricingValues{}
+	for key, value := range entry.Configured {
+		draft[key] = value
+	}
+	draft[publicKey] = `day("UTC") == 1 ? tier("monday", p * 2) : tier("base", p * 4)`
+	ok, message = patch(draft)
+	assert.False(t, ok, "a draft whose public expression reads the request must be refused")
+	assert.Contains(t, message, "public-model")
+	assert.JSONEq(t, string(want), stored())
+
+	delete(draft, publicKey)
+	ok, message = patch(draft)
+	require.True(t, ok, message)
+	assert.JSONEq(t, `{}`, stored())
+}
+
+// Billing never reads the public price expression: reservation and settlement
+// of the same requests give the same quota, and settle and log the billing
+// expression, with and without a public expression set.
+func TestPublicPriceExpressionLeavesBillingUnchanged(t *testing.T) {
+	previousConfig := config.GlobalConfig.ExportAllConfigs()
+	previousUnit := common.QuotaPerUnit
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(previousConfig))
+		common.QuotaPerUnit = previousUnit
+	})
+	const billing = `param("route") == "b" ? tier("route_b", p * 4 + c * 20) : tier("base", p * 3 + c * 15)`
+	const public = `tier("public", p * 8 + c * 40)`
+	encoded, err := common.Marshal(map[string]string{"public-billing-model": billing})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":         `{"public-billing-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":         string(encoded),
+		"billing_setting.public_expr":          `{}`,
+		"group_ratio_setting.group_ratio":      `{"default":1}`,
+		"quota_setting.pre_consume_multiplier": "1",
+	}))
+	usage := billingexpr.TokenParams{P: 1000, C: 100, Len: 1000}
+	type charge struct {
+		reserved, settled int
+		tier, expression  string
+	}
+	chargeFor := func(body string) charge {
+		t.Helper()
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		info := &relaycommon.RelayInfo{OriginModelName: "public-billing-model", UserGroup: "default", UsingGroup: "default",
+			BillingRequestInput: &billingexpr.RequestInput{Body: []byte(body)}}
+		price, err := helper.ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+		require.NoError(t, err)
+		ok, settled, result := service.TryTieredSettle(info, usage)
+		require.True(t, ok)
+		require.NotNil(t, result)
+		return charge{price.QuotaToPreConsume, settled, result.MatchedTier, info.TieredBillingSnapshot.ExprString}
+	}
+	bodies := []string{`{}`, `{"route":"b"}`}
+	without := make([]charge, len(bodies))
+	for i, body := range bodies {
+		without[i] = chargeFor(body)
+	}
+	assert.Equal(t, charge{1500, 2250, "base", billing}, without[0])
+	assert.Equal(t, charge{2000, 3000, "route_b", billing}, without[1])
+
+	publicExpressions, err := common.Marshal(map[string]string{"public-billing-model": public})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"billing_setting.public_expr": string(publicExpressions)}))
+	require.JSONEq(t, string(publicExpressions), config.GlobalConfig.ExportAllConfigs()["billing_setting.public_expr"], "the public expression must be in effect")
+	publicCost, _, err := billingexpr.RunExpr(public, usage)
+	require.NoError(t, err)
+	billingCost, _, err := billingexpr.RunExpr(billing, usage)
+	require.NoError(t, err)
+	require.NotEqual(t, billingCost, publicCost, "the public expression must price differently for the test to tell them apart")
+	for i, body := range bodies {
+		assert.Equal(t, without[i], chargeFor(body), "request %s", body)
+	}
+}

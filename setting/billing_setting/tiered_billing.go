@@ -23,22 +23,28 @@ const (
 	BillingModeField        = "billing_mode"
 	BillingExprField        = "billing_expr"
 	PluginBillingExprOption = "billing_setting.plugin_billing_expr"
+	PublicExprOption        = "billing_setting.public_expr"
 	maxTaskExprSmokeTests   = 64
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
-// billing_setting.plugin_billing_expr
+// billing_setting.plugin_billing_expr, billing_setting.public_expr
+//
+// PublicExpr maps a model to the price shown in place of its billing
+// expression to everyone who is not an administrator. Billing never reads it.
 type BillingSetting struct {
 	BillingMode       map[string]string `json:"billing_mode"`
 	BillingExpr       map[string]string `json:"billing_expr"`
 	PluginBillingExpr map[string]string `json:"plugin_billing_expr"`
+	PublicExpr        map[string]string `json:"public_expr"`
 }
 
 var billingSetting = BillingSetting{
 	BillingMode:       make(map[string]string),
 	BillingExpr:       make(map[string]string),
 	PluginBillingExpr: make(map[string]string),
+	PublicExpr:        make(map[string]string),
 }
 
 func init() {
@@ -76,6 +82,13 @@ func GetBillingExpr(model string) (string, bool) {
 		return expr, ok
 	}
 	return "", false
+}
+
+// GetPublicExpr returns the expression shown in place of a model's billing
+// expression to everyone who is not an administrator. Billing never reads it.
+func GetPublicExpr(model string) (string, bool) {
+	expression, ok := billingSetting.PublicExpr[model]
+	return expression, ok && strings.TrimSpace(expression) != ""
 }
 
 func GetBuiltinBillingExpr(model string) (string, bool) {
@@ -187,12 +200,28 @@ func GetBillingExprCopy() map[string]string {
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {
+	return pricingSyncData(base, GetBillingExprCopy())
+}
+
+// GetPublicPricingSyncData is the pricing sync data as the public sees it: a
+// model's public price expression stands in for its billing expression.
+func GetPublicPricingSyncData(base map[string]any) map[string]any {
+	expressions := GetBillingExprCopy()
+	for model := range expressions {
+		if expression, ok := GetPublicExpr(model); ok {
+			expressions[model] = expression
+		}
+	}
+	return pricingSyncData(base, expressions)
+}
+
+func pricingSyncData(base map[string]any, expressions map[string]string) map[string]any {
 	extra := make(map[string]any, 2)
 	if modes := GetBillingModeCopy(); len(modes) > 0 {
 		extra[BillingModeField] = modes
 	}
-	if exprs := GetBillingExprCopy(); len(exprs) > 0 {
-		extra[BillingExprField] = exprs
+	if len(expressions) > 0 {
+		extra[BillingExprField] = expressions
 	}
 	return lo.Assign(base, extra)
 }
