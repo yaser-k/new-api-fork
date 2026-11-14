@@ -3,6 +3,7 @@ package constant
 var StreamingTimeout int
 var DifyDebug bool
 var MaxFileDownloadMB int
+var FileDownloadTimeoutSeconds int
 var StreamScannerMaxBufferMB int
 var ForceStreamOption bool
 var CountToken bool
