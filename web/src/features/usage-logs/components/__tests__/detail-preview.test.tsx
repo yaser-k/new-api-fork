@@ -288,6 +288,19 @@ test.each([false, true])(
   }
 )
 
+test.each([false, true])(
+  'a row without its billing expression or tier names only its billing mode for task=%s',
+  (isTask) => {
+    // The server withholds both from a reader who is not an administrator
+    // when the expression is internal.
+    const preview = renderPreview(
+      { is_task: isTask, billing_mode: 'tiered_expr' },
+      false
+    )
+    expect(preview.textContent).toBe('Dynamic Pricing')
+  }
+)
+
 test('top-up content_parts render in the viewer language', async () => {
   i18n.addResourceBundle('zh', 'translation', {
     'Online top-up succeeded, amount added: {{quota}}, payment amount: {{amount}}':
