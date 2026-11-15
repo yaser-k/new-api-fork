@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 )
 
 const (
@@ -14,6 +15,9 @@ const (
 	logOtherRootInfoKey     = "root_info"
 	logOtherAuditInfoKey    = "audit_info"
 	logOtherContentPartsKey = "content_parts"
+	// logOtherExprInternalKey marks, beside expr_b64, a consume row whose
+	// model had a public price expression when the row was written.
+	logOtherExprInternalKey = "expr_internal"
 )
 
 // legacySensitiveLogOtherKeys are historical top-level fields that must never
@@ -89,6 +93,32 @@ func (o *LogOther) setContent(parts []*common.Message) string {
 		texts = append(texts, part.Error())
 	}
 	return strings.Join(texts, ", ")
+}
+
+// MarkBillingExprInternal records, beside the billing expression, that the
+// row's billing expression is internal, so the row keeps it from everyone who
+// is not an administrator even after the model's public expression is removed.
+// A task row passes the model it maps to; any other row passes "".
+func (o *LogOther) MarkBillingExprInternal(modelName, mappedModel string) {
+	if billingExprInternal(modelName, mappedModel) {
+		o.SetPublic(logOtherExprInternalKey, true)
+	}
+}
+
+// billingExprInternal reports whether the billing expression of a consume row
+// of modelName is internal: the model has a public price expression, shown in
+// place of the billing expression to everyone who is not an administrator. A
+// task of a model without expression billing of its own is priced by the model
+// it maps to, so mappedModel's public expression counts then.
+func billingExprInternal(modelName, mappedModel string) bool {
+	if _, public := billing_setting.GetPublicExpr(modelName); public {
+		return true
+	}
+	if mappedModel == "" || mappedModel == modelName || billing_setting.GetBillingMode(modelName) == billing_setting.BillingModeTieredExpr {
+		return false
+	}
+	_, public := billing_setting.GetPublicExpr(mappedModel)
+	return public
 }
 
 func (o *LogOther) SetAdmin(key string, value any) bool {
