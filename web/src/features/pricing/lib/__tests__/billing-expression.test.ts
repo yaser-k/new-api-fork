@@ -283,6 +283,22 @@ describe('local billing expression evaluation', () => {
     }
   })
 
+  test('estimates a channel() branch expression on the no-channel branch without an error', () => {
+    const source =
+      'channel() == 3 ? tier("route_b", p * 0.72 + c * 2.64) : tier("base", p * 0.6 + c * 2.2)'
+    expect(
+      evalExprLocally(source, 1000, 500, { ...extras, cacheReadTokens: 0 })
+    ).toEqual({ cost: 1700, matchedTier: 'base', error: null })
+  })
+
+  test('splits a channel() factor from the price as a request rule', () => {
+    const base = 'tier("base", p * 0.6 + c * 2.2)'
+    const rules = '(channel() == 3 ? 1.2 : 1)'
+    expect(
+      splitBillingExprAndRequestRules(combineBillingExpr(base, rules))
+    ).toEqual({ billingExpr: base, requestRuleExpr: rules })
+  })
+
   test('does not summarize unrelated nonlinear input expressions as audio prices', () => {
     const compiled = compileBillingExpression(
       'tier("audio", max(len - cr, 0) * 2 + ai * 4)'
