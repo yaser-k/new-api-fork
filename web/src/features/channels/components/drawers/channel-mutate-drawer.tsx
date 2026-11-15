@@ -120,6 +120,7 @@ import {
   parseChannelConnectionInfo,
   type ChannelConnectionInfo,
 } from '@/lib/channel-connection-info'
+import { formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { resolveLocalizedText } from '@/lib/localized-text'
 import { ROLE } from '@/lib/roles'
@@ -378,7 +379,7 @@ function parseSettingsRecord(
 function formatUnixTime(timestamp: unknown): string {
   const seconds = Number(timestamp)
   if (!Number.isFinite(seconds) || seconds <= 0) return '-'
-  return new Date(seconds * 1000).toLocaleString()
+  return formatTimestampToDate(seconds)
 }
 
 function channelConfigurationBlockClassName(
