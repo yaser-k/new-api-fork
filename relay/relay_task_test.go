@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
@@ -883,6 +884,94 @@ export function extractUsage() { return {seconds:2}; }
 			}
 			require.NotNil(t, info.TieredBillingSnapshot)
 			assert.Equal(t, tc.expressions["retry-b::declared-model"], info.TieredBillingSnapshot.ExprString)
+		})
+	}
+}
+
+func TestRelayTaskSubmitRunErrorOfPublicPriceModelNamesNoExpression(t *testing.T) {
+	// Two seconds take the route b branch, which multiplies usage by a
+	// request field a task does not have.
+	const failing = `u("seconds") > 1 ? tier("route_b", u("seconds") * param("x")) : tier("base", u("seconds") * 0.4)`
+	const priced = `tier("base", u("seconds") * 0.4)`
+	const public = `tier("public", u("seconds") * 0.6)`
+	source := strings.Replace(billingFallbackPlugin, `fetchMode:"per_task"`, `fetchMode:"per_task",usageSchema:{seconds:{type:"number",unit:"second"}}`, 1) +
+		"export function extractUsage(){return {seconds:2};}\n"
+	_, _, engineErr := billingexpr.RunExprWithRequest(failing, billingexpr.TokenParams{}, billingexpr.RequestInput{Usage: map[string]any{"seconds": float64(2)}})
+	require.Error(t, engineErr)
+	var serverLog bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &serverLog
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+
+	for _, tc := range []struct {
+		name, model, mapping string
+		modes, exprs, public map[string]string
+		wantMessage          string // empty: the engine's message, unchanged
+		wantQuota            int    // set when the expression succeeds
+	}{
+		{name: "a model with a public expression", model: "declared-model",
+			modes: map[string]string{"declared-model": "tiered_expr"}, exprs: map[string]string{"declared-model": failing},
+			public: map[string]string{"declared-model": public}, wantMessage: "model declared-model tiered expr run failed"},
+		{name: "a model priced by the model it maps to", model: "alias-model", mapping: `{"alias-model":"declared-model"}`,
+			modes: map[string]string{"declared-model": "tiered_expr"}, exprs: map[string]string{"declared-model": failing},
+			public: map[string]string{"declared-model": public}, wantMessage: "model alias-model tiered expr run failed"},
+		{name: "a model without a public expression", model: "declared-model",
+			modes: map[string]string{"declared-model": "tiered_expr"}, exprs: map[string]string{"declared-model": failing}},
+		{name: "a model with its own price that maps to one with a public expression", model: "alias-model", mapping: `{"alias-model":"declared-model"}`,
+			modes: map[string]string{"alias-model": "tiered_expr", "declared-model": "tiered_expr"}, exprs: map[string]string{"alias-model": failing, "declared-model": priced},
+			public: map[string]string{"declared-model": public}},
+		{name: "a priced task of a model with a public expression", model: "declared-model",
+			modes: map[string]string{"declared-model": "tiered_expr"}, exprs: map[string]string{"declared-model": priced},
+			public: map[string]string{"declared-model": public}, wantQuota: 400_000},
+		{name: "a priced task of a model without one", model: "declared-model",
+			modes: map[string]string{"declared-model": "tiered_expr"}, exprs: map[string]string{"declared-model": priced}, wantQuota: 400_000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveBillingConfig(t)
+			settings := map[string]string{}
+			for key, values := range map[string]map[string]string{
+				"billing_setting.billing_mode": tc.modes, "billing_setting.billing_expr": tc.exprs, billing_setting.PublicExprOption: tc.public,
+			} {
+				if values == nil {
+					values = map[string]string{}
+				}
+				encoded, err := common.Marshal(values)
+				require.NoError(t, err)
+				settings[key] = string(encoded)
+			}
+			require.NoError(t, config.GlobalConfig.LoadFromDB(settings))
+			c, info := newTaskSubmitContext(t, tc.model, tc.mapping)
+			c.Set("group", "default")
+			info.UserGroup = "default"
+			info.UsingGroup = "default"
+			info.OriginModelName = tc.model
+			pinMappingOrderPlugin(t, c, source)
+			serverLog.Reset()
+
+			_, taskErr := RelayTaskSubmit(c, info)
+			require.NotNil(t, taskErr) // This fixture stops at reservation, before upstream submission.
+			if tc.wantQuota != 0 {
+				require.NotNil(t, info.TieredBillingSnapshot, "submission error: %+v", taskErr)
+				assert.Equal(t, tc.wantQuota, info.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+				assert.NotEqual(t, "model_price_error", taskErr.Code)
+				return
+			}
+			assert.Equal(t, "model_price_error", taskErr.Code)
+			assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+			assert.Nil(t, info.TieredBillingSnapshot, "a failed evaluation reserves nothing")
+			if tc.wantMessage == "" {
+				assert.Equal(t, engineErr.Error(), taskErr.Message, "the client's message is the engine's, byte for byte")
+				return
+			}
+			assert.Equal(t, tc.wantMessage, taskErr.Message)
+			assert.Equal(t, tc.wantMessage, taskErr.Error.Error(), "report and retry paths see the same message")
+			assert.Contains(t, serverLog.String(), `u("seconds") * param("x")`, "the server log keeps the full message")
 		})
 	}
 }

@@ -310,6 +310,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		if runErr != nil || cost < 0 {
 			if runErr == nil {
 				runErr = fmt.Errorf("negative task expression result")
+			} else if withheld := model.WithheldBillingExprError(c, modelName, info.UpstreamModelName, runErr); withheld != nil {
+				// The engine's message quotes the expression.
+				runErr = withheld
 			}
 			return nil, service.TaskErrorWrapper(runErr, "model_price_error", http.StatusBadRequest, common.UpstreamAddresses(c)...)
 		}
