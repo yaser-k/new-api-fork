@@ -367,3 +367,70 @@ func TestImageHelperKeepsAdaptorClassifiedConvertError(t *testing.T) {
 	assert.True(t, types.IsSkipRetryError(apiErr), "other channels must not be asked to serve the same name")
 	assert.Contains(t, apiErr.Error(), "not served by the alibaba task plugin")
 }
+
+// A request the channel's adaptor cannot serve at all is the client's mistake:
+// 400 naming the model and the operation, never the adaptor. A conversion that
+// fails for any other reason stays a 500. Neither is retried on another channel
+// or disables the channel.
+func TestRequestAnAdaptorCannotServeIsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	disableEnabled := common.AutomaticDisableChannelEnabled
+	common.AutomaticDisableChannelEnabled = true
+	t.Cleanup(func() { common.AutomaticDisableChannelEnabled = disableEnabled })
+
+	for _, tc := range []struct {
+		name, path, model string
+		channelType       int
+		relayMode         int
+		request           dto.Request
+		relay             func(*gin.Context, *relaycommon.RelayInfo) *types.NewAPIError
+		status            int
+		code              types.ErrorCode
+		message           string
+	}{
+		{name: "embeddings to the Claude adaptor", path: "/v1/embeddings", model: "claude-haiku-4-5", channelType: constant.ChannelTypeAnthropic, relayMode: relayconstant.RelayModeEmbeddings,
+			request: &dto.EmbeddingRequest{Model: "claude-haiku-4-5", Input: "hello"}, relay: EmbeddingHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model claude-haiku-4-5 does not support /v1/embeddings"},
+		{name: "audio speech to the Claude adaptor", path: "/v1/audio/speech", model: "claude-haiku-4-5", channelType: constant.ChannelTypeAnthropic, relayMode: relayconstant.RelayModeAudioSpeech,
+			request: &dto.AudioRequest{Model: "claude-haiku-4-5", Input: "hello", Voice: "alloy"}, relay: AudioHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model claude-haiku-4-5 does not support /v1/audio/speech"},
+		{name: "rerank to the Coze adaptor", path: "/v1/rerank", model: "coze-bot", channelType: constant.ChannelTypeCoze, relayMode: relayconstant.RelayModeRerank,
+			request: &dto.RerankRequest{Model: "coze-bot", Query: "q", Documents: []any{"d"}}, relay: RerankHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model coze-bot does not support /v1/rerank"},
+		{name: "Claude messages to the Coze adaptor", path: "/v1/messages", model: "coze-bot", channelType: constant.ChannelTypeCoze,
+			request: &dto.ClaudeRequest{Model: "coze-bot", Messages: []dto.ClaudeMessage{{Role: "user", Content: "hello"}}}, relay: ClaudeHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model coze-bot does not support /v1/messages"},
+		{name: "Gemini generateContent to the DeepSeek adaptor", path: "/v1beta/models/deepseek-chat:generateContent", model: "deepseek-chat", channelType: constant.ChannelTypeDeepSeek, relayMode: relayconstant.RelayModeGemini,
+			request: &dto.GeminiChatRequest{Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hello"}}}}}, relay: GeminiHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model deepseek-chat does not support /v1beta/models/deepseek-chat:generateContent"},
+		{name: "chat completions to the MokaAI adaptor", path: "/v1/chat/completions", model: "m3e-base", channelType: constant.ChannelTypeMokaAI, relayMode: relayconstant.RelayModeChatCompletions,
+			request: &dto.GeneralOpenAIRequest{Model: "m3e-base", Messages: []dto.Message{{Role: "user", Content: "hello"}}}, relay: TextHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model m3e-base does not support /v1/chat/completions"},
+		{name: "responses to the Mistral adaptor", path: "/v1/responses", model: "mistral-large-latest", channelType: constant.ChannelTypeMistral, relayMode: relayconstant.RelayModeResponses,
+			request: &dto.OpenAIResponsesRequest{Model: "mistral-large-latest", Input: []byte(`"hello"`)}, relay: ResponsesHelper,
+			status: http.StatusBadRequest, code: types.ErrorCodeInvalidRequest, message: "model mistral-large-latest does not support /v1/responses"},
+		{name: "conversion failing for another reason keeps its 500", path: "/v1/embeddings", model: "gemini-embedding-001", channelType: constant.ChannelTypeGemini, relayMode: relayconstant.RelayModeEmbeddings,
+			request: &dto.EmbeddingRequest{Model: "gemini-embedding-001"}, relay: EmbeddingHelper,
+			status: http.StatusInternalServerError, code: types.ErrorCodeConvertRequestFailed, message: "input is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, nil)
+			common.SetContextKey(c, constant.ContextKeyChannelType, tc.channelType)
+			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, "https://upstream.invalid")
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, tc.model)
+			info := &relaycommon.RelayInfo{Request: tc.request, OriginModelName: tc.model, RelayMode: tc.relayMode, RequestURLPath: tc.path}
+
+			apiErr := tc.relay(c, info)
+
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tc.status, apiErr.StatusCode)
+			assert.Equal(t, tc.code, apiErr.GetErrorCode())
+			assert.Equal(t, tc.message, apiErr.Error())
+			assert.True(t, types.IsSkipRetryError(apiErr))
+			assert.Equal(t, "non_retryable_error", service.DecideRelayRetry(c, apiErr, 3).Reason)
+			assert.False(t, service.ShouldDisableChannel(apiErr))
+		})
+	}
+}
