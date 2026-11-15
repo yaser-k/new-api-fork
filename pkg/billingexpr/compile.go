@@ -102,7 +102,7 @@ func usesRequestProbe(node ast.Node) bool {
 			return false
 		}
 		switch identifier.Value {
-		case "param", "header", "hour", "minute", "weekday", "month", "day":
+		case "param", "header", "channel", "hour", "minute", "weekday", "month", "day":
 			return true
 		default:
 			return false
@@ -146,6 +146,7 @@ var compileEnvPrototypeV1 = map[string]any{
 	"_trace_int":  func(int, bool, int) int { return 1 },
 	"header":      func(string) string { return "" },
 	"param":       func(string) any { return nil },
+	"channel":     func() int { return 0 },
 	"u":           func(string) any { return nil },
 	"has":         func(any, string) bool { return false },
 	"hour":        func(string) int { return 0 },
