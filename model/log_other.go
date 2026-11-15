@@ -121,6 +121,44 @@ func billingExprInternal(modelName, mappedModel string) bool {
 	return public
 }
 
+// WithholdInternalBillingExprs removes the billing expression (expr_b64) and
+// the request rules from every row whose expression is internal: the row was
+// marked when it was written, or its model has a public price expression now.
+// Log controllers apply it to the rows they return to a caller who is not an
+// administrator. The charge, the matched tier and every other field stay, and
+// rows that are not internal are left byte for byte.
+func WithholdInternalBillingExprs(logs []*Log) {
+	for _, log := range logs {
+		if !strings.Contains(log.Other, `"expr_b64"`) && !strings.Contains(log.Other, `"request_rules"`) {
+			continue
+		}
+		var values map[string]json.RawMessage
+		if err := common.UnmarshalJsonStr(log.Other, &values); err != nil {
+			log.Other = "{}"
+			continue
+		}
+		var marked, task bool
+		var mappedModel string
+		_ = common.Unmarshal(values[logOtherExprInternalKey], &marked)
+		if _ = common.Unmarshal(values["is_task"], &task); task {
+			_ = common.Unmarshal(values["upstream_model_name"], &mappedModel)
+		}
+		_, hasExpr := values["expr_b64"]
+		_, hasRules := values["request_rules"]
+		if !hasExpr && !hasRules || !marked && !billingExprInternal(log.ModelName, mappedModel) {
+			continue
+		}
+		delete(values, "expr_b64")
+		delete(values, "request_rules")
+		encoded, err := common.Marshal(values)
+		if err != nil {
+			log.Other = "{}"
+			continue
+		}
+		log.Other = string(encoded)
+	}
+}
+
 func (o *LogOther) SetAdmin(key string, value any) bool {
 	if o == nil || key == "" {
 		return false
