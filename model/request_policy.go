@@ -26,6 +26,7 @@ type RequestPolicySnapshot struct {
 	RetryCodes      []operation_setting.StatusCodeRange
 	DisableCodes    []operation_setting.StatusCodeRange
 	DisableKeywords []string
+	RetryKeywords   []string
 	AutoDisable     bool
 	Options         map[string]string
 }
@@ -52,6 +53,7 @@ func requestPolicyDefaultOptions() map[string]string {
 	defaults["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	defaults["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	defaults["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
+	defaults["AutomaticRetryKeywords"] = operation_setting.AutomaticRetryKeywordsToString()
 	defaults["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	defaults["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	defaults["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
@@ -66,6 +68,8 @@ func IsRequestPolicyOption(key string) bool {
 	case "monitor_setting.auto_disable_error_codes":
 		return true
 	case "AutomaticEnableChannelEnabled", "ChannelDisableThreshold", "monitor_setting.auto_test_channel_enabled", "monitor_setting.auto_test_channel_minutes", "monitor_setting.channel_test_concurrency", "monitor_setting.channel_test_mode", "RetryTimes", "AutomaticRetryStatusCodes", "AutomaticDisableChannelEnabled", "AutomaticDisableStatusCodes", "AutomaticDisableKeywords":
+		return true
+	case "AutomaticRetryKeywords":
 		return true
 	}
 	return false
@@ -139,6 +143,7 @@ func BuildRequestPolicy(options map[string]string) (*RequestPolicySnapshot, erro
 		return nil, err
 	}
 	snapshot.DisableKeywords = strings.Split(raw["AutomaticDisableKeywords"], "\n")
+	snapshot.RetryKeywords = strings.Split(raw["AutomaticRetryKeywords"], "\n")
 	for _, key := range []string{"AutomaticEnableChannelEnabled", "monitor_setting.auto_test_channel_enabled"} {
 		if _, err := strconv.ParseBool(raw[key]); err != nil {
 			return nil, fmt.Errorf("invalid boolean: %s", key)
