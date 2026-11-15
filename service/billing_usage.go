@@ -18,6 +18,11 @@ const (
 
 func effectiveBillingUsage(usage *dto.Usage) *dto.Usage {
 	if billingUsage, ok := usageFromBillingUsage(usage); ok {
+		// The provider snapshot carries tokens only; the input video seconds
+		// stay on the relay's usage and are billed with the snapshot's tokens.
+		if billingUsage.InputVideoSeconds == 0 {
+			billingUsage.InputVideoSeconds = usage.InputVideoSeconds
+		}
 		return billingUsage
 	}
 	return usage
