@@ -34,6 +34,7 @@ import {
   ItemGroup,
   ItemTitle,
 } from '@/components/ui/item'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatTimestampToDate } from '@/lib/format'
 import { getServerErrorMessage } from '@/lib/server-error-message'
 
@@ -187,7 +188,8 @@ function CredentialRow(props: {
   disabled: boolean
   onLogin: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const item = props.item
   const name = item.label || item.account_id || t('Unnamed account')
   const details: string[] = []
@@ -196,7 +198,9 @@ function CredentialRow(props: {
   }
   if (item.expires_at) {
     details.push(
-      t('Expires {{time}}', { time: formatTimestampToDate(item.expires_at) })
+      t('Expires {{time}}', {
+        time: formatTimestampToDate(item.expires_at, 'seconds', locale),
+      })
     )
   }
   return (

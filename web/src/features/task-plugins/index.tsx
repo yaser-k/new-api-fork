@@ -35,6 +35,8 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { NodeSyncIndicator } from '@/features/system-info/components/node-sync-indicator'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import {
@@ -54,6 +56,7 @@ const route = getRouteApi('/_authenticated/task-plugins/')
 
 export function TaskPlugins() {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const queryClient = useQueryClient()
   const search = route.useSearch()
   const navigate = route.useNavigate()
@@ -215,8 +218,8 @@ export function TaskPlugins() {
                     {localizedPluginName(plugin.meta, i18n.language)} (
                     {plugin.meta.key}):{' '}
                     {t('{{channels}} channels, {{tasks}} in-flight tasks', {
-                      channels: plugin.channel_count,
-                      tasks: plugin.in_flight_count,
+                      channels: formatNumber(plugin.channel_count, locale),
+                      tasks: formatNumber(plugin.in_flight_count, locale),
                     })}
                   </li>
                 ))}
