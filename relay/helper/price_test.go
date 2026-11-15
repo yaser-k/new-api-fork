@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -802,3 +803,68 @@ func (s *priceTestReservation) GetPreConsumedQuota() int { return s.held }
 func (s *priceTestReservation) Reserve(quota int) error  { s.held = max(s.held, quota); return nil }
 
 func (s *priceTestReservation) ReserveBeforeSubmit(quota int) error { return s.Reserve(quota) }
+
+func TestModelPriceHelperTieredRunErrorOfPublicPriceModelNamesNoExpression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	// Route b multiplies tokens by a request field, which fails on text.
+	const expression = `param("route") == "b" ? tier("route_b", p * param("x")) : tier("base", p * 3)`
+	expressions, err := common.Marshal(map[string]string{"routed-model": expression, "plain-model": expression})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":   `{"routed-model":"tiered_expr","plain-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":   string(expressions),
+		billing_setting.PublicExprOption: `{"routed-model":"tier(\"public\", p * 6)"}`,
+	}))
+	var serverLog bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &serverLog
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+	price := func(modelName, body string) (*relaycommon.RelayInfo, int, error) {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		ctx.Set("group", "default")
+		info := &relaycommon.RelayInfo{
+			OriginModelName:     modelName,
+			UserGroup:           "default",
+			UsingGroup:          "default",
+			BillingRequestInput: &billingexpr.RequestInput{Body: []byte(body)},
+		}
+		priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+		return info, priceData.QuotaToPreConsume, err
+	}
+
+	for _, tc := range []struct {
+		model    string
+		internal bool
+	}{{"routed-model", true}, {"plain-model", false}} {
+		t.Run(tc.model, func(t *testing.T) {
+			serverLog.Reset()
+			info, quota, err := price(tc.model, `{"route":"a"}`)
+			require.NoError(t, err)
+			assert.Equal(t, 1500, quota, "the reservation is the billing expression's")
+			assert.Equal(t, expression, info.TieredBillingSnapshot.ExprString)
+
+			_, _, err = price(tc.model, `{"route":"b","x":"text"}`)
+			require.Error(t, err)
+			if tc.internal {
+				assert.Equal(t, "model routed-model tiered expr run failed", err.Error())
+				assert.Contains(t, serverLog.String(), `p * param("x")`, "the server log keeps the full message")
+				return
+			}
+			assert.Contains(t, err.Error(), `model plain-model tiered expr run failed: expr run error:`)
+			assert.Contains(t, err.Error(), `p * param("x")`)
+		})
+	}
+}
