@@ -40,6 +40,7 @@ import {
   type ModelRatioData,
 } from '@/features/system-settings/models/model-pricing-sheet'
 import { api } from '@/lib/api'
+import { useDisplayCurrencyStore } from '@/stores/display-currency-store'
 import { usePricingPreferencesStore } from '@/stores/pricing-preferences-store'
 import {
   DEFAULT_CURRENCY_CONFIG,
@@ -69,6 +70,7 @@ afterEach(() => {
   cleanup()
   clients.splice(0).forEach((client) => client.clear())
   usePricingPreferencesStore.setState({ currency: 'USD' })
+  useDisplayCurrencyStore.setState({ displayCurrency: 'site' })
   useSystemConfigStore
     .getState()
     .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
@@ -721,6 +723,24 @@ it('uses the custom currency exchange rate instead of the CNY exchange rate', as
       customCurrencyExchangeRate: 0.5,
     },
   })
+  const editor = renderEditor({ price: '2', billingMode: 'per-request' })
+  await selectCurrency('Site currency (€)')
+  const fixed = screen.getByRole('textbox', { name: 'Fixed price' })
+  expect(fixed).toHaveValue('1')
+  fireEvent.change(fixed, { target: { value: '7' } })
+  expect(await commit(editor.ref)).toMatchObject({ price: '14' })
+})
+
+it('keeps editing in the site currency when the viewer reads figures in US dollars', async () => {
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaDisplayType: 'CUSTOM',
+      customCurrencySymbol: '€',
+      customCurrencyExchangeRate: 0.5,
+    },
+  })
+  useDisplayCurrencyStore.getState().setDisplayCurrency('USD')
   const editor = renderEditor({ price: '2', billingMode: 'per-request' })
   await selectCurrency('Site currency (€)')
   const fixed = screen.getByRole('textbox', { name: 'Fixed price' })
