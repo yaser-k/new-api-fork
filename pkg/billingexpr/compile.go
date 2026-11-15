@@ -370,3 +370,17 @@ func InvalidateCache() {
 	cache = make(map[string]*cachedEntry, 64)
 	cacheMu.Unlock()
 }
+
+// UsesRequestProbe reports whether an expression reads the request it prices
+// through a request probe, the functions request rules are traced on, in any
+// branch of the stored expression, including branches optimization would
+// drop. An expression that does not parse reports false; compiling it reports
+// the error.
+func UsesRequestProbe(exprStr string) bool {
+	_, body := ParseExprVersion(exprStr)
+	tree, err := parser.Parse(body)
+	if err != nil {
+		return false
+	}
+	return usesRequestProbe(tree.Node)
+}

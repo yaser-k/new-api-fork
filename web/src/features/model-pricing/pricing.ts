@@ -55,6 +55,8 @@ export type PricingValues = Partial<
   >
 > & {
   'billing_setting.plugin_billing_expr'?: Record<string, string>
+  // Edited with one model's draft only; price table edits keep the saved one.
+  'billing_setting.public_expr'?: string
 }
 export type PricingOptions = Record<PricingKey, string>
 
@@ -232,6 +234,7 @@ export function pricingRow(
     name,
     billingMode,
     pluginBillingExpr: values['billing_setting.plugin_billing_expr'],
+    publicExpr: values['billing_setting.public_expr'],
   }
 }
 
@@ -264,6 +267,9 @@ export function pricingFromDraft(data: ModelRatioData): PricingValues {
       data.billingExpr || '',
       data.requestRuleExpr || ''
     )
+    // A public price stands in for a billing expression only.
+    const publicExpr = data.publicExpr?.trim()
+    if (publicExpr) values['billing_setting.public_expr'] = publicExpr
   }
   return values
 }
