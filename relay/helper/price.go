@@ -401,9 +401,8 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 	if err != nil {
 		// The error quotes the expression and reaches the client. A model with
 		// a public price expression keeps it in the server log only.
-		if _, public := billing_setting.GetPublicExpr(billingModelName); public {
-			logger.LogError(c, common.LogText("model %s tiered expr run failed: %s", billingModelName, err.Error()))
-			return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed", billingModelName)
+		if withheld := model.WithheldBillingExprError(c, billingModelName, "", err); withheld != nil {
+			return hosttypes.PriceData{}, withheld
 		}
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", billingModelName, err)
 	}
