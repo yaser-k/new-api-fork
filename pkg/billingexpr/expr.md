@@ -517,8 +517,8 @@ request can be charged.
   engine's message quotes the expression. For a model with a public expression,
   and for a task whose model has no expression billing of its own and maps to
   such a model, the client receives `model <name> tiered expr run failed`; the
-  full message goes to the server log. Settlement failures keep the reservation
-  and are logged on the server only.
+  full message goes to the server log. A failure at settlement keeps the
+  reservation and never reaches the client.
 - **Validation at save.** A public expression must compile and pass the checks
   the model's billing expression would (smoke tests, task usage keys), must not
   call a request probe (the functions listed under Request Rule Tracing), and
