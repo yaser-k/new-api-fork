@@ -215,22 +215,34 @@ func writeLoginResponse(c *gin.Context, user *model.User, bundle *service.AuthBu
 }
 
 func Register(c *gin.Context) {
-	if !common.RegisterEnabled {
+	var request invitationRegisterRequest
+	err := common.DecodeJson(c.Request.Body, &request)
+	// An invitation is the permission to register, whatever the registration
+	// switches say.
+	var invitation *model.Invitation
+	if request.InviteToken != "" {
+		if invitation = openInvitation(c, request.InviteToken); invitation == nil {
+			return
+		}
+	}
+	if invitation == nil && !common.RegisterEnabled {
 		common.ApiErrorT(c, "New user registration has been disabled by administrator")
 		return
 	}
-	if !common.PasswordRegisterEnabled {
+	if invitation == nil && !common.PasswordRegisterEnabled {
 		common.ApiErrorT(c, "Password registration has been disabled by administrator, please use third-party account verification")
 		return
 	}
-	var user model.User
-	err := common.DecodeJson(c.Request.Body, &user)
 	if err != nil {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
 	}
+	user := request.User
 	user.Username = strings.TrimSpace(user.Username)
 	user.Email = model.NormalizeEmail(user.Email)
+	if invitation != nil {
+		user.Email = invitation.Email
+	}
 	if user.Username == "" {
 		common.ApiErrorT(c, "Invalid parameters")
 		return
@@ -239,7 +251,7 @@ func Register(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid input {{error}}", map[string]any{"error": err.Error()})
 		return
 	}
-	if common.EmailVerificationEnabled {
+	if common.EmailVerificationEnabled && invitation == nil {
 		if user.Email == "" || user.VerificationCode == "" {
 			common.ApiErrorT(c, "Email verification is enabled, please enter email address and verification code")
 			return
@@ -248,6 +260,11 @@ func Register(c *gin.Context) {
 			common.ApiErrorT(c, "Verification code is incorrect or has expired")
 			return
 		}
+	}
+	// The code or the mailed invitation link proved the address.
+	emailVerified := common.EmailVerificationEnabled || invitation != nil
+	emailForExistCheck := ""
+	if emailVerified {
 		if err := model.EnsureEmailAvailable(user.Email, 0); err != nil {
 			if errors.Is(err, model.ErrEmailAlreadyTaken) {
 				common.ApiErrorT(c, "Email address is already in use")
@@ -256,9 +273,6 @@ func Register(c *gin.Context) {
 			common.ApiErrorT(c, "Database error, please contact the administrator")
 			return
 		}
-	}
-	emailForExistCheck := ""
-	if common.EmailVerificationEnabled {
 		emailForExistCheck = user.Email
 	}
 	exist, err := model.CheckUserExistOrDeleted(user.Username, emailForExistCheck)
@@ -280,12 +294,21 @@ func Register(c *gin.Context) {
 		InviterId:   inviterId,
 		Role:        common.RoleCommonUser, // 明确设置角色为普通用户
 	}
-	if common.EmailVerificationEnabled {
+	if emailVerified {
 		cleanUser.Email = user.Email
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	if invitation != nil {
+		err = insertInvitedUser(&cleanUser, request.InviteToken, inviterId)
+	} else {
+		err = cleanUser.Insert(inviterId)
+	}
+	if err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")
+			return
+		}
+		if errors.Is(err, model.ErrInvitationInvalid) {
+			common.ApiErrorT(c, invitationInvalidMessage)
 			return
 		}
 		common.ApiError(c, err)
