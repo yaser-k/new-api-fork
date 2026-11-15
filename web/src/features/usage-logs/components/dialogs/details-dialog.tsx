@@ -207,7 +207,9 @@ function BillingBreakdown(props: {
           value: `${fmtPrice(entry.price)}/${entry.unit ? t(entry.unit) : 'M'}`,
         })
       }
-    } else {
+    } else if (other.matched_tier || other.expr_b64) {
+      // An internal row read by a non-administrator carries neither; it has
+      // no tier to report rather than a tier that failed to match.
       rows.push({
         label: t('Matched Tier'),
         value: other.matched_tier || t('No matching results'),

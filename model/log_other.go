@@ -121,15 +121,21 @@ func billingExprInternal(modelName, mappedModel string) bool {
 	return public
 }
 
-// WithholdInternalBillingExprs removes the billing expression (expr_b64) and
-// the request rules from every row whose expression is internal: the row was
-// marked when it was written, or its model has a public price expression now.
-// Log controllers apply it to the rows they return to a caller who is not an
-// administrator. The charge, the matched tier and every other field stay, and
-// rows that are not internal are left byte for byte.
+// internalBillingExprKeys are the fields of a consume row that come from its
+// billing expression rather than from the charge: the expression, the request
+// rules it traced and the label of the tier that matched, which is chosen with
+// the expression and can name an internal condition.
+var internalBillingExprKeys = []string{"expr_b64", "request_rules", "matched_tier"}
+
+// WithholdInternalBillingExprs removes the internalBillingExprKeys from every
+// row whose expression is internal: the row was marked when it was written, or
+// its model has a public price expression now. Log controllers apply it to the
+// rows they return to a caller who is not an administrator. The charge and
+// every other field stay, and rows that are not internal are left byte for
+// byte.
 func WithholdInternalBillingExprs(logs []*Log) {
 	for _, log := range logs {
-		if !strings.Contains(log.Other, `"expr_b64"`) && !strings.Contains(log.Other, `"request_rules"`) {
+		if !slices.ContainsFunc(internalBillingExprKeys, func(key string) bool { return strings.Contains(log.Other, `"`+key+`"`) }) {
 			continue
 		}
 		var values map[string]json.RawMessage
@@ -143,13 +149,16 @@ func WithholdInternalBillingExprs(logs []*Log) {
 		if _ = common.Unmarshal(values["is_task"], &task); task {
 			_ = common.Unmarshal(values["upstream_model_name"], &mappedModel)
 		}
-		_, hasExpr := values["expr_b64"]
-		_, hasRules := values["request_rules"]
-		if !hasExpr && !hasRules || !marked && !billingExprInternal(log.ModelName, mappedModel) {
+		withheld := slices.ContainsFunc(internalBillingExprKeys, func(key string) bool {
+			_, exists := values[key]
+			return exists
+		})
+		if !withheld || !marked && !billingExprInternal(log.ModelName, mappedModel) {
 			continue
 		}
-		delete(values, "expr_b64")
-		delete(values, "request_rules")
+		for _, key := range internalBillingExprKeys {
+			delete(values, key)
+		}
 		encoded, err := common.Marshal(values)
 		if err != nil {
 			log.Other = "{}"
