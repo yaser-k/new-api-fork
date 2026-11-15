@@ -213,6 +213,14 @@ function BillingBreakdown(props: {
         value: other.matched_tier || t('No matching results'),
       })
     }
+    // A row without its billing expression has no Dynamic Pricing section,
+    // which otherwise lists the billed image count.
+    if (!other.expr_b64 && other.image_count !== undefined) {
+      rows.push({
+        label: t('Billable image count'),
+        value: String(other.image_count),
+      })
+    }
   } else if (isPerCall) {
     rows.push({ label: t('Billing Mode'), value: t('Per-call') })
     if (other.model_price != null) {
