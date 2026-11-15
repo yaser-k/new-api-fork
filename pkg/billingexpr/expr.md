@@ -501,13 +501,15 @@ request can be charged.
   internal while its model has a public expression, which covers rows written
   before the mark. A task of a model without expression billing of its own
   counts the public expression of the model it maps to. A caller who is not an
-  administrator receives an internal row without `expr_b64` and
-  `request_rules` from their own log list (`GET /api/log/self`), their log export
-  (`GET /api/log/self/export`) and the log list read with an API key
-  (`GET /api/log/token`), which sets no role; the quota, the matched tier and
-  every other field stay, and the console shows the charge, the matched tier
-  and the billed image count without the formula breakdown. The public
-  expression is never put in a log row: it did not produce the charge.
+  administrator receives an internal row without `expr_b64`, `request_rules`
+  and `matched_tier` (a tier's label is chosen with the expression and can name
+  an internal condition) from their own log list (`GET /api/log/self`), their
+  log export (`GET /api/log/self/export`) and the log list read with an API key
+  (`GET /api/log/token`), which sets no role; the quota and every other field
+  stay, the stored row keeps all three, and the console shows the billing mode,
+  the charge and the billed image count, without a tier and without the formula
+  breakdown. The public expression is never put in a log row: it did not
+  produce the charge.
   Administrators receive every row as before, and rows of models without a
   public expression are returned byte for byte, to everyone.
 - **Evaluation errors.** An expression that fails before the request is sent
