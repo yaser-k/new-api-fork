@@ -129,6 +129,24 @@ func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) boo
 	return true
 }
 
+// checkTokenGroup refuses a group that TokenAuth would refuse on every request
+// of the token. The empty group and auto keep their own rules.
+func checkTokenGroup(c *gin.Context, group string) bool {
+	if group == "" || group == "auto" {
+		return true
+	}
+	userGroup, err := getTokenRequestUserGroup(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	if !service.GroupInUserUsableGroups(userGroup, group) {
+		common.ApiErrorT(c, "Group {{group}} is unavailable or unauthorized", map[string]any{"group": group})
+		return false
+	}
+	return true
+}
+
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
@@ -333,6 +351,9 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorT(c, "Maximum number of tokens reached ({{max}})", map[string]any{"max": maxTokens})
 		return
 	}
+	if !checkTokenGroup(c, token.Group) {
+		return
+	}
 	if token.Group == "auto" {
 		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
 			return
@@ -458,6 +479,9 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		if request.AllowUserQuotaQuery != nil {
 			cleanToken.AllowUserQuotaQuery = *request.AllowUserQuotaQuery
+		}
+		if !checkTokenGroup(c, token.Group) {
+			return
 		}
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
