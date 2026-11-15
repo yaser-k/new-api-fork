@@ -868,3 +868,72 @@ func TestModelPriceHelperTieredRunErrorOfPublicPriceModelNamesNoExpression(t *te
 		})
 	}
 }
+
+func TestImageReservationRunErrorOfPublicPriceModelNamesNoExpression(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	previousMultiplier := operation_setting.GetQuotaSetting().PreConsumeMultiplier
+	operation_setting.GetQuotaSetting().PreConsumeMultiplier = 1
+	t.Cleanup(func() { operation_setting.GetQuotaSetting().PreConsumeMultiplier = previousMultiplier })
+	// More than two images multiply tokens by a request field, which fails on text.
+	const expression = `image_count > 2 ? tier("many", p * param("x")) : tier("few", p * 3) * image_count`
+	expressions, err := common.Marshal(map[string]string{"routed-image": expression, "plain-image": expression})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"routed-image":"tiered_expr","plain-image":"tiered_expr"}`,
+		"billing_setting.billing_expr":    string(expressions),
+		billing_setting.PublicExprOption:  `{"routed-image":"tier(\"public\", p * 9) * image_count"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+	var serverLog bytes.Buffer
+	common.LogWriterMu.Lock()
+	previousWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &serverLog
+	common.LogWriterMu.Unlock()
+	t.Cleanup(func() {
+		common.LogWriterMu.Lock()
+		gin.DefaultErrorWriter = previousWriter
+		common.LogWriterMu.Unlock()
+	})
+	body := []byte(`{"x":"text"}`)
+	three := 3
+	_, _, engineErr := billingexpr.RunExprWithRequest(expression, billingexpr.TokenParams{P: 1000, Len: 1000}, billingexpr.RequestInput{Body: body, ImageCount: &three})
+	require.Error(t, engineErr)
+
+	for _, tc := range []struct {
+		model    string
+		internal bool
+	}{{"routed-image", true}, {"plain-image", false}} {
+		t.Run(tc.model, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+			ctx.Set("group", "default")
+			info := &relaycommon.RelayInfo{OriginModelName: tc.model, UserGroup: "default", UsingGroup: "default", BillingRequestInput: &billingexpr.RequestInput{Body: body}}
+			price, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+			require.NoError(t, err)
+			assert.Equal(t, 1500, price.QuotaToPreConsume)
+			reservation := &priceTestReservation{held: price.QuotaToPreConsume}
+			info.Billing = reservation
+			require.Nil(t, service.PrepareImageBillingForRequest(ctx, info, 2))
+			assert.Equal(t, 3000, reservation.held, "two images reserve the billing expression's price")
+
+			serverLog.Reset()
+			apiErr := service.PrepareImageBillingForRequest(ctx, info, 3)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+			assert.Equal(t, types.ErrorCodeModelPriceError, apiErr.GetErrorCode())
+			assert.Equal(t, 3000, reservation.held, "a failed evaluation reserves nothing more")
+			if tc.internal {
+				assert.Equal(t, "model routed-image tiered expr run failed", apiErr.Error())
+				assert.Contains(t, serverLog.String(), `p * param("x")`, "the server log keeps the full message")
+				return
+			}
+			assert.Equal(t, engineErr.Error(), apiErr.Error(), "the client's message is the engine's, byte for byte")
+		})
+	}
+}
