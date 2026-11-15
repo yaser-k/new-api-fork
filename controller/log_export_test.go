@@ -323,16 +323,20 @@ func TestUserLogsWithholdInternalBillingExpressions(t *testing.T) {
 				assert.Equal(t, row.other, other, "%s: the row is returned byte for byte", row.name)
 				continue
 			}
-			var values map[string]any
+			var values, stored map[string]any
 			require.NoError(t, common.UnmarshalJsonStr(other, &values))
+			require.NoError(t, common.UnmarshalJsonStr(row.other, &stored))
 			assert.Equal(t, "tiered_expr", values["billing_mode"], row.name)
-			assert.NotEmpty(t, values["matched_tier"], row.name)
 			if withheld {
+				// A tier's label is chosen with the expression and can name
+				// an internal condition.
 				assert.NotContains(t, values, "expr_b64", row.name)
 				assert.NotContains(t, values, "request_rules", row.name)
+				assert.NotContains(t, values, "matched_tier", row.name)
 			} else {
 				assert.Contains(t, values, "expr_b64", row.name)
 				assert.Equal(t, strings.Contains(row.other, "request_rules"), values["request_rules"] != nil, row.name)
+				assert.Equal(t, stored["matched_tier"], values["matched_tier"], row.name)
 			}
 		}
 	}
