@@ -510,11 +510,15 @@ request can be charged.
   expression is never put in a log row: it did not produce the charge.
   Administrators receive every row as before, and rows of models without a
   public expression are returned byte for byte, to everyone.
-- **Evaluation errors.** An expression that fails when a request's reservation
-  is first priced is reported to the client as `model_price_error`, and the
-  engine's message quotes the expression. For a model with a public expression
-  the client receives `model <name> tiered expr run failed`; the full message
-  goes to the server log.
+- **Evaluation errors.** An expression that fails before the request is sent
+  upstream (when a request's reservation is first priced, when an image
+  request reserves again for its final image count, or when a task is
+  submitted) is reported to the client as `model_price_error`, and the
+  engine's message quotes the expression. For a model with a public expression,
+  and for a task whose model has no expression billing of its own and maps to
+  such a model, the client receives `model <name> tiered expr run failed`; the
+  full message goes to the server log. Settlement failures keep the reservation
+  and are logged on the server only.
 - **Validation at save.** A public expression must compile and pass the checks
   the model's billing expression would (smoke tests, task usage keys), must not
   call a request probe (the functions listed under Request Rule Tracing), and
