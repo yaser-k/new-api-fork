@@ -106,25 +106,30 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 			if inlineGrow > 0 {
 				content.Grow(inlineGrow)
 			}
+			// Gemini splits text across parts at arbitrary points, so adjacent
+			// text parts are joined verbatim. Only a rendered media or code
+			// block is put on its own line.
 			appended := 0
-			writeSep := func() {
-				if appended > 0 {
+			lastWasBlock := false
+			writeSep := func(block bool) {
+				if appended > 0 && (block || lastWasBlock) {
 					content.WriteByte('\n')
 				}
 				appended++
+				lastWasBlock = block
 			}
 			var toolCalls []dto.ToolCallResponse
 			for _, part := range candidate.Content.Parts {
 				if part.InlineData != nil {
 					if strings.HasPrefix(part.InlineData.MimeType, "image") {
-						writeSep()
+						writeSep(true)
 						content.WriteString("![image](data:")
 						content.WriteString(part.InlineData.MimeType)
 						content.WriteString(";base64,")
 						content.WriteString(part.InlineData.Data)
 						content.WriteByte(')')
 					} else {
-						writeSep()
+						writeSep(true)
 						content.WriteString("[media](data:")
 						content.WriteString(part.InlineData.MimeType)
 						content.WriteString(";base64,")
@@ -140,19 +145,19 @@ func ResponseGeminiChat2OpenAI(id string, created int64, response *dto.GeminiCha
 					choice.Message.ReasoningContent = &part.Text
 				} else {
 					if part.ExecutableCode != nil {
-						writeSep()
+						writeSep(true)
 						content.WriteString("```")
 						content.WriteString(part.ExecutableCode.Language)
 						content.WriteByte('\n')
 						content.WriteString(part.ExecutableCode.Code)
 						content.WriteString("\n```")
 					} else if part.CodeExecutionResult != nil {
-						writeSep()
+						writeSep(true)
 						content.WriteString("```output\n")
 						content.WriteString(part.CodeExecutionResult.Output)
 						content.WriteString("\n```")
-					} else if part.Text != "\n" {
-						writeSep()
+					} else {
+						writeSep(false)
 						content.WriteString(part.Text)
 					}
 				}
@@ -207,12 +212,16 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 		if inlineGrow > 0 {
 			content.Grow(inlineGrow)
 		}
+		// Text and thought parts are joined verbatim, as in the non-streaming
+		// converter; only a rendered image or code block is put on its own line.
 		appended := 0
-		writeSep := func() {
-			if appended > 0 {
+		lastWasBlock := false
+		writeSep := func(block bool) {
+			if appended > 0 && (block || lastWasBlock) {
 				content.WriteByte('\n')
 			}
 			appended++
+			lastWasBlock = block
 		}
 		isTools := false
 		isThought := false
@@ -231,7 +240,7 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 		for _, part := range candidate.Content.Parts {
 			if part.InlineData != nil {
 				if strings.HasPrefix(part.InlineData.MimeType, "image") {
-					writeSep()
+					writeSep(true)
 					content.WriteString("![image](data:")
 					content.WriteString(part.InlineData.MimeType)
 					content.WriteString(";base64,")
@@ -246,23 +255,23 @@ func StreamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 				}
 			} else if part.Thought {
 				isThought = true
-				writeSep()
+				writeSep(false)
 				content.WriteString(part.Text)
 			} else {
 				if part.ExecutableCode != nil {
-					writeSep()
+					writeSep(true)
 					content.WriteString("```")
 					content.WriteString(part.ExecutableCode.Language)
 					content.WriteByte('\n')
 					content.WriteString(part.ExecutableCode.Code)
 					content.WriteString("\n```\n")
 				} else if part.CodeExecutionResult != nil {
-					writeSep()
+					writeSep(true)
 					content.WriteString("```output\n")
 					content.WriteString(part.CodeExecutionResult.Output)
 					content.WriteString("\n```\n")
-				} else if part.Text != "\n" {
-					writeSep()
+				} else {
+					writeSep(false)
 					content.WriteString(part.Text)
 				}
 			}
