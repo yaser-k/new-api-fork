@@ -2,17 +2,24 @@ package router
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/plugins"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -180,4 +187,72 @@ func setupRelayRouterTestDB(t *testing.T) {
 			require.NoError(t, os.Unsetenv("SQL_DSN"))
 		}
 	})
+}
+
+func TestGeminiCountTokensIsAnUnknownRouteOnV1AndV1beta(t *testing.T) {
+	setupRelayRouterTestDB(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Channel{}, &model.Log{}, &model.UserSubscription{}))
+	previousPrices := ratio_setting.ModelPrice2JSONString()
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"x":0.002}`))
+	t.Cleanup(func() { require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(previousPrices)) })
+	// The relayed generateContent request samples model performance on a
+	// background goroutine that reads the globals setupRelayRouterTestDB
+	// restores; with sampling off nothing outlives the test.
+	previousSampling := strconv.FormatBool(perf_metrics_setting.GetSetting().Enabled)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"perf_metrics_setting.enabled": "false"}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{"perf_metrics_setting.enabled": previousSampling}))
+	})
+	service.InitHttpClient()
+
+	var upstreamPaths []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPaths = append(upstreamPaths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"candidates":[{"content":{"role":"model","parts":[{"text":"OK"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":1,"totalTokenCount":4}}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	user := model.User{Username: "count-tokens-user", Status: common.UserStatusEnabled, Group: "default", Quota: 100000}
+	require.NoError(t, model.DB.Create(&user).Error)
+	token := model.Token{UserId: user.Id, Key: "counttokenskey", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 10000}
+	require.NoError(t, model.DB.Create(&token).Error)
+	channel := model.Channel{Name: "gemini-upstream", Key: "upstream-key", Status: common.ChannelStatusEnabled, Type: constant.ChannelTypeGemini, Group: "default", Models: "x", BaseURL: &upstream.URL}
+	require.NoError(t, model.DB.Create(&channel).Error)
+	require.NoError(t, model.DB.Create(&model.Ability{ChannelId: channel.Id, Model: "x", Group: "default", Enabled: true}).Error)
+
+	engine := gin.New()
+	SetRelayRouter(engine)
+	post := func(path string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"contents":[{"role":"user","parts":[{"text":"Say OK"}]}]}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("x-goog-api-key", token.Key)
+		engine.ServeHTTP(recorder, request)
+		return recorder
+	}
+	consumeLogs := func() int64 {
+		var count int64
+		require.NoError(t, model.LOG_DB.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&count).Error)
+		return count
+	}
+
+	v1beta := post("/v1beta/models/x:countTokens")
+	v1 := post("/v1/models/x:countTokens")
+	for path, recorder := range map[string]*httptest.ResponseRecorder{"/v1beta/models/x:countTokens": v1beta, "/v1/models/x:countTokens": v1} {
+		assert.Equal(t, http.StatusNotFound, recorder.Code, path)
+		assert.JSONEq(t, `{"error":{"message":"Invalid URL (POST `+path+`)","type":"invalid_request_error","param":"","code":""}}`, recorder.Body.String(), path)
+		assert.Equal(t, v1beta.Header().Get("Cache-Control"), recorder.Header().Get("Cache-Control"), path)
+	}
+	assert.Empty(t, upstreamPaths, ":countTokens must not be relayed as generateContent")
+	assert.Zero(t, consumeLogs())
+	require.NoError(t, model.DB.First(&token, token.Id).Error)
+	assert.Equal(t, 10000, token.RemainQuota)
+
+	generated := post("/v1/models/x:generateContent")
+	require.Equal(t, http.StatusOK, generated.Code, generated.Body.String())
+	assert.Contains(t, generated.Body.String(), `"OK"`)
+	require.Len(t, upstreamPaths, 1)
+	assert.True(t, strings.HasSuffix(upstreamPaths[0], "/models/x:generateContent"), upstreamPaths[0])
+	assert.EqualValues(t, 1, consumeLogs())
 }
