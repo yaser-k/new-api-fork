@@ -755,6 +755,114 @@ func TestGeminiHandlersCountGroundingQueries(t *testing.T) {
 	}
 }
 
+// Gemini can answer promptTokenCount 0 for a prompt it did count, for example one with a
+// fileData part, which the local estimate does not count; totalTokenCount still holds it.
+func TestGeminiHandlersBillPromptFromTotalWhenPromptCountMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	t.Cleanup(func() {
+		constant.StreamingTimeout = oldStreamingTimeout
+	})
+
+	request := dto.GeminiChatRequest{Contents: []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{
+		{Text: "Summarize this file."},
+		{FileData: &dto.GeminiFileData{MimeType: "application/pdf", FileUri: "gs://bucket/report.pdf"}},
+	}}}}
+	require.Empty(t, request.GetTokenCountMeta().Files, "a fileUri part is not part of the local estimate")
+
+	handlers := []struct {
+		name   string
+		stream bool
+		handle func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
+	}{
+		{name: "chat", handle: GeminiChatHandler},
+		{name: "chat stream", stream: true, handle: GeminiChatStreamHandler},
+		{name: "native", handle: GeminiTextGenerationHandler},
+		{name: "native stream", stream: true, handle: GeminiTextGenerationStreamHandler},
+	}
+	tests := []struct {
+		name           string
+		metadata       dto.GeminiUsageMetadata
+		estimate       int
+		wantPrompt     int
+		wantCompletion int
+	}{
+		{
+			name:           "total holds a prompt the count left out",
+			metadata:       dto.GeminiUsageMetadata{CandidatesTokenCount: 50, TotalTokenCount: 5050},
+			estimate:       8,
+			wantPrompt:     5000,
+			wantCompletion: 50,
+		},
+		{
+			name:           "estimate above the total's remainder",
+			metadata:       dto.GeminiUsageMetadata{CandidatesTokenCount: 90, ThoughtsTokenCount: 10, TotalTokenCount: 110},
+			estimate:       20,
+			wantPrompt:     20,
+			wantCompletion: 100,
+		},
+		{
+			name:           "remainder after tool-use prompt tokens",
+			metadata:       dto.GeminiUsageMetadata{ToolUsePromptTokenCount: 40, CandidatesTokenCount: 50, TotalTokenCount: 5090},
+			estimate:       8,
+			wantPrompt:     5040,
+			wantCompletion: 50,
+		},
+		{
+			name:           "reported prompt count is used as it is",
+			metadata:       dto.GeminiUsageMetadata{PromptTokenCount: 30, CandidatesTokenCount: 50, TotalTokenCount: 5050},
+			estimate:       8,
+			wantPrompt:     30,
+			wantCompletion: 50,
+		},
+		{
+			name:           "no total falls back to the estimate",
+			metadata:       dto.GeminiUsageMetadata{CandidatesTokenCount: 50},
+			estimate:       8,
+			wantPrompt:     8,
+			wantCompletion: 50,
+		},
+	}
+	for _, handler := range handlers {
+		for _, tt := range tests {
+			t.Run(handler.name+"/"+tt.name, func(t *testing.T) {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				info := &relaycommon.RelayInfo{
+					OriginModelName: "gemini-2.5-flash",
+					IsStream:        handler.stream,
+					ChannelMeta:     &relaycommon.ChannelMeta{UpstreamModelName: "gemini-2.5-flash"},
+				}
+				info.SetEstimatePromptTokens(tt.estimate)
+				frame, err := common.Marshal(dto.GeminiChatResponse{
+					Candidates: []dto.GeminiChatCandidate{{
+						Content:      dto.GeminiChatContent{Role: "model", Parts: []dto.GeminiPart{{Text: "summary"}}},
+						FinishReason: common.GetPointer("STOP"),
+					}},
+					UsageMetadata: tt.metadata,
+				})
+				require.NoError(t, err)
+				body := string(frame)
+				if handler.stream {
+					body = "data: " + body + "\ndata: [DONE]\n"
+				}
+
+				usage, apiErr := handler.handle(c, info, &http.Response{Body: io.NopCloser(strings.NewReader(body))})
+				require.Nil(t, apiErr)
+				require.NotNil(t, usage)
+				assert.Equal(t, tt.wantPrompt, usage.PromptTokens, "usage prompt tokens")
+				assert.Equal(t, tt.wantCompletion, usage.CompletionTokens, "usage completion tokens")
+				// Settlement bills from the carried upstream usage when there is one.
+				billed, ok := usage.BillingUsage.CanonicalUsage()
+				require.True(t, ok)
+				assert.Equal(t, tt.wantPrompt, billed.PromptTokens, "billed prompt tokens")
+				assert.Equal(t, tt.wantCompletion, billed.CompletionTokens, "billed completion tokens")
+			})
+		}
+	}
+}
+
 // A Gemini upstream that closes before any finishReason was cut short: the
 // client gets one error event in its own format instead of [DONE] or a
 // synthetic message_stop.
