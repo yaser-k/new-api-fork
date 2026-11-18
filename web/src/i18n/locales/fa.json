@@ -2132,6 +2132,7 @@
     "Enter only a top-level callback domain, for example https://api.example.com, without any path.": "فقط دامنۀ اصلی فراخوان بازگشتی را بدون هیچ مسیری وارد کنید، مثلاً ⁨https://api.example.com⁩.",
     "Enter password": "رمز عبور را وارد کنید",
     "Enter password (8–128 characters)": "رمز عبور را وارد کنید (۸ تا ۱۲۸ کاراکتر)",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "پورت‌هایی از ۱ تا ۶۵۵۳۵ یا بازه‌هایی مانند ⁨8000-9000⁩ وارد کنید و آن‌ها را با کاما جدا کنید",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "دامنه‌های قبلی را هر کدام در یک خط و بدون پروتکل، پورت یا مسیر وارد کنید. پورت‌های مختلف روی یک دامنه به دامنۀ سازگار نیاز ندارند.",
     "Enter quota in {{currency}}": "سهمیه به {{currency}}",
     "Enter quota in tokens": "سهمیه به توکن",
