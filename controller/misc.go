@@ -51,6 +51,7 @@ func GetStatus(c *gin.Context) {
 		"version":                     common.Version,
 		"start_time":                  common.StartTime,
 		"email_verification":          common.EmailVerificationEnabled,
+		"register_phone_required":     common.RegisterPhoneRequiredEnabled,
 		"github_oauth":                common.GitHubOAuthEnabled,
 		"github_client_id":            common.GitHubClientId,
 		"discord_oauth":               system_setting.GetDiscordSettings().Enabled,
@@ -135,6 +136,9 @@ func GetStatus(c *gin.Context) {
 	}
 
 	// 根据启用状态注入可选内容
+	if common.RegisterPhoneHint != "" {
+		data["register_phone_hint"] = common.RegisterPhoneHint
+	}
 	if cs.ApiInfoEnabled {
 		data["api_info"] = console_setting.GetApiInfo()
 	}

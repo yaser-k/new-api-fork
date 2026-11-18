@@ -87,6 +87,8 @@ type User struct {
 	Role                 int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
 	Status               int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
 	Email                string                     `json:"email" gorm:"index" validate:"max=50"`
+	Phone                *string                    `json:"phone,omitempty" gorm:"type:varchar(32);column:phone;uniqueIndex:idx_users_phone"` // PhoneNumberFormat.Normalize form; nil when none, since NULL repeats under the unique index and "" would not
+	PhoneDisplay         string                     `json:"phone_display,omitempty" gorm:"-:all"`                                             // Phone as PhoneNumberFormat.Display writes it, in answers that show the account
 	GitHubId             string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId            string                     `json:"discord_id" gorm:"column:discord_id;index"`
 	OidcId               string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
@@ -427,6 +429,9 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 		tx.Rollback()
 		return nil, 0, err
 	}
+	for _, user := range users {
+		user.FillPhoneDisplay()
+	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
@@ -456,8 +461,12 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	query := tx.Unscoped().Model(&User{})
 
 	// 构建搜索条件
-	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ?"
-	likeArgs := []any{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
+	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ? OR phone LIKE ?"
+	likeArgs := []any{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
+	if phone, err := CurrentPhoneNumberFormat().Normalize(keyword); err == nil {
+		likeCondition += " OR phone = ?"
+		likeArgs = append(likeArgs, phone)
+	}
 
 	// 尝试将关键字转换为整数ID
 	keywordInt, err := strconv.Atoi(keyword)
@@ -496,6 +505,9 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 		tx.Rollback()
 		return nil, 0, err
 	}
+	for _, user := range users {
+		user.FillPhoneDisplay()
+	}
 
 	// 提交事务
 	if err = tx.Commit().Error; err != nil {
@@ -530,7 +542,7 @@ func GetSelfUserById(id int) (*User, error) {
 		HasPassword bool `gorm:"column:has_password"`
 	}
 	err := DB.Model(&User{}).Select([]string{
-		"id", "username", "display_name", "role", "status", "email",
+		"id", "username", "display_name", "role", "status", "email", "phone",
 		"github_id", "discord_id", "oidc_id", "wechat_id", "telegram_id",
 		"group", "quota", "used_quota", "request_count", "aff_code", "aff_count",
 		"aff_quota", "aff_history", "inviter_id", "linux_do_id", "setting",
@@ -627,6 +639,11 @@ func (user *User) prepareForInsert(tx *gorm.DB) error {
 	if err := ensureEmailAvailableWithTx(tx, user.Email, 0); err != nil {
 		return err
 	}
+	if user.Phone != nil {
+		if err := ensurePhoneNumberAvailableWithTx(tx, *user.Phone, 0); err != nil {
+			return err
+		}
+	}
 	if user.Password == "" {
 		return nil
 	}
@@ -689,7 +706,7 @@ func (user *User) Insert(inviterId int) error {
 				user.SetSetting(defaultSetting)
 			}
 
-			return tx.Create(user).Error
+			return phoneNumberConflict(tx.Create(user).Error)
 		})
 	}); err != nil {
 		return err
@@ -752,7 +769,7 @@ func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
 			user.SetSetting(defaultSetting)
 		}
 
-		return tx.Create(user).Error
+		return phoneNumberConflict(tx.Create(user).Error)
 	})
 }
 
@@ -833,8 +850,10 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 			return err
 		}
 	}
+	// Only the administrator's edit (EditWithTx) changes the phone number.
 	if err = tx.Model(&current).Omit(
 		"access_token",
+		"phone",
 		"quota",
 		"used_quota",
 		"request_count",
@@ -892,6 +911,15 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.First(&current, user.Id).Error; err != nil {
 		return err
 	}
+	// A nil Phone leaves the number as it is and an empty one clears it.
+	if newUser.Phone != nil && *newUser.Phone == "" {
+		updates["phone"] = nil
+	} else if newUser.Phone != nil {
+		if err = ensurePhoneNumberAvailableWithTx(tx, *newUser.Phone, user.Id); err != nil {
+			return err
+		}
+		updates["phone"] = *newUser.Phone
+	}
 	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group
 	if authChanged {
 		newUser.AuthVersion, err = IncrementUserAuthVersionWithTx(tx, user.Id)
@@ -900,7 +928,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 		}
 	}
 	if err = tx.Model(&current).Updates(updates).Error; err != nil {
-		return err
+		return phoneNumberConflict(err)
 	}
 	return tx.First(user, user.Id).Error
 }

@@ -43,6 +43,8 @@ const STATUS_RELATED_KEYS = new Set([
   'general_setting.custom_currency_exchange_rate',
   'oidc.display_name',
   'ServerAddress',
+  'RegisterPhoneRequiredEnabled',
+  'RegisterPhoneHint',
   'passkey.enabled',
   'passkey.rp_id',
   'passkey.legacy_rp_ids',

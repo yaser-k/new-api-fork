@@ -67,6 +67,11 @@ func InitOptionMap() {
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
 	common.OptionMap["EmailAliasRestrictionEnabled"] = strconv.FormatBool(common.EmailAliasRestrictionEnabled)
 	common.OptionMap["EmailDomainWhitelist"] = strings.Join(common.EmailDomainWhitelist, ",")
+	common.OptionMap["RegisterPhoneRequiredEnabled"] = strconv.FormatBool(common.RegisterPhoneRequiredEnabled)
+	common.OptionMap["PhoneCountryCode"] = common.PhoneCountryCode
+	common.OptionMap["PhoneTrunkPrefix"] = common.PhoneTrunkPrefix
+	common.OptionMap["PhoneNationalNumberPattern"] = common.PhoneNationalNumberPattern
+	common.OptionMap["RegisterPhoneHint"] = common.RegisterPhoneHint
 	common.OptionMap["SMTPServer"] = ""
 	common.OptionMap["EmailProvider"] = "smtp"
 	common.OptionMap["ResendApiKey"] = ""
@@ -446,6 +451,8 @@ func updateOptionMap(key string, value string) (err error) {
 			common.EmailDomainRestrictionEnabled = boolValue
 		case "EmailAliasRestrictionEnabled":
 			common.EmailAliasRestrictionEnabled = boolValue
+		case "RegisterPhoneRequiredEnabled":
+			common.RegisterPhoneRequiredEnabled = boolValue
 		case "AutomaticDisableChannelEnabled":
 			common.AutomaticDisableChannelEnabled = boolValue
 		case "AutomaticEnableChannelEnabled":
@@ -515,6 +522,14 @@ func updateOptionMap(key string, value string) (err error) {
 	switch key {
 	case "EmailDomainWhitelist":
 		common.EmailDomainWhitelist = strings.Split(value, ",")
+	case "PhoneCountryCode":
+		common.PhoneCountryCode = value
+	case "PhoneTrunkPrefix":
+		common.PhoneTrunkPrefix = value
+	case "PhoneNationalNumberPattern":
+		common.PhoneNationalNumberPattern = value
+	case "RegisterPhoneHint":
+		common.RegisterPhoneHint = value
 	case "SMTPServer":
 		common.SMTPServer = value
 	case "SMTPPort":
