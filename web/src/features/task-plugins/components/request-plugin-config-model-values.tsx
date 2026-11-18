@@ -200,7 +200,7 @@ export function RequestPluginConfigModelValues(
           type='button'
           variant='ghost'
           size='sm'
-          className='text-muted-foreground -ml-2'
+          className='text-muted-foreground -ms-2'
           disabled={props.disabled || !valueField}
           onClick={() =>
             props.onChange([
