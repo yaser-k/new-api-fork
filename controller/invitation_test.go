@@ -549,7 +549,7 @@ func TestInvitationRegisterRequiresAValidUnusedPhoneNumber(t *testing.T) {
 func TestInvitationConcurrentRegistersWithOneNumberMakeOneAccount(t *testing.T) {
 	fixture := setupInvitationTest(t)
 	requireInvitedPhoneNumbers(t)
-	emails := []string{"first@example.com", "second@example.com"}
+	emails := []string{"first@example.com", "second@example.com", "third@example.com"}
 	ids, tokens := make([]int, len(emails)), make([]string, len(emails))
 	for index, email := range emails {
 		ids[index], tokens[index] = fixture.invite(t, email, "en")
@@ -563,10 +563,9 @@ func TestInvitationConcurrentRegistersWithOneNumberMakeOneAccount(t *testing.T) 
 	}
 	wg.Wait()
 
-	// Each invited sign-up locks its email. On MySQL those locks can end the
-	// losing transaction with a deadlock instead of the unique index; the
-	// loser is still refused and keeps its invitation, but its message
-	// depends on timing there.
+	// Each invited sign-up locks its email, which on MySQL can end a losing
+	// transaction with a deadlock; every loser is still refused as in use, on
+	// every database, and keeps its invitation.
 	successes := 0
 	for index, result := range results {
 		if result.Success {
@@ -574,12 +573,11 @@ func TestInvitationConcurrentRegistersWithOneNumberMakeOneAccount(t *testing.T) 
 			assert.NotZero(t, invitationRow(t, ids[index]).UsedTime)
 			continue
 		}
-		if os.Getenv("TEST_SECURITY_DIALECT") != "mysql" {
-			assert.Equal(t, "Phone number is already in use", result.Message)
-		}
+		assert.Equal(t, "Phone number is already in use", result.Message, "racer %d", index)
 		assert.Zero(t, invitationRow(t, ids[index]).UsedTime, "the loser's invitation stays usable")
 		assert.Zero(t, countUsersWithEmail(t, emails[index]))
-		assert.True(t, fixture.check(t, tokens[index]).Success, "the loser's invitation still opens the sign-up")
+		again := fixture.register(t, map[string]any{"username": fmt.Sprintf("phone-racer-%d", index), "password": invitationTestPassword, "invite_token": tokens[index], "phone": fmt.Sprintf("07911 77790%d", index)})
+		assert.True(t, again.Success, "the loser's invitation still registers with another number: %s", again.Message)
 	}
 	assert.Equal(t, 1, successes, "%+v", results)
 	var holders int64
