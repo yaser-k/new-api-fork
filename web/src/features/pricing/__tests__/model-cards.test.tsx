@@ -26,6 +26,7 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createJSONStorage } from 'zustand/middleware'
 
@@ -659,6 +660,27 @@ describe('model cards', () => {
     expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: 'Previous page' }))
     expect(screen.getByRole('heading', { name: 'model-1' })).toBeVisible()
+  })
+
+  it('numbers the pages in Persian digits in a Persian interface', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue({
+      data: { success: true, data: { models: [] } },
+    })
+    const models = Array.from({ length: 21 }, (_, index) =>
+      pricingModel({ id: index + 1, model_name: `model-${index + 1}` })
+    )
+    await i18next.changeLanguage('fa')
+    try {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <ModelCardGrid models={models} onModelClick={vi.fn()} />
+        </QueryClientProvider>
+      )
+
+      expect(screen.getByText('Page ۱ of ۲')).toBeVisible()
+    } finally {
+      await i18next.changeLanguage('en')
+    }
   })
 
   it('switches the card grid to three columns at the xl breakpoint instead of 2xl', () => {
