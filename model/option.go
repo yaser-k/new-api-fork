@@ -69,6 +69,7 @@ func InitOptionMap() {
 	common.OptionMap["PhoneCountryCode"] = common.PhoneCountryCode
 	common.OptionMap["PhoneTrunkPrefix"] = common.PhoneTrunkPrefix
 	common.OptionMap["PhoneNationalNumberPattern"] = common.PhoneNationalNumberPattern
+	common.OptionMap["RegisterPhoneHint"] = common.RegisterPhoneHint
 	common.OptionMap["SMTPServer"] = ""
 	common.OptionMap["EmailProvider"] = "smtp"
 	common.OptionMap["ResendApiKey"] = ""
@@ -519,6 +520,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.PhoneTrunkPrefix = value
 	case "PhoneNationalNumberPattern":
 		common.PhoneNationalNumberPattern = value
+	case "RegisterPhoneHint":
+		common.RegisterPhoneHint = value
 	case "SMTPServer":
 		common.SMTPServer = value
 	case "SMTPPort":

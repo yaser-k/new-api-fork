@@ -92,11 +92,7 @@ afterEach(() => {
 
 it('with the phone number required, the form posts the number as typed, Persian digits included', async () => {
   const user = userEvent.setup()
-  const post = mockApi({
-    register_phone_required: true,
-    phone_country_code: '44',
-    phone_trunk_prefix: '0',
-  })
+  const post = mockApi({ register_phone_required: true })
   await renderSignUpForm()
 
   const phone = await screen.findByLabelText('Phone number')
@@ -131,27 +127,31 @@ it('with the phone number required, an empty field stops the sign-up with a fiel
   expect(post).not.toHaveBeenCalled()
 })
 
-it.each([
-  [
-    { phone_country_code: '44', phone_trunk_prefix: '0' },
-    'Enter the number starting with 0, or with +44',
-  ],
-  [
-    { phone_country_code: '47', phone_trunk_prefix: '' },
-    'Enter the national number, or the number with +47',
-  ],
-  [{}, 'Enter the number with + and the country code'],
-])(
-  'the phone field hint follows the format options %j',
-  async (format, hint) => {
-    mockApi({ register_phone_required: true, ...format })
-    await renderSignUpForm()
+it('without an administrator hint, the phone field shows only the generic hint', async () => {
+  mockApi({ register_phone_required: true })
+  await renderSignUpForm()
 
-    expect(
-      await screen.findByLabelText('Phone number')
-    ).toHaveAccessibleDescription(hint)
-  }
-)
+  expect(
+    await screen.findByLabelText('Phone number')
+  ).toHaveAccessibleDescription(
+    'You can use spaces, hyphens, dots and brackets.'
+  )
+})
+
+it('the administrator hint shows under the phone field as plain text', async () => {
+  mockApi({
+    register_phone_required: true,
+    register_phone_hint: '<b>Mobile numbers only</b>',
+  })
+  await renderSignUpForm()
+
+  const phone = await screen.findByLabelText('Phone number')
+  expect(phone).toHaveAccessibleDescription(
+    'You can use spaces, hyphens, dots and brackets. <b>Mobile numbers only</b>'
+  )
+  expect(screen.getByText('<b>Mobile numbers only</b>')).toBeInTheDocument()
+  expect(document.querySelector('b')).toBeNull()
+})
 
 it('without the requirement, the form shows no phone field and posts no number', async () => {
   const user = userEvent.setup()

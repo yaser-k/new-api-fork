@@ -39,6 +39,7 @@ const (
 	phoneCountryCodeMessage    = "The country calling code must be one to three digits that do not start with 0"
 	phoneTrunkPrefixMessage    = "The trunk prefix must be one to three digits"
 	phoneNationalNumberMessage = "The national number pattern is not a valid regular expression"
+	phoneHintLengthMessage     = "The phone number hint must be at most 200 characters"
 )
 
 // phoneFormats are made-up and real number formats of several countries,
@@ -48,7 +49,7 @@ var (
 	phonePlainFormat = map[string]string{"PhoneCountryCode": "47", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": `[49]\d{7}`}
 	phoneSharedCode  = map[string]string{"PhoneCountryCode": "1", "PhoneTrunkPrefix": "1", "PhoneNationalNumberPattern": `[2-9]\d{2}[2-9]\d{6}`}
 	phoneNoFormat    = map[string]string{"PhoneCountryCode": "", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": ""}
-	phoneDefaults    = map[string]string{"RegisterPhoneRequiredEnabled": "false", "PhoneCountryCode": "", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": ""}
+	phoneDefaults    = map[string]string{"RegisterPhoneRequiredEnabled": "false", "PhoneCountryCode": "", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": "", "RegisterPhoneHint": ""}
 )
 
 type phoneResponse struct {
@@ -292,16 +293,23 @@ func TestPhoneNumberOptionOffKeepsRegistrationUnchanged(t *testing.T) {
 	assert.Equal(t, false, status.Data["register_phone_required"])
 }
 
-func TestPhoneNumberStatusCarriesTheRequirementAndTheFormat(t *testing.T) {
+func TestPhoneNumberStatusCarriesTheRequirementAndTheHintOnly(t *testing.T) {
 	fixture := setupPhoneTest(t)
 	requirePhoneNumbers(t, phoneTrunkFormat)
 
+	// The format stays on the server; the public answer says only whether a
+	// number is required, and the administrator's hint when one is set.
 	status := fixture.request(t, http.MethodGet, "/api/status", "", nil)
 	require.True(t, status.Success)
 	assert.Equal(t, true, status.Data["register_phone_required"])
-	assert.Equal(t, "44", status.Data["phone_country_code"])
-	assert.Equal(t, "0", status.Data["phone_trunk_prefix"])
-	assert.NotContains(t, status.Data, "phone")
+	for _, key := range []string{"phone_country_code", "phone_trunk_prefix", "phone_national_number_pattern", "register_phone_hint", "phone"} {
+		assert.NotContains(t, status.Data, key)
+	}
+
+	setPhoneOptions(t, map[string]string{"RegisterPhoneHint": "Mobile numbers only, as printed on your bill."})
+	status = fixture.request(t, http.MethodGet, "/api/status", "", nil)
+	require.True(t, status.Success)
+	assert.Equal(t, "Mobile numbers only, as printed on your bill.", status.Data["register_phone_hint"])
 }
 
 func TestRegisterRefusesEachInvalidPhoneNumberWithItsMessage(t *testing.T) {
@@ -673,6 +681,8 @@ func TestPhoneNumberFormatOptionsAreValidated(t *testing.T) {
 		{"PhoneNationalNumberPattern", `(`, phoneNationalNumberMessage},
 		{"PhoneNationalNumberPattern", `7\d{9}`, ""},
 		{"RegisterPhoneRequiredEnabled", "true", ""},
+		{"RegisterPhoneHint", strings.Repeat("é", 201), phoneHintLengthMessage},
+		{"RegisterPhoneHint", strings.Repeat("é", 200), ""},
 	} {
 		result := fixture.request(t, http.MethodPut, "/api/option/", rootToken, map[string]any{"key": test.key, "value": test.value})
 		if test.message == "" {

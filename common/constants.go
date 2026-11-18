@@ -100,6 +100,13 @@ var PhoneCountryCode = ""
 var PhoneTrunkPrefix = ""
 var PhoneNationalNumberPattern = ""
 
+// RegisterPhoneHint is a line the administrator writes under the sign-up
+// phone field, shown as plain text; the format options themselves stay off
+// the public status answer.
+var RegisterPhoneHint = ""
+
+const RegisterPhoneHintMaxLength = 200 // characters
+
 var EmailLoginAuthServerList = []string{
 	"smtp.sendcloud.net",
 	"smtp.azurecomm.net",

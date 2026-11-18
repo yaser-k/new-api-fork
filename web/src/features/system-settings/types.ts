@@ -168,6 +168,7 @@ export type AuthSettings = {
   PhoneCountryCode: string
   PhoneTrunkPrefix: string
   PhoneNationalNumberPattern: string
+  RegisterPhoneHint: string
   ServerAddress: string
   GitHubOAuthEnabled: boolean
   GitHubClientId: string
