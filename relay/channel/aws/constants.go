@@ -29,6 +29,23 @@ var awsModelIDMap = map[string]string{
 	"nova-reel-v1:0":    "amazon.nova-reel-v1:0",
 	"nova-reel-v1:1":    "amazon.nova-reel-v1:1",
 	"nova-sonic-v1:0":   "amazon.nova-sonic-v1:0",
+	"nova-2-sonic-v1:0": "amazon.nova-2-sonic-v1:0",
+	"nova-2-5-sonic":    "amazon.nova-2-5-sonic",
+}
+
+// novaSonicModel is a speech-to-speech model that Bedrock serves only over
+// InvokeModelWithBidirectionalStream, which the realtime route reaches.
+type novaSonicModel struct {
+	// textInput is whether the model takes a USER text content besides audio.
+	textInput bool
+}
+
+// novaSonicModels are the Nova Sonic models by Bedrock model id. They are invoked in-region:
+// none has a cross-region inference profile.
+var novaSonicModels = map[string]novaSonicModel{
+	"amazon.nova-sonic-v1:0":   {},
+	"amazon.nova-2-sonic-v1:0": {},
+	"amazon.nova-2-5-sonic":    {textInput: true},
 }
 
 var awsModelCanCrossRegionMap = map[string]map[string]bool{
