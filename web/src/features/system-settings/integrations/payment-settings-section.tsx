@@ -56,6 +56,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { getPaymentErrorTranslation } from '@/features/wallet/lib/payment'
+import { formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
@@ -880,11 +881,7 @@ export function PaymentSettingsSection({
           <AlertTitle>{t('Compliance confirmed')}</AlertTitle>
           <AlertDescription>
             {t('Confirmed at {{time}} by user #{{userId}}', {
-              time: complianceDefaults.confirmedAt
-                ? new Date(
-                    complianceDefaults.confirmedAt * 1000
-                  ).toLocaleString()
-                : '-',
+              time: formatTimestampToDate(complianceDefaults.confirmedAt),
               userId: complianceDefaults.confirmedBy || '-',
             })}
           </AlertDescription>
