@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -490,6 +491,100 @@ func TestInvitationConcurrentRegistersMakeOneAccount(t *testing.T) {
 	}
 	assert.Equal(t, 1, successes, "%+v", results)
 	assert.EqualValues(t, 1, countUsersWithEmail(t, invitationTestDefaultEmail))
+}
+
+// invitedPhone reads the phone column of the account an invitation made.
+func invitedPhone(t *testing.T, email string) (string, bool) {
+	t.Helper()
+	var row struct{ Phone sql.NullString }
+	require.NoError(t, model.DB.Table("users").Select("phone").Where("email = ?", email).Take(&row).Error)
+	return row.Phone.String, row.Phone.Valid
+}
+
+func requireInvitedPhoneNumbers(t *testing.T) {
+	t.Helper()
+	setInvitationOptions(t, map[string]string{
+		"RegisterPhoneRequiredEnabled": "true", "PhoneCountryCode": "44", "PhoneTrunkPrefix": "0", "PhoneNationalNumberPattern": `7\d{9}`,
+	})
+}
+
+func TestInvitationRegisterRequiresAValidUnusedPhoneNumber(t *testing.T) {
+	fixture := setupInvitationTest(t)
+	requireInvitedPhoneNumbers(t)
+	held := fixture.register(t, map[string]any{"username": "holder", "password": invitationTestPassword, "phone": "07911 123456"})
+	require.True(t, held.Success, held.Message)
+	id, token := fixture.invite(t, invitationTestDefaultEmail, "en")
+
+	for _, test := range []struct {
+		phone   any
+		message string
+	}{
+		{nil, "Phone number is required"},
+		{"0791", "The phone number is too short or too long"},
+		{"020 7946 0000", "The phone number does not match the accepted format"},
+		{"07911 12345a", "The phone number may contain only digits, spaces, hyphens, dots, brackets and a leading +"},
+		{"+44 7911 123456", "Phone number is already in use"},
+	} {
+		body := map[string]any{"username": "invited", "password": invitationTestPassword, "invite_token": token}
+		if test.phone != nil {
+			body["phone"] = test.phone
+		}
+		result := fixture.register(t, body)
+		assert.False(t, result.Success, "%v", test.phone)
+		assert.Equal(t, test.message, result.Message, "%v", test.phone)
+		assert.Zero(t, countUsersWithEmail(t, invitationTestDefaultEmail), "%v creates no account", test.phone)
+		assert.Zero(t, invitationRow(t, id).UsedTime, "%v leaves the invitation unused", test.phone)
+	}
+	check := fixture.check(t, token)
+	require.True(t, check.Success, "the refused invitation still opens the sign-up: %s", check.Message)
+
+	result := fixture.register(t, map[string]any{"username": "invited", "password": invitationTestPassword, "invite_token": token, "phone": "+44 7911 654321"})
+	require.True(t, result.Success, result.Message)
+	phone, ok := invitedPhone(t, invitationTestDefaultEmail)
+	assert.True(t, ok)
+	assert.Equal(t, "07911654321", phone)
+	assert.NotZero(t, invitationRow(t, id).UsedTime)
+}
+
+func TestInvitationConcurrentRegistersWithOneNumberMakeOneAccount(t *testing.T) {
+	fixture := setupInvitationTest(t)
+	requireInvitedPhoneNumbers(t)
+	emails := []string{"first@example.com", "second@example.com"}
+	ids, tokens := make([]int, len(emails)), make([]string, len(emails))
+	for index, email := range emails {
+		ids[index], tokens[index] = fixture.invite(t, email, "en")
+	}
+	results := make([]invitationResponse, len(emails))
+	var wg sync.WaitGroup
+	for index := range emails {
+		wg.Go(func() {
+			results[index] = fixture.register(t, map[string]any{"username": fmt.Sprintf("phone-racer-%d", index), "password": invitationTestPassword, "invite_token": tokens[index], "phone": "07911 777888"})
+		})
+	}
+	wg.Wait()
+
+	// Each invited sign-up locks its email. On MySQL those locks can end the
+	// losing transaction with a deadlock instead of the unique index; the
+	// loser is still refused and keeps its invitation, but its message
+	// depends on timing there.
+	successes := 0
+	for index, result := range results {
+		if result.Success {
+			successes++
+			assert.NotZero(t, invitationRow(t, ids[index]).UsedTime)
+			continue
+		}
+		if os.Getenv("TEST_SECURITY_DIALECT") != "mysql" {
+			assert.Equal(t, "Phone number is already in use", result.Message)
+		}
+		assert.Zero(t, invitationRow(t, ids[index]).UsedTime, "the loser's invitation stays usable")
+		assert.Zero(t, countUsersWithEmail(t, emails[index]))
+		assert.True(t, fixture.check(t, tokens[index]).Success, "the loser's invitation still opens the sign-up")
+	}
+	assert.Equal(t, 1, successes, "%+v", results)
+	var holders int64
+	require.NoError(t, model.DB.Table("users").Where("phone = ?", "07911777888").Count(&holders).Error)
+	assert.EqualValues(t, 1, holders)
 }
 
 func TestAdminCreateInvitation(t *testing.T) {

@@ -218,7 +218,8 @@ func Register(c *gin.Context) {
 	var request invitationRegisterRequest
 	err := common.DecodeJson(c.Request.Body, &request)
 	// An invitation is the permission to register, whatever the registration
-	// switches say.
+	// switches say. The phone number rule below holds for it as for any
+	// sign-up.
 	var invitation *model.Invitation
 	if request.InviteToken != "" {
 		if invitation = openInvitation(c, request.InviteToken); invitation == nil {
