@@ -1,12 +1,16 @@
 package model
 
 import (
+	"errors"
+	"math/rand/v2"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -222,6 +226,37 @@ func ensurePhoneNumberAvailableWithTx(tx *gorm.DB, phone string, excludeUserID i
 func phoneNumberConflict(err error) error {
 	if err != nil && (strings.Contains(err.Error(), phoneNumberIndex) || strings.Contains(err.Error(), "users.phone")) {
 		return ErrPhoneNumberTaken
+	}
+	return err
+}
+
+// phoneNumberRaceRuns bounds RetryPhoneNumberRace. Each deadlock rolls back
+// one transaction and lets the others finish, so every run settles at least
+// one of the racing sign-ups; a short random pause keeps the rolled-back ones
+// from starting again in step.
+const phoneNumberRaceRuns = 5
+
+// RetryPhoneNumberRace runs insert, a transaction that creates user, again
+// when MySQL ends it with a deadlock (1213) or a lock wait timeout (1205) and
+// user carries a phone number. A sign-up locks its email before it writes, and
+// on MySQL sign-ups racing for one number can deadlock on those locks; the
+// rolled-back one answered with the database's error. A later run starts from
+// the same values, waits for the winner to commit, and is refused as in use by
+// the same check and unique index as on SQLite and PostgreSQL. Any other error,
+// and every insert without a number, stays as it was.
+func RetryPhoneNumberRace(user *User, insert func() error) error {
+	values := *user
+	var err error
+	for run := range phoneNumberRaceRuns {
+		if run > 0 {
+			time.Sleep(time.Duration(10+rand.IntN(40*run)) * time.Millisecond)
+		}
+		*user = values
+		err = insert()
+		var mysqlErr *mysql.MySQLError
+		if values.Phone == nil || !errors.As(err, &mysqlErr) || (mysqlErr.Number != 1213 && mysqlErr.Number != 1205) {
+			return err
+		}
 	}
 	return err
 }

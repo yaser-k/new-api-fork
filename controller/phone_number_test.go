@@ -428,19 +428,16 @@ func TestRegisterPhoneNumberRefusalLeavesTheEmailCodeUsable(t *testing.T) {
 }
 
 func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
-	// With email codes on, each sign-up also locks its email. On MySQL those
-	// locks can end the losing transaction with a deadlock instead of the
-	// unique index; the loser is still refused and the number keeps one
-	// holder, but its message depends on timing there.
-	exactMessage := func(emailCodes bool) bool {
-		return !emailCodes || os.Getenv("TEST_SECURITY_DIALECT") != "mysql"
-	}
+	// With email codes on, each sign-up also locks its email, which on MySQL
+	// can end a losing transaction with a deadlock instead of the unique index.
+	// Every loser is still refused as in use, on every database, and keeps its
+	// email code.
 	for _, emailCodes := range []bool{false, true} {
 		t.Run(fmt.Sprintf("email codes %v", emailCodes), func(t *testing.T) {
 			fixture := setupPhoneTest(t)
 			requirePhoneNumbers(t, phoneTrunkFormat)
 			setPhoneOptions(t, map[string]string{"EmailVerificationEnabled": strconv.FormatBool(emailCodes)})
-			spellings := []string{"07911 123456", "+44 7911 123456"}
+			spellings := []string{"07911 123456", "+44 7911 123456", "0044 7911 123456", "7911 123456"}
 			results := make([]phoneResponse, len(spellings))
 			var wg sync.WaitGroup
 			for index := range spellings {
@@ -458,10 +455,11 @@ func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
 					successes++
 					continue
 				}
+				assert.Equal(t, phoneTakenMessage, result.Message, "racer %d", index)
 				assert.Zero(t, countUsersNamed(t, fmt.Sprintf("racer-%d", index)))
-				if exactMessage(emailCodes) {
-					assert.Equal(t, phoneTakenMessage, result.Message)
-				}
+				// The loser's email code still makes its account with another number.
+				again := fixture.register(t, fmt.Sprintf("racer-%d", index), map[string]any{"phone": fmt.Sprintf("07911 2%05d", index), "email": fmt.Sprintf("racer-%d@example.com", index), "verification_code": "424242"})
+				assert.True(t, again.Success, "racer %d again: %s", index, again.Message)
 			}
 			assert.Equal(t, 1, successes, "%+v", results)
 			var holders int64

@@ -299,15 +299,10 @@ func Register(c *gin.Context) {
 	if phone != "" {
 		cleanUser.Phone = &phone
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	if err := model.RetryPhoneNumberRace(&cleanUser, func() error { return cleanUser.Insert(inviterId) }); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")
 			return
-		}
-		// On MySQL the email lock can end a sign-up that races another for
-		// the same number with a deadlock instead of the unique index.
-		if phone != "" && errors.Is(model.EnsurePhoneNumberAvailable(phone, 0), model.ErrPhoneNumberTaken) {
-			err = model.ErrPhoneNumberTaken
 		}
 		common.ApiError(c, err)
 		return
