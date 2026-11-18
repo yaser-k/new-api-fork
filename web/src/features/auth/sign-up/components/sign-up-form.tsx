@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -97,6 +98,7 @@ export function SignUpForm({
     defaultValues: {
       username: '',
       email: '',
+      phone: '',
       password: '',
       confirmPassword: '',
     },
@@ -118,6 +120,23 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
+  // The server reads the number and is the authority; the hint shows the
+  // spellings it takes.
+  const phoneRequired = Boolean(status?.register_phone_required)
+  const phoneCountryCode = status?.phone_country_code ?? ''
+  const phoneTrunkPrefix = status?.phone_trunk_prefix ?? ''
+  let phoneHint = t('Enter the number with + and the country code')
+  if (phoneCountryCode && phoneTrunkPrefix) {
+    phoneHint = t(
+      'Enter the number starting with {{trunkPrefix}}, or with +{{countryCode}}',
+      { trunkPrefix: phoneTrunkPrefix, countryCode: phoneCountryCode }
+    )
+  } else if (phoneCountryCode) {
+    phoneHint = t(
+      'Enter the national number, or the number with +{{countryCode}}',
+      { countryCode: phoneCountryCode }
+    )
+  }
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -166,6 +185,11 @@ export function SignUpForm({
       }
     }
 
+    if (phoneRequired && !data.phone?.trim()) {
+      form.setError('phone', { message: 'Phone number is required' })
+      return
+    }
+
     if (!validateTurnstile()) return
 
     setIsLoading(true)
@@ -174,6 +198,7 @@ export function SignUpForm({
         username: data.username,
         password: data.password,
         email: data.email || undefined,
+        phone: phoneRequired ? data.phone : undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
         turnstile: turnstileToken,
@@ -372,6 +397,29 @@ export function SignUpForm({
               </Button>
             </div>
           </>
+        )}
+
+        {phoneRequired && (
+          <FormField
+            control={form.control}
+            name='phone'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Phone number')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='tel'
+                    inputMode='tel'
+                    autoComplete='tel'
+                    dir='ltr'
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>{phoneHint}</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
         )}
 
         {/* Turnstile */}

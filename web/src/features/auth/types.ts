@@ -40,6 +40,7 @@ export interface RegisterPayload {
   username: string
   password: string
   email?: string
+  phone?: string
   verification_code?: string
   aff_code?: string
   turnstile?: string
@@ -118,6 +119,9 @@ export interface SystemStatus {
     turnstile_check?: boolean
     turnstile_site_key?: string
     email_verification?: boolean
+    register_phone_required?: boolean
+    phone_country_code?: string
+    phone_trunk_prefix?: string
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
     display_token_stat_enabled?: boolean
@@ -165,6 +169,12 @@ export interface SystemStatus {
   turnstile_check?: boolean
   turnstile_site_key?: string
   email_verification?: boolean
+  /** Sign-up asks for a phone number no other account holds */
+  register_phone_required?: boolean
+  /** Country calling code of the accepted numbers, digits without + */
+  phone_country_code?: string
+  /** Trunk prefix written before a national number */
+  phone_trunk_prefix?: string
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean
   display_token_stat_enabled?: boolean
