@@ -687,3 +687,43 @@ func TestPhoneNumberFormatOptionsAreValidated(t *testing.T) {
 	assert.Equal(t, `7\d{9}`, common.OptionMap["PhoneNationalNumberPattern"])
 	assert.Equal(t, "0", common.OptionMap["PhoneTrunkPrefix"])
 }
+
+type phoneTestTransport func(*http.Request) (*http.Response, error)
+
+func (transport phoneTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestWeChatSignInWithRequiredPhoneNumberCreatesNoAccount(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	previousTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	// The WeChat server answers each code with the openid "wx-<code>".
+	http.DefaultTransport = phoneTestTransport(func(request *http.Request) (*http.Response, error) {
+		body := `{"success":true,"message":"","data":"wx-` + request.URL.Query().Get("code") + `"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	setPhoneOptions(t, map[string]string{"WeChatServerAddress": "https://wechat.example.com", "WeChatServerToken": "wechat-token", "WeChatAuthEnabled": "true"})
+	_, boundId := createPhoneTestSession(t, "wechat-bound", common.RoleCommonUser)
+	require.NoError(t, model.DB.Table("users").Where("id = ?", boundId).Update("wechat_id", "wx-bound").Error)
+	countWeChat := func(id string) int64 {
+		var count int64
+		require.NoError(t, model.DB.Unscoped().Table("users").Where("wechat_id = ?", id).Count(&count).Error)
+		return count
+	}
+	requirePhoneNumbers(t, phoneTrunkFormat)
+
+	result := fixture.request(t, http.MethodGet, "/api/oauth/wechat?code=new", "", nil)
+	assert.False(t, result.Success)
+	assert.Equal(t, "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings", result.MessageKey)
+	assert.Zero(t, countWeChat("wx-new"))
+
+	result = fixture.request(t, http.MethodGet, "/api/oauth/wechat?code=bound", "", nil)
+	require.True(t, result.Success, result.Message)
+	assert.NotEmpty(t, result.Data["access_token"], "a bound account still signs in")
+
+	setPhoneOptions(t, map[string]string{"RegisterPhoneRequiredEnabled": "false"})
+	result = fixture.request(t, http.MethodGet, "/api/oauth/wechat?code=new", "", nil)
+	require.True(t, result.Success, "with the option off a first sign-in registers as before: %s", result.Message)
+	assert.EqualValues(t, 1, countWeChat("wx-new"))
+}

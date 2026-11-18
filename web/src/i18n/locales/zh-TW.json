@@ -5384,6 +5384,7 @@
     "Registered a passkey": "註冊了一個 Passkey",
     "Registration Enabled": "註冊已啟用",
     "Registration flow expired. Please try again.": "註冊流程已過期，請再試一次。",
+    "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings": "註冊需要手機號碼。請先使用手機號碼註冊，然後在帳號設定中綁定 {{provider}}",
     "Registry (optional)": "註冊表 (可選)",
     "Registry secret": "註冊表金鑰",
     "Registry username": "註冊表用戶名",

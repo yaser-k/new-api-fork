@@ -5384,6 +5384,7 @@
     "Registered a passkey": "パスキーを登録しました",
     "Registration Enabled": "登録が有効",
     "Registration flow expired. Please try again.": "登録手続きの有効期限が切れました。もう一度お試しください。",
+    "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings": "登録には電話番号が必要です。先に電話番号で登録してから、アカウント設定で {{provider}} を連携してください",
     "Registry (optional)": "レジストリ (オプション)",
     "Registry secret": "レジストリ シークレット",
     "Registry username": "レジストリ ユーザー名",

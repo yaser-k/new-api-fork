@@ -5384,6 +5384,7 @@
     "Registered a passkey": "Passkey enregistré",
     "Registration Enabled": "Inscription activée",
     "Registration flow expired. Please try again.": "Le processus d’inscription a expiré. Veuillez réessayer.",
+    "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings": "L'inscription nécessite un numéro de téléphone. Inscrivez-vous d'abord avec un numéro de téléphone, puis liez {{provider}} dans les paramètres du compte",
     "Registry (optional)": "Registre (optionnel)",
     "Registry secret": "Secret du registre",
     "Registry username": "Nom d'utilisateur du registre",

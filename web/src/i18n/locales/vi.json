@@ -5384,6 +5384,7 @@
     "Registered a passkey": "Đã đăng ký một passkey",
     "Registration Enabled": "Đăng ký đã bật",
     "Registration flow expired. Please try again.": "Quy trình đăng ký đã hết hạn. Vui lòng thử lại.",
+    "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings": "Đăng ký cần có số điện thoại. Hãy đăng ký bằng số điện thoại trước, sau đó liên kết {{provider}} trong cài đặt tài khoản",
     "Registry (optional)": "Registry (tùy chọn)",
     "Registry secret": "Bí mật Registry",
     "Registry username": "Tên người dùng Registry",
