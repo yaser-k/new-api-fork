@@ -250,6 +250,11 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorT(c, "Cannot enable the email domain restriction. Enter the allowed email domains first.")
 			return
 		}
+	case "PhoneCountryCode", "PhoneTrunkPrefix", "PhoneNationalNumberPattern":
+		if err := model.ValidatePhoneNumberFormatOption(option.Key, option.Value.(string)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	case "WeChatAuthEnabled":
 		if option.Value == "true" && common.WeChatServerAddress == "" {
 			common.ApiErrorT(c, "Cannot enable WeChat login. Enter the WeChat login settings first.")

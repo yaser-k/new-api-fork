@@ -239,6 +239,19 @@ func Register(c *gin.Context) {
 		common.ApiErrorT(c, "Invalid input {{error}}", map[string]any{"error": err.Error()})
 		return
 	}
+	// With the option off the field is ignored. The insert refuses a number
+	// another account holds.
+	phone := ""
+	if common.RegisterPhoneRequiredEnabled {
+		raw := ""
+		if user.Phone != nil {
+			raw = *user.Phone
+		}
+		if phone, err = model.CurrentPhoneNumberFormat().Normalize(raw); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	if common.EmailVerificationEnabled {
 		if user.Email == "" || user.VerificationCode == "" {
 			common.ApiErrorT(c, "Email verification is enabled, please enter email address and verification code")
@@ -282,6 +295,9 @@ func Register(c *gin.Context) {
 	}
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
+	}
+	if phone != "" {
+		cleanUser.Phone = &phone
 	}
 	if err := cleanUser.Insert(inviterId); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
@@ -503,6 +519,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
+		"phone":             user.Phone,
 		"github_id":         user.GitHubId,
 		"discord_id":        user.DiscordId,
 		"oidc_id":           user.OidcId,
@@ -684,6 +701,26 @@ func UpdateUser(c *gin.Context) {
 	auditParams := map[string]any{
 		"username": originUser.Username,
 		"id":       updatedUser.Id,
+	}
+	// The user drawer sends the stored number back unchanged; only another
+	// number is read, so a format changed since does not block other edits.
+	// An empty number clears it.
+	storedPhone := ""
+	if originUser.Phone != nil {
+		storedPhone = *originUser.Phone
+	}
+	if updatedUser.Phone != nil && *updatedUser.Phone != storedPhone {
+		phone := ""
+		if strings.TrimSpace(*updatedUser.Phone) != "" {
+			if phone, err = model.CurrentPhoneNumberFormat().Normalize(*updatedUser.Phone); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+		}
+		updatedUser.Phone = &phone
+		auditParams["phone_changed"] = phone != storedPhone
+	} else {
+		updatedUser.Phone = nil
 	}
 	// Resetting a password or rewriting the admin permission matrix changes what
 	// the managed account can do or who can sign in to it.
@@ -1036,6 +1073,14 @@ func CreateUser(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
+	}
+	if user.Phone != nil && strings.TrimSpace(*user.Phone) != "" {
+		phone, err := model.CurrentPhoneNumberFormat().Normalize(*user.Phone)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		cleanUser.Phone = &phone
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
