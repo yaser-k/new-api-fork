@@ -53,7 +53,7 @@ import {
   getCurrencyLabel,
   stripCurrencyIsolates,
 } from '@/lib/currency'
-import { formatTimestampToDate } from '@/lib/format'
+import { formatGregorianTitle, formatTimestampToDate } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import {
   createServerError,
@@ -380,6 +380,7 @@ export function BalanceCell({ channel }: { channel: Channel }) {
     digitsLarge: 2,
     digitsSmall: 4,
     abbreviate: false,
+    locale,
     showSymbol: layout !== 'card',
   } as const
   // Precise values are kept for the tooltip; long values are shown compactly inline.
@@ -388,6 +389,7 @@ export function BalanceCell({ channel }: { channel: Channel }) {
       digitsLarge: 2,
       digitsSmall: 4,
       abbreviate: true,
+      locale,
       showSymbol: layout !== 'card',
     })
   )
@@ -1049,14 +1051,20 @@ export function useChannelsColumns(
           if (status === 3) {
             let statusReason = ''
             let statusTime = ''
+            let statusTimestamp: number | undefined
             try {
               const otherInfo = channel.other_info
                 ? JSON.parse(channel.other_info)
                 : null
               if (otherInfo) {
                 statusReason = otherInfo.status_reason || ''
+                statusTimestamp = otherInfo.status_time
                 statusTime = otherInfo.status_time
-                  ? formatTimestampToDate(otherInfo.status_time)
+                  ? formatTimestampToDate(
+                      otherInfo.status_time,
+                      'seconds',
+                      locale
+                    )
                   : ''
               }
             } catch {
@@ -1084,7 +1092,12 @@ export function useChannelsColumns(
                           </div>
                         )}
                         {statusTime && (
-                          <div>
+                          <div
+                            title={formatGregorianTitle(
+                              statusTimestamp,
+                              locale
+                            )}
+                          >
                             {t('Time:')} {statusTime}
                           </div>
                         )}
@@ -1243,7 +1256,7 @@ export function useChannelsColumns(
 
           return (
             <StatusBadge
-              label={formatResponseTime(responseTime, t)}
+              label={formatResponseTime(responseTime, t, locale)}
               variant={config.variant}
               size='sm'
               copyable={false}
@@ -1268,7 +1281,7 @@ export function useChannelsColumns(
           }
 
           const timeText = formatRelativeTime(testTime, locale)
-          const fullDate = formatTimestampToDate(testTime)
+          const fullDate = formatTimestampToDate(testTime, 'seconds', locale)
 
           // For valid timestamps, show tooltip with full date
           return (
@@ -1286,7 +1299,12 @@ export function useChannelsColumns(
                   }
                 />
                 <TooltipContent side='top'>
-                  <p className='font-mono text-sm'>{fullDate}</p>
+                  <p
+                    className='font-mono text-sm'
+                    title={formatGregorianTitle(testTime, locale)}
+                  >
+                    {fullDate}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
