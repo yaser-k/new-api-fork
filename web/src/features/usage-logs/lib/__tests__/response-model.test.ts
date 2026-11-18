@@ -75,6 +75,39 @@ describe('isResponseModelMismatch', () => {
     ).toBe(true)
   })
 
+  test.each([
+    ['global.vendor.model-v1:0', 'vendor.model-v1:0', 'an inference profile prefix'],
+    ['eu.vendor.model-v1:0', 'vendor.model-v1:0', 'a regional profile prefix'],
+    ['GLOBAL.Vendor.Model-v1:0', 'vendor.model-v1:0', 'a profile prefix with a case-only difference'],
+    ['us.vendor.model', 'vendor.model-2026-09-01', 'a dated name behind a profile prefix'],
+  ])(
+    'treats the upstream model %s answered as %s as compatible (%s)',
+    (upstream, returned) => {
+      expect(
+        isResponseModelMismatch(
+          observation(returned, { upstream_model: upstream })
+        )
+      ).toBe(false)
+    }
+  )
+
+  test.each([
+    ['global.vendor.model-v1:0', 'vendor.other-v1:0', 'another model behind the prefix'],
+    ['global.vendor.model-v1:0', 'model-v1:0', 'two stripped segments'],
+    ['global.vendor.model-v1:0', 'vendor.model', 'a shorter name behind the prefix'],
+    ['vendor/global.model', 'model', 'a prefix holding a provider path'],
+    ['global.', 'other', 'an empty name after the prefix'],
+  ])(
+    'flags the upstream model %s answered as %s as a mismatch (%s)',
+    (upstream, returned) => {
+      expect(
+        isResponseModelMismatch(
+          observation(returned, { upstream_model: upstream })
+        )
+      ).toBe(true)
+    }
+  )
+
   test('empty expected names never match', () => {
     expect(
       isResponseModelMismatch(
