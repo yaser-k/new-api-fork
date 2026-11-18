@@ -304,6 +304,11 @@ func Register(c *gin.Context) {
 			common.ApiErrorT(c, "Email address is already in use")
 			return
 		}
+		// On MySQL the email lock can end a sign-up that races another for
+		// the same number with a deadlock instead of the unique index.
+		if phone != "" && errors.Is(model.EnsurePhoneNumberAvailable(phone, 0), model.ErrPhoneNumberTaken) {
+			err = model.ErrPhoneNumberTaken
+		}
 		common.ApiError(c, err)
 		return
 	}

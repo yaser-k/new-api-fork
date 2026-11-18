@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -427,30 +428,47 @@ func TestRegisterPhoneNumberRefusalLeavesTheEmailCodeUsable(t *testing.T) {
 }
 
 func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
-	fixture := setupPhoneTest(t)
-	requirePhoneNumbers(t, phoneTrunkFormat)
-	spellings := []string{"07911 123456", "+44 7911 123456"}
-	results := make([]phoneResponse, len(spellings))
-	var wg sync.WaitGroup
-	for index := range spellings {
-		wg.Go(func() {
-			results[index] = fixture.register(t, fmt.Sprintf("racer-%d", index), map[string]any{"phone": spellings[index]})
+	// With email codes on, each sign-up also locks its email. On MySQL those
+	// locks can end the losing transaction with a deadlock instead of the
+	// unique index; the loser is still refused and the number keeps one
+	// holder, but its message depends on timing there.
+	exactMessage := func(emailCodes bool) bool {
+		return !emailCodes || os.Getenv("TEST_SECURITY_DIALECT") != "mysql"
+	}
+	for _, emailCodes := range []bool{false, true} {
+		t.Run(fmt.Sprintf("email codes %v", emailCodes), func(t *testing.T) {
+			fixture := setupPhoneTest(t)
+			requirePhoneNumbers(t, phoneTrunkFormat)
+			setPhoneOptions(t, map[string]string{"EmailVerificationEnabled": strconv.FormatBool(emailCodes)})
+			spellings := []string{"07911 123456", "+44 7911 123456"}
+			results := make([]phoneResponse, len(spellings))
+			var wg sync.WaitGroup
+			for index := range spellings {
+				email := fmt.Sprintf("racer-%d@example.com", index)
+				common.RegisterVerificationCodeWithKey(email, "424242", common.EmailVerificationPurpose)
+				wg.Go(func() {
+					results[index] = fixture.register(t, fmt.Sprintf("racer-%d", index), map[string]any{"phone": spellings[index], "email": email, "verification_code": "424242"})
+				})
+			}
+			wg.Wait()
+
+			successes := 0
+			for index, result := range results {
+				if result.Success {
+					successes++
+					continue
+				}
+				assert.Zero(t, countUsersNamed(t, fmt.Sprintf("racer-%d", index)))
+				if exactMessage(emailCodes) {
+					assert.Equal(t, phoneTakenMessage, result.Message)
+				}
+			}
+			assert.Equal(t, 1, successes, "%+v", results)
+			var holders int64
+			require.NoError(t, model.DB.Unscoped().Table("users").Where("phone = ?", "07911123456").Count(&holders).Error)
+			assert.EqualValues(t, 1, holders)
 		})
 	}
-	wg.Wait()
-
-	successes := 0
-	for _, result := range results {
-		if result.Success {
-			successes++
-			continue
-		}
-		assert.Equal(t, phoneTakenMessage, result.Message)
-	}
-	assert.Equal(t, 1, successes, "%+v", results)
-	var holders int64
-	require.NoError(t, model.DB.Unscoped().Table("users").Where("phone = ?", "07911123456").Count(&holders).Error)
-	assert.EqualValues(t, 1, holders)
 }
 
 func TestPhoneNumberAccountWithoutNumberSignsInAndReadsItself(t *testing.T) {
