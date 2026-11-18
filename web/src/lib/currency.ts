@@ -159,6 +159,33 @@ export function parseCurrencyDisplayType(
   return isCurrencyDisplayType(value) ? value : fallback
 }
 
+// Letters and signs of right-to-left scripts (Hebrew, Arabic, Syriac, Thaana,
+// N'Ko and their presentation forms). Marks and digits there are weak or
+// neutral, so they alone do not make a symbol right-to-left.
+const STRONG_RTL_CHAR =
+  /(?![\p{M}\p{Nd}])[\u0590-\u08FF\u200F\uFB1D-\uFDFF\uFE70-\uFEFC\u{10800}-\u{10FFF}\u{1E800}-\u{1EFFF}]/u
+
+/**
+ * Wrap a currency symbol written in a right-to-left script in FIRST STRONG
+ * ISOLATE / POP DIRECTIONAL ISOLATE. Without them the bidi algorithm turns
+ * the digits after an Arabic letter into Arabic numbers (rule W2) and runs
+ * the number and the unit after it right to left with the symbol, so
+ * "<symbol> 2,016,150 / 1M" is shown as "1 / 2,016,150 <symbol>M".
+ * Left-to-right and neutral symbols ($, ¥, €, ₪, emoji) are returned as is.
+ */
+export function isolateCurrencySymbol(symbol: string): string {
+  return STRONG_RTL_CHAR.test(symbol) ? `\u2068${symbol}\u2069` : symbol
+}
+
+/**
+ * Remove the isolate marks added by isolateCurrencySymbol, for formatted
+ * amounts that leave the page (values sent to the server, exported files)
+ * or whose visible length is measured.
+ */
+export function stripCurrencyIsolates(text: string): string {
+  return text.replaceAll(/[\u2068\u2069]/g, '')
+}
+
 function getConfig(): CurrencyConfig {
   const { config } = useSystemConfigStore.getState()
   const currency = config?.currency ?? DEFAULT_CURRENCY_CONFIG
@@ -196,7 +223,7 @@ function getDisplayMeta(config: CurrencyConfig): DisplayMeta {
     case 'CUSTOM':
       return {
         kind: 'custom',
-        symbol: config.customCurrencySymbol,
+        symbol: isolateCurrencySymbol(config.customCurrencySymbol),
         exchangeRate: config.customCurrencyExchangeRate,
       }
     case 'TOKENS':
