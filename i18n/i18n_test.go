@@ -20,8 +20,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The web console saves its own language codes (zhCN, zhTW, fr, ...) in the
-// user setting; backend messages must follow them, and languages without a
+// The web console saves its own language codes (zhCN, zhTW, fa, fr, ...) in
+// the user setting; backend messages must follow them, and languages without a
 // backend locale fall back to English.
 func TestLanguageFromUserSetting(t *testing.T) {
 	require.NoError(t, Init())
@@ -37,6 +37,9 @@ func TestLanguageFromUserSetting(t *testing.T) {
 		{"zh-Hant-TW", LangZhTW},
 		{"zh", LangZhCN},
 		{"en", LangEn},
+		{"fa", LangFa},
+		{"fa-IR", LangFa},
+		{"fa_IR", LangFa},
 		{"fr", LangEn},
 		{"ja", LangEn},
 	} {
@@ -82,6 +85,8 @@ func TestBackendMessageLanguage(t *testing.T) {
 	quota := map[string]any{"Remaining": "$0.10"}
 	const english = "Insufficient user quota, remaining quota: $0.10"
 	const chinese = "用户额度不足, 剩余额度: $0.10"
+	// The amount is isolated (FSI ... PDI) so it keeps its order in right-to-left text.
+	const persian = "سهمیۀ کاربر کافی نیست؛ سهمیۀ باقی‌مانده: \u2068$0.10\u2069"
 	for _, tc := range []struct {
 		name            string
 		defaultLanguage string
@@ -97,6 +102,10 @@ func TestBackendMessageLanguage(t *testing.T) {
 		{"header in a language without a locale", "zh-CN", "", "fr-FR", english},
 		{"saved language wins over the header", "", "zhTW", "en-US", "使用者額度不足，剩餘額度：$0.10"},
 		{"saved language", "zh-CN", "en", "", english},
+		{"saved Persian", "", "fa", "en-US", persian},
+		{"Persian header", "", "", "fa-IR,fa;q=0.9,en;q=0.8", persian},
+		{"nothing stated with a Persian default", "fa", "", "", persian},
+		{"header wins over a Persian default", "fa", "", "en-US", english},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			common.DefaultLanguage = tc.defaultLanguage
@@ -193,7 +202,7 @@ func TestWebConsoleMessageResponse(t *testing.T) {
 }
 
 // Server log lines are English. DEFAULT_LANGUAGE=zh-CN prints the Chinese text of
-// the lines that have one in common/log_text.zh-CN.json.
+// the lines that have one in common/log_text.zh-CN.json; Persian has none.
 func TestServerLogLanguage(t *testing.T) {
 	t.Cleanup(func() { common.SetLogLanguage("") })
 	const line = "channel #%d has %d unfinished tasks"
@@ -203,5 +212,7 @@ func TestServerLogLanguage(t *testing.T) {
 	assert.Equal(t, "a line without a Chinese text: x", common.LogText("a line without a Chinese text: %s", "x"))
 	assert.Equal(t, "任务进度轮询开始", common.LogText("task progress polling started"))
 	common.SetLogLanguage("en")
+	assert.Equal(t, "channel #7 has 2 unfinished tasks", common.LogText(line, 7, 2))
+	common.SetLogLanguage("fa")
 	assert.Equal(t, "channel #7 has 2 unfinished tasks", common.LogText(line, 7, 2))
 }
