@@ -6143,7 +6143,7 @@
     "Sign out others": "Завершить другие",
     "Sign out this device?": "Выйти на этом устройстве?",
     "Sign up": "Регистрация",
-    "Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.": "При регистрации запрашивается номер телефона, который не принадлежит другой учетной записи. Существующие учетные записи без номера продолжают работать. На номер не отправляется никаких сообщений.",
+    "Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.": "При регистрации запрашивается номер телефона, который не принадлежит другой учетной записи. Пока параметр включен, вход через сторонние учетные записи не создает новую учетную запись; уже привязанные учетные записи по-прежнему входят через них. Существующие учетные записи без номера продолжают работать. На номер не отправляется никаких сообщений.",
     "Signature type": "Тип подписи",
     "Signed in": "Вход выполнен",
     "Signed in successfully!": "Успешный вход!",

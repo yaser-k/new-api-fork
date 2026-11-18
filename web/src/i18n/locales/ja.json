@@ -6143,7 +6143,7 @@
     "Sign out others": "他をサインアウト",
     "Sign out this device?": "このデバイスからサインアウトしますか？",
     "Sign up": "サインアップ",
-    "Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.": "登録時に、他のアカウントで使われていない電話番号の入力を求めます。電話番号のない既存のアカウントはそのまま利用できます。番号へメッセージは送信されません。",
+    "Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.": "登録時に、他のアカウントで使われていない電話番号の入力を求めます。有効な間は、外部アカウントでのログインによってアカウントを作成できません。連携済みのアカウントは引き続き外部アカウントでログインできます。電話番号のない既存のアカウントはそのまま利用できます。番号へメッセージは送信されません。",
     "Signature type": "署名方式",
     "Signed in": "サインインしました",
     "Signed in successfully!": "サインインに成功しました！",

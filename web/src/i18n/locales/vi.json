@@ -6143,7 +6143,7 @@
     "Sign out others": "Đăng xuất các phiên khác",
     "Sign out this device?": "Đăng xuất thiết bị này?",
     "Sign up": "Đăng ký",
-    "Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.": "Khi đăng ký, người dùng phải nhập một số điện thoại chưa thuộc tài khoản nào khác. Các tài khoản hiện có chưa có số vẫn hoạt động bình thường. Không có tin nhắn nào được gửi đến số này.",
+    "Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.": "Khi đăng ký, người dùng phải nhập một số điện thoại chưa thuộc tài khoản nào khác. Khi tùy chọn này bật, đăng nhập bằng tài khoản bên thứ ba không thể tạo tài khoản; các tài khoản đã liên kết vẫn đăng nhập bằng cách đó. Các tài khoản hiện có chưa có số vẫn hoạt động bình thường. Không có tin nhắn nào được gửi đến số này.",
     "Signature type": "Kiểu chữ ký",
     "Signed in": "Đã đăng nhập",
     "Signed in successfully!": "Đã đăng nhập thành công!",

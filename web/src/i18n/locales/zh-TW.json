@@ -6143,7 +6143,7 @@
     "Sign out others": "登出其他工作階段",
     "Sign out this device?": "登出目前裝置？",
     "Sign up": "註冊",
-    "Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.": "註冊時要求填寫一個未被其他帳戶使用的手機號碼。現有未填寫手機號碼的帳戶不受影響。系統不會向該號碼傳送任何訊息。",
+    "Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.": "註冊時要求填寫一個未被其他帳戶使用的手機號碼。開啟期間，第三方登入無法建立帳戶；已綁定的帳戶仍可透過第三方登入。現有未填寫手機號碼的帳戶不受影響。系統不會向該號碼傳送任何訊息。",
     "Signature type": "簽名方式",
     "Signed in": "已登入",
     "Signed in successfully!": "登入成功！",

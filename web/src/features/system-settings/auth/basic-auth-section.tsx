@@ -228,7 +228,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   </FormLabel>
                   <FormDescription>
                     {t(
-                      'Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.'
+                      'Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>

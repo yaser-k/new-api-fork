@@ -6143,7 +6143,7 @@
     "Sign out others": "Déconnecter les autres",
     "Sign out this device?": "Déconnecter cet appareil ?",
     "Sign up": "S'inscrire",
-    "Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.": "L'inscription demande un numéro de téléphone qu'aucun autre compte ne possède. Les comptes existants sans numéro continuent de fonctionner. Aucun message n'est envoyé au numéro.",
+    "Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.": "L'inscription demande un numéro de téléphone qu'aucun autre compte ne possède. Tant que cette option est activée, les connexions par un compte tiers ne peuvent pas créer de compte ; les comptes déjà liés s'y connectent toujours. Les comptes existants sans numéro continuent de fonctionner. Aucun message n'est envoyé au numéro.",
     "Signature type": "Type de signature",
     "Signed in": "Connecté",
     "Signed in successfully!": "Connecté avec succès !",
