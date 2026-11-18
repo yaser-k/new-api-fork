@@ -31,6 +31,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -52,6 +53,20 @@ const basicAuthSchema = z.object({
   EmailDomainRestrictionEnabled: z.boolean(),
   EmailAliasRestrictionEnabled: z.boolean(),
   EmailDomainWhitelist: z.string(),
+  // The server checks these too; it alone can check the pattern.
+  RegisterPhoneRequiredEnabled: z.boolean(),
+  PhoneCountryCode: z
+    .string()
+    .trim()
+    .regex(
+      /^([1-9]\d{0,2})?$/,
+      'The country calling code must be one to three digits that do not start with 0'
+    ),
+  PhoneTrunkPrefix: z
+    .string()
+    .trim()
+    .regex(/^(\d{1,3})?$/, 'The trunk prefix must be one to three digits'),
+  PhoneNationalNumberPattern: z.string().trim(),
 })
 
 type BasicAuthFormValues = z.infer<typeof basicAuthSchema>
@@ -195,6 +210,88 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   />
                 </FormControl>
               </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='RegisterPhoneRequiredEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Require a phone number at registration')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Sign-up asks for a phone number that no other account holds. Existing accounts without one keep working. No message is sent to the number.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='PhoneCountryCode'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Country calling code')}</FormLabel>
+                <FormControl>
+                  <Input dir='ltr' inputMode='numeric' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Digits without the plus sign. Leave empty to accept any number written with + and its country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='PhoneTrunkPrefix'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Trunk prefix')}</FormLabel>
+                <FormControl>
+                  <Input dir='ltr' inputMode='numeric' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Written before a national number and kept in the stored number. Used only with a country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='PhoneNationalNumberPattern'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('National number pattern')}</FormLabel>
+                <FormControl>
+                  <Input dir='ltr' className='font-mono' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'A regular expression the whole national number must match, without the country code or the trunk prefix. Used only with a country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
             )}
           />
 
