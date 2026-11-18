@@ -20,7 +20,10 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
-import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import {
+  getContactLinkKind,
+  parseHeaderNavModulesFromStatus,
+} from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 export type TopNavLink = {
@@ -29,6 +32,8 @@ export type TopNavLink = {
   disabled?: boolean
   requiresAuth?: boolean
   external?: boolean
+  /** A plain same-tab anchor the browser loads; the router does not handle it */
+  reloadDocument?: boolean
 }
 
 /**
@@ -40,7 +45,8 @@ export type TopNavLink = {
  *   pricing: { enabled: true, requireAuth: false },
  *   rankings: { enabled: true, requireAuth: false },
  *   docs: true,
- *   about: true
+ *   about: true,
+ *   contact: { enabled: true, link: '/contact' }
  * }
  */
 export function useTopNavLinks(): TopNavLink[] {
@@ -98,6 +104,18 @@ export function useTopNavLinks(): TopNavLink[] {
   // About
   if (modules?.about !== false) {
     links.push({ title: t('About'), href: '/about' })
+  }
+
+  // Contact: a same-site path the app has no route for, or an http(s) URL
+  const contact = modules?.contact
+  if (contact?.enabled) {
+    const href = contact.link.trim()
+    const kind = getContactLinkKind(href)
+    if (kind === 'path') {
+      links.push({ title: t('Contact'), href, reloadDocument: true })
+    } else if (kind === 'url') {
+      links.push({ title: t('Contact'), href, external: true })
+    }
   }
 
   return links
