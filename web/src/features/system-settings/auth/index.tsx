@@ -38,6 +38,7 @@ const defaultAuthSettings: AuthSettings = {
   PhoneCountryCode: '',
   PhoneTrunkPrefix: '',
   PhoneNationalNumberPattern: '',
+  RegisterPhoneHint: '',
   ServerAddress: '',
   GitHubOAuthEnabled: false,
   GitHubClientId: '',

@@ -121,8 +121,7 @@ export interface SystemStatus {
     turnstile_site_key?: string
     email_verification?: boolean
     register_phone_required?: boolean
-    phone_country_code?: string
-    phone_trunk_prefix?: string
+    register_phone_hint?: string
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
     display_token_stat_enabled?: boolean
@@ -173,10 +172,8 @@ export interface SystemStatus {
   email_verification?: boolean
   /** Sign-up asks for a phone number no other account holds */
   register_phone_required?: boolean
-  /** Country calling code of the accepted numbers, digits without + */
-  phone_country_code?: string
-  /** Trunk prefix written before a national number */
-  phone_trunk_prefix?: string
+  /** The administrator's line under the sign-up phone field, plain text */
+  register_phone_hint?: string
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean
   display_token_stat_enabled?: boolean

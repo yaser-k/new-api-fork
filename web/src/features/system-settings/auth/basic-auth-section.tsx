@@ -77,6 +77,10 @@ const basicAuthSchema = z.object({
     .trim()
     .regex(/^(\d{1,3})?$/, 'The trunk prefix must be one to three digits'),
   PhoneNationalNumberPattern: z.string().trim(),
+  RegisterPhoneHint: z
+    .string()
+    .trim()
+    .max(200, 'The phone number hint must be at most 200 characters'),
 })
 
 type BasicAuthFormValues = z.infer<typeof basicAuthSchema>
@@ -324,7 +328,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Written before a national number and kept in the stored number. Used only with a country code.'
+                    'Written before a national number when it is dialed without the country code. Used only with a country code.'
                   )}
                 </FormDescription>
                 <FormMessage />
@@ -344,6 +348,25 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                 <FormDescription>
                   {t(
                     'A regular expression the whole national number must match, without the country code or the trunk prefix. Used only with a country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='RegisterPhoneHint'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Phone number hint')}</FormLabel>
+                <FormControl>
+                  <Input maxLength={200} {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Shown under the phone field on the sign-up page, as plain text. Leave empty to show none.'
                   )}
                 </FormDescription>
                 <FormMessage />

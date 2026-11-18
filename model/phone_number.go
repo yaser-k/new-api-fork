@@ -1,20 +1,27 @@
 package model
 
 import (
+	"errors"
+	"math/rand/v2"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
-// An account's phone number is stored in one normal form, so two spellings of
-// one number are one number and the unique index on users.phone holds one
+// An account's phone number is stored in one normal form, the full
+// international number (+, country code, national number), which does not
+// depend on the format options. Two spellings of one number, under any
+// options, are one number, and the unique index on users.phone holds one
 // account per number. Registration, the administrator's edits and a later
 // verification step all read numbers with PhoneNumberFormat.Normalize and check
-// them with EnsurePhoneNumberAvailable.
+// them with EnsurePhoneNumberAvailable; PhoneNumberFormat.Display writes the
+// stored number nationally, for showing it only.
 
 // The refusals are web console messages, so the API answers them as they are.
 var (
@@ -45,7 +52,7 @@ var (
 // prefix and the pattern do not apply.
 type PhoneNumberFormat struct {
 	CountryCode           string // country calling code, digits without +
-	TrunkPrefix           string // written before a national number, as in the normal form
+	TrunkPrefix           string // written before a national number when it is dialled without the country code
 	NationalNumberPattern string // regular expression the whole national number matches
 }
 
@@ -67,9 +74,8 @@ func CurrentPhoneNumberFormat() PhoneNumberFormat {
 // code, with the bare country code, with the trunk prefix, or as the bare
 // national number; the readings are tried in that order, the first whose
 // national number fits is taken, and the refusal is that of the first reading.
-// The normal form is the trunk prefix and the national number. Without a
-// country code the number must be written with + or 00, and the normal form
-// is + and its digits.
+// Without a country code the number must be written with + or 00. The normal
+// form is always + and the international digits.
 func (format PhoneNumberFormat) Normalize(raw string) (string, error) {
 	var digits strings.Builder
 	plus := false
@@ -143,13 +149,31 @@ func (format PhoneNumberFormat) Normalize(raw string) (string, error) {
 		case pattern != nil && !pattern.MatchString(national):
 			reason = ErrPhoneNumberFormat
 		default:
-			return format.TrunkPrefix + national, nil
+			return "+" + format.CountryCode + national, nil
 		}
 		if refusal == nil {
 			refusal = reason
 		}
 	}
 	return "", refusal
+}
+
+// Display writes a stored number as the format reads it nationally: the trunk
+// prefix and the national number when the number has the format's country
+// code, the stored international number otherwise.
+func (format PhoneNumberFormat) Display(phone string) string {
+	national, ok := strings.CutPrefix(phone, "+"+format.CountryCode)
+	if !ok || format.CountryCode == "" {
+		return phone
+	}
+	return format.TrunkPrefix + national
+}
+
+// FillPhoneDisplay sets PhoneDisplay for an answer that shows the account.
+func (user *User) FillPhoneDisplay() {
+	if user.Phone != nil {
+		user.PhoneDisplay = CurrentPhoneNumberFormat().Display(*user.Phone)
+	}
 }
 
 // decimalDigitValue returns the value of a Unicode decimal digit. Unicode
@@ -222,6 +246,37 @@ func ensurePhoneNumberAvailableWithTx(tx *gorm.DB, phone string, excludeUserID i
 func phoneNumberConflict(err error) error {
 	if err != nil && (strings.Contains(err.Error(), phoneNumberIndex) || strings.Contains(err.Error(), "users.phone")) {
 		return ErrPhoneNumberTaken
+	}
+	return err
+}
+
+// phoneNumberRaceRuns bounds RetryPhoneNumberRace. Each deadlock rolls back
+// one transaction and lets the others finish, so every run settles at least
+// one of the racing sign-ups; a short random pause keeps the rolled-back ones
+// from starting again in step.
+const phoneNumberRaceRuns = 5
+
+// RetryPhoneNumberRace runs insert, a transaction that creates user, again
+// when MySQL ends it with a deadlock (1213) or a lock wait timeout (1205) and
+// user carries a phone number. A sign-up locks its email before it writes, and
+// on MySQL sign-ups racing for one number can deadlock on those locks; the
+// rolled-back one answered with the database's error. A later run starts from
+// the same values, waits for the winner to commit, and is refused as in use by
+// the same check and unique index as on SQLite and PostgreSQL. Any other error,
+// and every insert without a number, stays as it was.
+func RetryPhoneNumberRace(user *User, insert func() error) error {
+	values := *user
+	var err error
+	for run := range phoneNumberRaceRuns {
+		if run > 0 {
+			time.Sleep(time.Duration(10+rand.IntN(40*run)) * time.Millisecond)
+		}
+		*user = values
+		err = insert()
+		var mysqlErr *mysql.MySQLError
+		if values.Phone == nil || !errors.As(err, &mysqlErr) || (mysqlErr.Number != 1213 && mysqlErr.Number != 1205) {
+			return err
+		}
 	}
 	return err
 }

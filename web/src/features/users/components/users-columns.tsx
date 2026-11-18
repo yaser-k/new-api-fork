@@ -144,7 +144,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
         accessorKey: 'phone',
         header: t('Phone number'),
         cell: ({ row }) => {
-          const phone = row.original.phone
+          const phone = row.original.phone_display || row.original.phone
           if (!phone) {
             return <span className='text-muted-foreground'>-</span>
           }

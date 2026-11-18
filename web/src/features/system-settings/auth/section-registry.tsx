@@ -44,6 +44,7 @@ const AUTH_SECTIONS = [
           PhoneCountryCode: settings.PhoneCountryCode,
           PhoneTrunkPrefix: settings.PhoneTrunkPrefix,
           PhoneNationalNumberPattern: settings.PhoneNationalNumberPattern,
+          RegisterPhoneHint: settings.RegisterPhoneHint,
         }}
       />
     ),

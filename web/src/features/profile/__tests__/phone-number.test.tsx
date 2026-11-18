@@ -39,10 +39,14 @@ const profile: UserProfile = {
   created_time: 0,
 }
 
-it('the profile shows the account phone number left to right, as text the owner cannot edit', () => {
+it('the profile shows the account phone number as the options write it, left to right, as text the owner cannot edit', () => {
   render(
     <ProfileHeader
-      profile={{ ...profile, phone: '07911123456' }}
+      profile={{
+        ...profile,
+        phone: '+447911123456',
+        phone_display: '07911123456',
+      }}
       loading={false}
     />
   )

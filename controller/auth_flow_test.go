@@ -1166,3 +1166,108 @@ func TestOAuthRegistrationPersistsInviter(t *testing.T) {
 		})
 	}
 }
+
+const oauthPhoneRequiredMessage = "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings"
+
+// withRequiredPhoneNumber turns RegisterPhoneRequiredEnabled on for one test.
+func withRequiredPhoneNumber(t *testing.T) {
+	t.Helper()
+	previousRequired, previousRegister := common.RegisterPhoneRequiredEnabled, common.RegisterEnabled
+	common.RegisterPhoneRequiredEnabled, common.RegisterEnabled = true, true
+	t.Cleanup(func() {
+		common.RegisterPhoneRequiredEnabled, common.RegisterEnabled = previousRequired, previousRegister
+	})
+}
+
+func TestOAuthWithRequiredPhoneNumberCreatesNoAccountButSignsInBoundOnes(t *testing.T) {
+	db, dialect := openTaskDialectDatabase(t, &model.User{}, &model.Log{})
+	oldDB, oldLogDB := model.DB, model.LOG_DB
+	oldMain, oldLog := common.MainDatabaseType(), common.LogDatabaseType()
+	oldRedis, oldNew := common.RedisEnabled, common.QuotaForNewUser
+	model.DB, model.LOG_DB = db, db
+	common.SetDatabaseTypes(dialect, dialect)
+	common.RedisEnabled, common.QuotaForNewUser = false, 0
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = oldDB, oldLogDB
+		common.SetDatabaseTypes(oldMain, oldLog)
+		common.RedisEnabled, common.QuotaForNewUser = oldRedis, oldNew
+	})
+	withRequiredPhoneNumber(t)
+	bound := model.User{Username: "bound-github", AffCode: "bound-github", GitHubId: "github-bound", Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&bound).Error)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	provider := &oauth.GitHubProvider{}
+	countGitHub := func(id string) int64 {
+		var count int64
+		require.NoError(t, db.Model(&model.User{}).Where("github_id = ?", id).Count(&count).Error)
+		return count
+	}
+
+	_, _, err := findOrCreateOAuthUser(ctx, provider, &oauth.OAuthUser{ProviderUserID: "github-new", Username: "new-github"}, &oauth.OAuthToken{}, "")
+	require.Error(t, err, "a first sign-in that would create an account is refused")
+	assert.Zero(t, countGitHub("github-new"))
+
+	existing, _, err := findOrCreateOAuthUser(ctx, provider, &oauth.OAuthUser{ProviderUserID: "github-bound"}, &oauth.OAuthToken{}, "")
+	require.NoError(t, err)
+	assert.Equal(t, bound.Id, existing.Id, "a bound account still signs in")
+
+	common.RegisterPhoneRequiredEnabled = false
+	created, _, err := findOrCreateOAuthUser(ctx, provider, &oauth.OAuthUser{ProviderUserID: "github-new", Username: "new-github"}, &oauth.OAuthToken{}, "")
+	require.NoError(t, err, "with the option off a first sign-in registers as before")
+	assert.NotZero(t, created.Id)
+	assert.EqualValues(t, 1, countGitHub("github-new"))
+}
+
+func TestOAuthLoginWithRequiredPhoneNumberAnswersRegisterFirst(t *testing.T) {
+	setupAuthFlowControllerTest(t)
+	withRequiredPhoneNumber(t)
+	token, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
+		Purpose: model.AuthFlowPurposeOAuth, Provider: "auth-flow-test", Intent: model.AuthFlowIntentLogin,
+		Payload: `{}`, ExpiresAt: time.Now().Add(time.Minute),
+	})
+	require.NoError(t, err)
+	router := gin.New()
+	router.GET("/api/oauth/:provider", HandleOAuth)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/oauth/auth-flow-test?state="+token+"&code=test", nil))
+
+	var result struct {
+		Success    bool   `json:"success"`
+		MessageKey string `json:"message_key"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.False(t, result.Success, response.Body.String())
+	assert.Equal(t, oauthPhoneRequiredMessage, result.MessageKey)
+	var users int64
+	require.NoError(t, model.DB.Model(&model.User{}).Count(&users).Error)
+	assert.Zero(t, users)
+}
+
+func TestOAuthBindWithRequiredPhoneNumberStillLinksTheAccount(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	withRequiredPhoneNumber(t)
+	const slug = "github-phone-bind-test"
+	oauth.Register(slug, &legacyGitHubOAuthProvider{providerUserID: "900002"})
+	t.Cleanup(func() { oauth.Unregister(slug) })
+	proof := issueSecurityEnrollmentProof(t, identity, service.VerificationOperation{Scope: service.VerificationScopeAccountBind, Context: []byte(`{"provider":"` + slug + `"}`)}, service.VerificationMethodPassword)
+	started := securityEnrollmentRequest(http.MethodPost, "/api/oauth/state", `{"provider":"`+slug+`","intent":"bind"}`, proof, identity, GenerateOAuthCode)
+	var flow struct {
+		Data struct {
+			FlowToken string `json:"flow_token"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(started.Body.Bytes(), &flow))
+	require.NotEmpty(t, flow.Data.FlowToken, started.Body.String())
+	response := securityEnrollmentRequest(http.MethodGet, "/api/oauth/"+slug+"?state="+flow.Data.FlowToken+"&code=provider-code", "", "", identity, func(c *gin.Context) {
+		c.Params = gin.Params{{Key: "provider", Value: slug}}
+		HandleOAuth(c)
+	})
+	var result struct {
+		Success bool `json:"success"`
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.True(t, result.Success, response.Body.String())
+	var bound model.User
+	require.NoError(t, model.DB.First(&bound, user.Id).Error)
+	assert.Equal(t, "900002", bound.GitHubId)
+}

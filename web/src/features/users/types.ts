@@ -42,7 +42,10 @@ export const userSchema = z.object({
   wechat_id: z.string().optional(),
   telegram_id: z.string().optional(),
   email: z.string().optional(),
+  /** The stored international number */
   phone: z.string().nullable().optional(),
+  /** The number as the format options write it nationally, for showing */
+  phone_display: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
   request_count: z.number(),

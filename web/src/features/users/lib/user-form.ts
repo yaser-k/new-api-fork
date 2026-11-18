@@ -122,7 +122,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     username: user.username,
     display_name: user.display_name,
     password: '',
-    phone: user.phone ?? '',
+    phone: user.phone_display || user.phone || '',
     role: user.role,
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,

@@ -48,6 +48,7 @@ const defaults = {
   PhoneCountryCode: '',
   PhoneTrunkPrefix: '',
   PhoneNationalNumberPattern: '',
+  RegisterPhoneHint: '',
 }
 
 function Fixture() {
@@ -144,4 +145,34 @@ it('the phone format fields are written left to right', async () => {
   ]) {
     expect(screen.getByLabelText(label)).toHaveAttribute('dir', 'ltr')
   }
+})
+
+it('the administrator hint for the sign-up phone field is saved trimmed', async () => {
+  const put = mockSave()
+  const user = userEvent.setup()
+  await renderSettings()
+
+  await user.type(
+    screen.getByLabelText('Phone number hint'),
+    '  Mobile numbers only.  '
+  )
+  await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+  await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
+  expect(put.mock.calls[0][1]).toEqual({
+    key: 'RegisterPhoneHint',
+    value: 'Mobile numbers only.',
+  })
+})
+
+it('the administrator hint field takes at most 200 characters', async () => {
+  const user = userEvent.setup()
+  await renderSettings()
+
+  const hint = screen.getByLabelText('Phone number hint')
+  await user.click(hint)
+  await user.paste('x'.repeat(201))
+
+  expect(hint).toHaveAttribute('maxLength', '200')
+  expect(hint).toHaveValue('x'.repeat(200))
 })

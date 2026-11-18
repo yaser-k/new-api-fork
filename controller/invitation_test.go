@@ -542,7 +542,7 @@ func TestInvitationRegisterRequiresAValidUnusedPhoneNumber(t *testing.T) {
 	require.True(t, result.Success, result.Message)
 	phone, ok := invitedPhone(t, invitationTestDefaultEmail)
 	assert.True(t, ok)
-	assert.Equal(t, "07911654321", phone)
+	assert.Equal(t, "+447911654321", phone)
 	assert.NotZero(t, invitationRow(t, id).UsedTime)
 }
 
@@ -583,7 +583,7 @@ func TestInvitationConcurrentRegistersWithOneNumberMakeOneAccount(t *testing.T) 
 	}
 	assert.Equal(t, 1, successes, "%+v", results)
 	var holders int64
-	require.NoError(t, model.DB.Table("users").Where("phone = ?", "07911777888").Count(&holders).Error)
+	require.NoError(t, model.DB.Table("users").Where("phone = ?", "+447911777888").Count(&holders).Error)
 	assert.EqualValues(t, 1, holders)
 }
 

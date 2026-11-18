@@ -160,7 +160,7 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
                     dir='ltr'
                     title={t('Phone number')}
                   >
-                    {profile.phone}
+                    {profile.phone_display || profile.phone}
                   </span>
                 </>
               )}

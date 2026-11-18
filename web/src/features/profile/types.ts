@@ -47,8 +47,10 @@ export interface UserProfile {
   role: number
   /** Email address */
   email?: string
-  /** Phone number in its stored form; only an administrator changes it */
+  /** Phone number in its stored international form; only an administrator changes it */
   phone?: string | null
+  /** The number as the format options write it nationally, for showing */
+  phone_display?: string
   /** User group */
   group: string
   /** Current quota balance */

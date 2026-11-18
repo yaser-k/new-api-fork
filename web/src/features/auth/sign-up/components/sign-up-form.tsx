@@ -125,23 +125,10 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
-  // The server reads the number and is the authority; the hint shows the
-  // spellings it takes.
+  // The server reads the number and is the authority; the accepted format
+  // stays on the server, and the administrator may add a line of their own.
   const phoneRequired = Boolean(status?.register_phone_required)
-  const phoneCountryCode = status?.phone_country_code ?? ''
-  const phoneTrunkPrefix = status?.phone_trunk_prefix ?? ''
-  let phoneHint = t('Enter the number with + and the country code')
-  if (phoneCountryCode && phoneTrunkPrefix) {
-    phoneHint = t(
-      'Enter the number starting with {{trunkPrefix}}, or with +{{countryCode}}',
-      { trunkPrefix: phoneTrunkPrefix, countryCode: phoneCountryCode }
-    )
-  } else if (phoneCountryCode) {
-    phoneHint = t(
-      'Enter the national number, or the number with +{{countryCode}}',
-      { countryCode: phoneCountryCode }
-    )
-  }
+  const phoneHint = status?.register_phone_hint
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -434,7 +421,15 @@ export function SignUpForm({
                     {...field}
                   />
                 </FormControl>
-                <FormDescription>{phoneHint}</FormDescription>
+                <FormDescription>
+                  {t('You can use spaces, hyphens, dots and brackets.')}
+                  {phoneHint ? (
+                    <>
+                      {' '}
+                      <span className='block'>{phoneHint}</span>
+                    </>
+                  ) : null}
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}

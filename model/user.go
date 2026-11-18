@@ -87,6 +87,7 @@ type User struct {
 	Status               int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
 	Email                string                     `json:"email" gorm:"index" validate:"max=50"`
 	Phone                *string                    `json:"phone,omitempty" gorm:"type:varchar(32);column:phone;uniqueIndex:idx_users_phone"` // PhoneNumberFormat.Normalize form; nil when none, since NULL repeats under the unique index and "" would not
+	PhoneDisplay         string                     `json:"phone_display,omitempty" gorm:"-:all"`                                             // Phone as PhoneNumberFormat.Display writes it, in answers that show the account
 	GitHubId             string                     `json:"github_id" gorm:"column:github_id;index"`
 	DiscordId            string                     `json:"discord_id" gorm:"column:discord_id;index"`
 	OidcId               string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
@@ -427,6 +428,9 @@ func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (use
 		tx.Rollback()
 		return nil, 0, err
 	}
+	for _, user := range users {
+		user.FillPhoneDisplay()
+	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
@@ -458,6 +462,10 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	// 构建搜索条件
 	likeCondition := "username LIKE ? OR email LIKE ? OR display_name LIKE ? OR phone LIKE ?"
 	likeArgs := []any{"%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%", "%" + keyword + "%"}
+	if phone, err := CurrentPhoneNumberFormat().Normalize(keyword); err == nil {
+		likeCondition += " OR phone = ?"
+		likeArgs = append(likeArgs, phone)
+	}
 
 	// 尝试将关键字转换为整数ID
 	keywordInt, err := strconv.Atoi(keyword)
@@ -495,6 +503,9 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
+	}
+	for _, user := range users {
+		user.FillPhoneDisplay()
 	}
 
 	// 提交事务

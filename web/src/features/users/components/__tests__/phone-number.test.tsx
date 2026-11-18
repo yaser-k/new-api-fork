@@ -45,7 +45,8 @@ const target: User = {
   used_quota: 0,
   request_count: 0,
   group: 'default',
-  phone: '07911123456',
+  phone: '+447911123456',
+  phone_display: '07911123456',
 }
 
 function PhoneColumn(props: { users: User[] }) {
@@ -127,10 +128,16 @@ afterEach(() => {
   useAuthStore.getState().auth.reset()
 })
 
-it('the users table shows the stored phone number left to right, and a dash for none', () => {
+it('the users table shows the phone number as the options write it, left to right, and a dash for none', () => {
   render(
     <TooltipProvider>
-      <PhoneColumn users={[target, { ...target, id: 3, phone: null }]} />
+      <PhoneColumn
+        users={[
+          target,
+          { ...target, id: 3, phone: '+14155550101', phone_display: undefined },
+          { ...target, id: 4, phone: null, phone_display: undefined },
+        ]}
+      />
     </TooltipProvider>
   )
 
@@ -138,6 +145,8 @@ it('the users table shows the stored phone number left to right, and a dash for 
     screen.getByRole('columnheader', { name: 'Phone number' })
   ).toBeInTheDocument()
   expect(screen.getByText('07911123456')).toHaveAttribute('dir', 'ltr')
+  expect(screen.queryByText('+447911123456')).toBeNull()
+  expect(screen.getByText('+14155550101')).toHaveAttribute('dir', 'ltr')
   expect(screen.getByText('-')).toBeInTheDocument()
 })
 
