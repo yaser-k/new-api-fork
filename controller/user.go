@@ -315,7 +315,7 @@ func Register(c *gin.Context) {
 		cleanUser.Phone = &phone
 	}
 	// Each run inserts the account from the same values; see RetryPhoneNumberRace.
-	err = model.RetryPhoneNumberRace(&cleanUser, func() error {
+	err = model.RetryPhoneNumberRace(c.Request.Context(), &cleanUser, func() error {
 		if invitation != nil {
 			return insertInvitedUser(&cleanUser, request.InviteToken, inviterId)
 		}

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"math/rand/v2"
 	"regexp"
@@ -30,6 +31,8 @@ var (
 	ErrPhoneNumberFormat     = common.NewMessage("The phone number does not match the accepted format")
 	ErrPhoneNumberCharacters = common.NewMessage("The phone number may contain only digits, spaces, hyphens, dots, brackets and a leading +")
 	ErrPhoneNumberTaken      = common.NewMessage("Phone number is already in use")
+	// ErrPhoneNumberBusy answers a sign-up RetryPhoneNumberRace gave up on.
+	ErrPhoneNumberBusy = common.NewMessage("The sign-up could not be completed right now. Please try again.")
 )
 
 const (
@@ -250,33 +253,52 @@ func phoneNumberConflict(err error) error {
 	return err
 }
 
-// phoneNumberRaceRuns bounds RetryPhoneNumberRace. Each deadlock rolls back
-// one transaction and lets the others finish, so every run settles at least
-// one of the racing sign-ups; a short random pause keeps the rolled-back ones
-// from starting again in step.
-const phoneNumberRaceRuns = 5
+// RetryPhoneNumberRace makes at most phoneNumberRaceRuns runs. Each deadlock
+// rolls back one transaction and lets the others finish, so every run settles
+// at least one of the racing sign-ups; a short random pause keeps the
+// rolled-back ones from starting again in step. A lock wait timeout already
+// waited out the server's whole timeout, so it is retried only once.
+const (
+	phoneNumberRaceRuns     = 5
+	phoneNumberLockWaitRuns = 2
+)
 
 // RetryPhoneNumberRace runs insert, a transaction that creates user, again
 // when MySQL ends it with a deadlock (1213) or a lock wait timeout (1205) and
 // user carries a phone number. A sign-up locks its email before it writes, and
-// on MySQL sign-ups racing for one number can deadlock on those locks; the
-// rolled-back one answered with the database's error. A later run starts from
-// the same values, waits for the winner to commit, and is refused as in use by
-// the same check and unique index as on SQLite and PostgreSQL. Any other error,
+// on MySQL sign-ups racing for one number can deadlock on those locks. A later
+// run starts from the same values, waits for the winner to commit, and is
+// refused as in use by the same check and unique index as on SQLite and
+// PostgreSQL. When the runs are spent, or ctx ends between two runs, the
+// answer is ErrPhoneNumberBusy, never the database's text; the transactions
+// rolled back, so no account was made and nothing was spent. Any other error,
 // and every insert without a number, stays as it was.
-func RetryPhoneNumberRace(user *User, insert func() error) error {
+func RetryPhoneNumberRace(ctx context.Context, user *User, insert func() error) error {
 	values := *user
-	var err error
+	lockWaits := 0
 	for run := range phoneNumberRaceRuns {
 		if run > 0 {
-			time.Sleep(time.Duration(10+rand.IntN(40*run)) * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return ErrPhoneNumberBusy
+			case <-time.After(time.Duration(10+rand.IntN(40*run)) * time.Millisecond):
+			}
 		}
 		*user = values
-		err = insert()
+		err := insert()
 		var mysqlErr *mysql.MySQLError
-		if values.Phone == nil || !errors.As(err, &mysqlErr) || (mysqlErr.Number != 1213 && mysqlErr.Number != 1205) {
+		if values.Phone == nil || !errors.As(err, &mysqlErr) {
+			return err
+		}
+		switch mysqlErr.Number {
+		case 1213:
+		case 1205:
+			if lockWaits++; lockWaits == phoneNumberLockWaitRuns {
+				return ErrPhoneNumberBusy
+			}
+		default:
 			return err
 		}
 	}
-	return err
+	return ErrPhoneNumberBusy
 }

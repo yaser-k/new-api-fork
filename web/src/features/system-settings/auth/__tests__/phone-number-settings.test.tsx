@@ -135,6 +135,20 @@ it('a country calling code that starts with 0 is refused on the field before sav
   expect(put).not.toHaveBeenCalled()
 })
 
+it('the phone requirement says third-party sign-ins cannot create an account while it is on', async () => {
+  await renderSettings()
+
+  expect(
+    screen.getByRole('switch', {
+      name: 'Require a phone number at registration',
+    })
+  ).toHaveAccessibleDescription(
+    expect.stringContaining(
+      'While this is on, third-party sign-ins cannot create an account'
+    )
+  )
+})
+
 it('the phone format fields are written left to right', async () => {
   await renderSettings()
 

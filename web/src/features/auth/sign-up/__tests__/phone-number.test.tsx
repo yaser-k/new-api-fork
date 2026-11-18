@@ -165,3 +165,37 @@ it('without the requirement, the form shows no phone field and posts no number',
   await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
   expect(post.mock.calls[0][1]).not.toHaveProperty('phone', expect.anything())
 })
+
+it('with the phone number required, the sign-up page shows no third-party sign-up buttons', async () => {
+  mockApi({
+    register_phone_required: true,
+    github_oauth: true,
+    wechat_login: true,
+  })
+  await renderSignUpForm()
+
+  expect(await screen.findByLabelText('Phone number')).toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: /Continue with GitHub/ })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('button', { name: /Continue with WeChat/ })
+  ).not.toBeInTheDocument()
+})
+
+it('without the phone number required, the sign-up page keeps its third-party sign-up buttons', async () => {
+  mockApi({
+    register_phone_required: false,
+    github_oauth: true,
+    wechat_login: true,
+  })
+  await renderSignUpForm()
+
+  expect(
+    await screen.findByRole('button', { name: /Continue with GitHub/ })
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole('button', { name: /Continue with WeChat/ })
+  ).toBeInTheDocument()
+  expect(screen.queryByLabelText('Phone number')).not.toBeInTheDocument()
+})

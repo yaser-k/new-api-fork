@@ -468,7 +468,8 @@ export function SignUpForm({
           {t('Create account')}
         </Button>
 
-        {oauthRegisterEnabled && !invitation && (
+        {/* A third-party sign-in cannot create an account while a phone number is required. */}
+        {oauthRegisterEnabled && !invitation && !phoneRequired && (
           <OAuthProviders
             status={status}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
