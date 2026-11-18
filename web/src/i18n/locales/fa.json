@@ -2726,6 +2726,7 @@
     "Greater Than or Equal": "بزرگ‌تر یا مساوی",
     "Grok Settings": "تنظیمات Grok",
     "Group": "گروه",
+    "Group {{group}} is unavailable or unauthorized": "گروه ⁨{{group}}⁩ در دسترس نیست یا مجاز نیست",
     "Group {{path}}": "گروه ⁨{{path}}⁩",
     "Group & Quota": "گروه و سهمیه",
     "Group added. Click \"Save Settings\" to apply.": "گروه اضافه شد. برای اعمال، روی «ذخیرۀ تنظیمات» کلیک کنید.",
