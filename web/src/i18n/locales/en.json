@@ -4599,6 +4599,7 @@
     "Optional tag for grouping channels": "Optional tag for grouping channels",
     "Optional, for example: 12": "Optional, for example: 12",
     "Optional, for example: default": "Optional, for example: default",
+    "Optional. Only administrators can set or change it.": "Optional. Only administrators can set or change it.",
     "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.": "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.",
     "Opus Model": "Opus Model",
     "Or continue with": "Or continue with",

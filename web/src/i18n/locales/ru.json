@@ -4599,6 +4599,7 @@
     "Optional tag for grouping channels": "Необязательный тег для группировки каналов",
     "Optional, for example: 12": "Необязательно, например: 12",
     "Optional, for example: default": "Необязательно, например: default",
+    "Optional. Only administrators can set or change it.": "Необязательно. Задавать и изменять его могут только администраторы.",
     "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.": "Необязательно. Без него регион выбирает Google, а с ним запросы отправляются в регион развертывания ниже.",
     "Opus Model": "Модель Opus",
     "Or continue with": "Или продолжить с",

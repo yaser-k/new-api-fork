@@ -4599,6 +4599,7 @@
     "Optional tag for grouping channels": "用於分組渠道的可選標籤",
     "Optional, for example: 12": "選填，例如：12",
     "Optional, for example: default": "選填，例如：default",
+    "Optional. Only administrators can set or change it.": "選填。僅管理員可以設定或修改。",
     "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.": "可選。不填時由 Google 決定區域；填寫後，請求會送往下方的部署區域。",
     "Opus Model": "Opus 模型",
     "Or continue with": "或繼續使用",

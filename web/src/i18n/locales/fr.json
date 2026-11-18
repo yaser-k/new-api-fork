@@ -4599,6 +4599,7 @@
     "Optional tag for grouping channels": "Étiquette optionnelle pour regrouper les canaux",
     "Optional, for example: 12": "Facultatif, par exemple : 12",
     "Optional, for example: default": "Facultatif, par exemple : default",
+    "Optional. Only administrators can set or change it.": "Facultatif. Seuls les administrateurs peuvent le définir ou le modifier.",
     "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.": "Facultatif. Sans ID, Google choisit la région ; avec un ID, les requêtes vont vers la région de déploiement ci-dessous.",
     "Opus Model": "Modèle Opus",
     "Or continue with": "Ou continuer avec",

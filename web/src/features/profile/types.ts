@@ -47,6 +47,8 @@ export interface UserProfile {
   role: number
   /** Email address */
   email?: string
+  /** Phone number in its stored form; only an administrator changes it */
+  phone?: string | null
   /** User group */
   group: string
   /** Current quota balance */

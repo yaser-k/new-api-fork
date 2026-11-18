@@ -4599,6 +4599,7 @@
     "Optional tag for grouping channels": "チャネルをグループ化するためのオプションのタグ",
     "Optional, for example: 12": "任意。例：12",
     "Optional, for example: default": "任意。例：default",
+    "Optional. Only administrators can set or change it.": "任意。設定や変更ができるのは管理者のみです。",
     "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.": "任意。未入力の場合は Google がリージョンを選びます。入力すると、下のデプロイリージョンにリクエストを送信します。",
     "Opus Model": "Opus モデル",
     "Or continue with": "または、以下で続行",

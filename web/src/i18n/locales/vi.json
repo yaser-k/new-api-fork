@@ -4599,6 +4599,7 @@
     "Optional tag for grouping channels": "Thẻ tùy chọn để nhóm kênh",
     "Optional, for example: 12": "Không bắt buộc, ví dụ: 12",
     "Optional, for example: default": "Không bắt buộc, ví dụ: default",
+    "Optional. Only administrators can set or change it.": "Không bắt buộc. Chỉ quản trị viên có thể đặt hoặc thay đổi.",
     "Optional. Without it, Google picks the region; with it, requests go to the deployment region below.": "Không bắt buộc. Nếu để trống, Google sẽ tự chọn khu vực; nếu điền, yêu cầu sẽ được gửi đến khu vực triển khai bên dưới.",
     "Opus Model": "Mô hình Opus",
     "Or continue with": "Hoặc tiếp tục với",
