@@ -7708,7 +7708,7 @@
     "Workspaces": "Không gian làm việc",
     "Would this photo work as a phone wallpaper? Email the answer to alex@example.com, or call +14155550123 if anything is unclear.": "Ảnh này có hợp làm hình nền điện thoại không? Gửi câu trả lời tới an@example.com, hoặc gọi +84912345678 nếu có gì chưa rõ.",
     "Write value to the target field": "Ghi giá trị vào trường đích",
-    "Written before a national number and kept in the stored number. Used only with a country code.": "Được viết trước số trong nước và giữ lại trong số được lưu. Chỉ dùng khi có mã quốc gia.",
+    "Written before a national number when it is dialed without the country code. Used only with a country code.": "Được viết trước số trong nước khi quay số không có mã quốc gia. Chỉ dùng khi có mã quốc gia.",
     "x": "x",
     "xAI": "xAI",
     "Xinference": "Xinference",

@@ -7708,7 +7708,7 @@
     "Workspaces": "ワークスペース",
     "Would this photo work as a phone wallpaper? Email the answer to alex@example.com, or call +14155550123 if anything is unclear.": "この写真はスマホの壁紙に向いていますか？ 回答は taro@example.com に送ってください。分からない点があれば +819012345678 に電話してください。",
     "Write value to the target field": "ターゲットフィールドに値を書き込む",
-    "Written before a national number and kept in the stored number. Used only with a country code.": "国内番号の前に付け、保存される番号にも含まれます。国番号を設定した場合のみ使用されます。",
+    "Written before a national number when it is dialed without the country code. Used only with a country code.": "国番号なしで国内番号をダイヤルするときに番号の前に付けます。国番号を設定した場合のみ使用されます。",
     "x": "x",
     "xAI": "xAI",
     "Xinference": "Xinference",

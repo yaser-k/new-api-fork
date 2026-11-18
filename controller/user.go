@@ -417,6 +417,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	user.FillPhoneDisplay()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -511,6 +512,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
+	user.FillPhoneDisplay()
 	return map[string]any{
 		"id":                user.Id,
 		"username":          user.Username,
@@ -520,6 +522,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"status":            user.Status,
 		"email":             user.Email,
 		"phone":             user.Phone,
+		"phone_display":     user.PhoneDisplay,
 		"github_id":         user.GitHubId,
 		"discord_id":        user.DiscordId,
 		"oidc_id":           user.OidcId,
@@ -702,14 +705,14 @@ func UpdateUser(c *gin.Context) {
 		"username": originUser.Username,
 		"id":       updatedUser.Id,
 	}
-	// The user drawer sends the stored number back unchanged; only another
+	// The user drawer sends the number back as it showed it; only another
 	// number is read, so a format changed since does not block other edits.
 	// An empty number clears it.
 	storedPhone := ""
 	if originUser.Phone != nil {
 		storedPhone = *originUser.Phone
 	}
-	if updatedUser.Phone != nil && *updatedUser.Phone != storedPhone {
+	if updatedUser.Phone != nil && *updatedUser.Phone != storedPhone && *updatedUser.Phone != model.CurrentPhoneNumberFormat().Display(storedPhone) {
 		phone := ""
 		if strings.TrimSpace(*updatedUser.Phone) != "" {
 			if phone, err = model.CurrentPhoneNumberFormat().Normalize(*updatedUser.Phone); err != nil {

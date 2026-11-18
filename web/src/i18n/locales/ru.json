@@ -7708,7 +7708,7 @@
     "Workspaces": "Рабочие пространства",
     "Would this photo work as a phone wallpaper? Email the answer to alex@example.com, or call +14155550123 if anything is unclear.": "Подойдёт ли это фото для обоев на телефон? Ответ пришлите на ivan@example.com или позвоните по номеру +79161234567, если что-то неясно.",
     "Write value to the target field": "Записать значение в целевое поле",
-    "Written before a national number and kept in the stored number. Used only with a country code.": "Пишется перед национальным номером и сохраняется в номере. Используется только вместе с кодом страны.",
+    "Written before a national number when it is dialed without the country code. Used only with a country code.": "Пишется перед национальным номером, когда его набирают без кода страны. Используется только вместе с кодом страны.",
     "x": "x",
     "xAI": "xAI",
     "Xinference": "Xinference",

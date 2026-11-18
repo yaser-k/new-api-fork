@@ -345,34 +345,34 @@ func TestRegisterStoresEverySpellingInOneNormalForm(t *testing.T) {
 		spellings map[string]string // spelling -> normal form
 	}{
 		{"trunk", phoneTrunkFormat, map[string]string{
-			"+44 7911 123401":     "07911123401",
-			"0044 7911 123402":    "07911123402",
-			"44 7911 123403":      "07911123403",
-			"07911 123404":        "07911123404",
-			"7911 123405":         "07911123405",
-			"+44 (0) 7911 123406": "07911123406",
-			"(07911) 123-407":     "07911123407",
-			"07911.123.408":       "07911123408",
-			"[07911] 123 409":     "07911123409",
-			"۰۷۹۱۱ ۱۲۳ ۴۱۰":       "07911123410",
-			"‏+۴۴ ۷۹۱۱ ۱۲۳۴۱۱‏":   "07911123411",
-			"٠٧٩١١١٢٣٤١٢":         "07911123412",
-			"०७९११ १२३४१३":        "07911123413",
-			"＋４４ ７９１１ １２３４１４":     "07911123414",
-			"07911 123415":        "07911123415",
-			"07911–123416":        "07911123416",
+			"+44 7911 123401":     "+447911123401",
+			"0044 7911 123402":    "+447911123402",
+			"44 7911 123403":      "+447911123403",
+			"07911 123404":        "+447911123404",
+			"7911 123405":         "+447911123405",
+			"+44 (0) 7911 123406": "+447911123406",
+			"(07911) 123-407":     "+447911123407",
+			"07911.123.408":       "+447911123408",
+			"[07911] 123 409":     "+447911123409",
+			"۰۷۹۱۱ ۱۲۳ ۴۱۰":       "+447911123410",
+			"‏+۴۴ ۷۹۱۱ ۱۲۳۴۱۱‏":   "+447911123411",
+			"٠٧٩١١١٢٣٤١٢":         "+447911123412",
+			"०७९११ १२३४१३":        "+447911123413",
+			"＋４４ ７９１１ １２３４１４":     "+447911123414",
+			"07911 123415":        "+447911123415",
+			"07911–123416":        "+447911123416",
 		}},
 		{"plain", phonePlainFormat, map[string]string{
-			"+47 412 34 567": "41234567",
-			"0047 41234568":  "41234568",
-			"47 412 34 569":  "41234569",
-			"912 34 570":     "91234570",
+			"+47 412 34 567": "+4741234567",
+			"0047 41234568":  "+4741234568",
+			"47 412 34 569":  "+4741234569",
+			"912 34 570":     "+4791234570",
 		}},
 		{"shared", phoneSharedCode, map[string]string{
-			"+1 (415) 555-0101": "14155550101",
-			"1 415 555 0102":    "14155550102",
-			"(415) 555-0103":    "14155550103",
-			"001 415 555 0104":  "14155550104",
+			"+1 (415) 555-0101": "+14155550101",
+			"1 415 555 0102":    "+14155550102",
+			"(415) 555-0103":    "+14155550103",
+			"001 415 555 0104":  "+14155550104",
 		}},
 		{"international", phoneNoFormat, map[string]string{
 			"+1 415 555 0201":  "+14155550201",
@@ -409,6 +409,34 @@ func TestRegisterStoresEverySpellingInOneNormalForm(t *testing.T) {
 	}
 }
 
+func TestPhoneNumberIsOneValueWhateverTheFormatOptions(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneNoFormat)
+	result := fixture.register(t, "first-format", map[string]any{"phone": "+44 7911 123456"})
+	require.True(t, result.Success, result.Message)
+
+	// The same number, written nationally under the options that came later.
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	result = fixture.register(t, "second-format", map[string]any{"phone": "07911 123456"})
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneTakenMessage, result.Message)
+	result = fixture.register(t, "third-format", map[string]any{"phone": "07911 654321"})
+	require.True(t, result.Success, result.Message)
+
+	// And the other way round.
+	requirePhoneNumbers(t, phoneNoFormat)
+	result = fixture.register(t, "fourth-format", map[string]any{"phone": "0044 7911 654321"})
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneTakenMessage, result.Message)
+	assert.Zero(t, countUsersNamed(t, "second-format")+countUsersNamed(t, "fourth-format"))
+
+	for username, international := range map[string]string{"first-format": "+447911123456", "third-format": "+447911654321"} {
+		phone, ok := storedPhone(t, username)
+		assert.True(t, ok, username)
+		assert.Equal(t, international, phone, username)
+	}
+}
+
 func TestRegisterPhoneNumberRefusalLeavesTheEmailCodeUsable(t *testing.T) {
 	fixture := setupPhoneTest(t)
 	requirePhoneNumbers(t, phoneTrunkFormat)
@@ -424,7 +452,7 @@ func TestRegisterPhoneNumberRefusalLeavesTheEmailCodeUsable(t *testing.T) {
 	require.True(t, result.Success, result.Message)
 	phone, ok := storedPhone(t, "coded")
 	assert.True(t, ok)
-	assert.Equal(t, "07911123499", phone)
+	assert.Equal(t, "+447911123499", phone)
 }
 
 func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
@@ -463,7 +491,7 @@ func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
 			}
 			assert.Equal(t, 1, successes, "%+v", results)
 			var holders int64
-			require.NoError(t, model.DB.Unscoped().Table("users").Where("phone = ?", "07911123456").Count(&holders).Error)
+			require.NoError(t, model.DB.Unscoped().Table("users").Where("phone = ?", "+447911123456").Count(&holders).Error)
 			assert.EqualValues(t, 1, holders)
 		})
 	}
@@ -489,24 +517,25 @@ func TestPhoneNumberAccountWithoutNumberSignsInAndReadsItself(t *testing.T) {
 	assert.Nil(t, self.Data["phone"])
 
 	// An account an administrator gave a number reads it in its own data.
-	setStoredPhone(t, id, "07911123456")
+	setStoredPhone(t, id, "+447911123456")
 	self = fixture.request(t, http.MethodGet, "/api/user/self", token, nil)
 	require.True(t, self.Success, self.Message)
-	assert.Equal(t, "07911123456", self.Data["phone"])
+	assert.Equal(t, "+447911123456", self.Data["phone"])
+	assert.Equal(t, "07911123456", self.Data["phone_display"], "shown as the options write it nationally")
 }
 
 func TestPhoneNumberSelfUpdateCannotChangeIt(t *testing.T) {
 	fixture := setupPhoneTest(t)
 	requirePhoneNumbers(t, phoneTrunkFormat)
 	token, id := createPhoneTestSession(t, "owner", common.RoleCommonUser)
-	setStoredPhone(t, id, "07911123456")
+	setStoredPhone(t, id, "+447911123456")
 
 	for _, phone := range []any{"+44 7911 654321", "", nil} {
 		result := fixture.request(t, http.MethodPut, "/api/user/self", token, map[string]any{"username": "owner", "display_name": "Owner", "phone": phone})
 		require.True(t, result.Success, result.Message)
 		stored, ok := storedPhone(t, "owner")
 		assert.True(t, ok, "%v", phone)
-		assert.Equal(t, "07911123456", stored, "%v", phone)
+		assert.Equal(t, "+447911123456", stored, "%v", phone)
 	}
 	var displayName string
 	require.NoError(t, model.DB.Table("users").Where("id = ?", id).Select("display_name").Scan(&displayName).Error)
@@ -518,7 +547,7 @@ func TestAdminSetsChangesAndClearsThePhoneNumber(t *testing.T) {
 	requirePhoneNumbers(t, phoneTrunkFormat)
 	_, id := createPhoneTestSession(t, "managed", common.RoleCommonUser)
 	_, otherId := createPhoneTestSession(t, "other", common.RoleCommonUser)
-	setStoredPhone(t, otherId, "07911000000")
+	setStoredPhone(t, otherId, "+447911000000")
 	update := func(phone any) phoneResponse {
 		body := map[string]any{"id": id, "username": "managed", "display_name": "managed", "group": "default"}
 		if phone != nil {
@@ -531,21 +560,30 @@ func TestAdminSetsChangesAndClearsThePhoneNumber(t *testing.T) {
 	require.True(t, result.Success, result.Message)
 	phone, ok := storedPhone(t, "managed")
 	assert.True(t, ok)
-	assert.Equal(t, "07911222333", phone)
+	assert.Equal(t, "+447911222333", phone)
 
 	read := fixture.request(t, http.MethodGet, fmt.Sprintf("/api/user/%d", id), fixture.adminToken, nil)
 	require.True(t, read.Success, read.Message)
-	assert.Equal(t, "07911222333", read.Data["phone"])
-	search := fixture.request(t, http.MethodGet, "/api/user/search?keyword=7911222333", fixture.adminToken, nil)
-	require.True(t, search.Success, search.Message)
-	items, _ := search.Data["items"].([]any)
-	require.Len(t, items, 1)
-	assert.Equal(t, "managed", items[0].(map[string]any)["username"])
+	assert.Equal(t, "+447911222333", read.Data["phone"])
+	assert.Equal(t, "07911222333", read.Data["phone_display"])
+	// The search finds the number by its digits and by a spelling it parses.
+	for _, keyword := range []string{"7911222333", "07911222333", "%2B447911222333"} {
+		search := fixture.request(t, http.MethodGet, "/api/user/search?keyword="+keyword, fixture.adminToken, nil)
+		require.True(t, search.Success, search.Message)
+		items, _ := search.Data["items"].([]any)
+		require.Len(t, items, 1, keyword)
+		assert.Equal(t, "managed", items[0].(map[string]any)["username"], keyword)
+		assert.Equal(t, "07911222333", items[0].(map[string]any)["phone_display"], keyword)
+	}
 
 	result = update(nil)
 	require.True(t, result.Success, result.Message)
 	phone, _ = storedPhone(t, "managed")
-	assert.Equal(t, "07911222333", phone, "an update without the field keeps the number")
+	assert.Equal(t, "+447911222333", phone, "an update without the field keeps the number")
+	result = update("07911222333")
+	require.True(t, result.Success, result.Message)
+	phone, _ = storedPhone(t, "managed")
+	assert.Equal(t, "+447911222333", phone, "the drawer sends back the national spelling it showed")
 
 	result = update("0044 7911 000000")
 	assert.False(t, result.Success)
@@ -554,7 +592,7 @@ func TestAdminSetsChangesAndClearsThePhoneNumber(t *testing.T) {
 	assert.False(t, result.Success)
 	assert.Equal(t, phoneFormatMessage, result.Message)
 	phone, _ = storedPhone(t, "managed")
-	assert.Equal(t, "07911222333", phone, "a refused update keeps the number")
+	assert.Equal(t, "+447911222333", phone, "a refused update keeps the number")
 
 	result = update("")
 	require.True(t, result.Success, result.Message)
@@ -585,7 +623,7 @@ func TestAdminCreateUserMayTakeAPhoneNumber(t *testing.T) {
 	require.True(t, result.Success, result.Message)
 	phone, ok := storedPhone(t, "created-with")
 	assert.True(t, ok)
-	assert.Equal(t, "07911444555", phone)
+	assert.Equal(t, "+447911444555", phone)
 
 	result = create("created-taken", "+44 7911 444555")
 	assert.False(t, result.Success)
@@ -614,7 +652,7 @@ func TestPhoneNumberOfADeletedAccountIsFreeOnlyWhenTheAccountIsGone(t *testing.T
 	result = fixture.register(t, "after-hard-delete", map[string]any{"phone": "07911 555666"})
 	require.True(t, result.Success, result.Message)
 	phone, _ := storedPhone(t, "after-hard-delete")
-	assert.Equal(t, "07911555666", phone)
+	assert.Equal(t, "+447911555666", phone)
 }
 
 func TestPhoneNumberFormatOptionsAreValidated(t *testing.T) {

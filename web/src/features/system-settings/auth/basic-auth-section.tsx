@@ -268,7 +268,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                 </FormControl>
                 <FormDescription>
                   {t(
-                    'Written before a national number and kept in the stored number. Used only with a country code.'
+                    'Written before a national number when it is dialed without the country code. Used only with a country code.'
                   )}
                 </FormDescription>
                 <FormMessage />
