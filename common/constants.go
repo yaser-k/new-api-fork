@@ -37,8 +37,9 @@ var CryptoSecret = uuid.New().String()
 var SessionCookieSecure = false
 
 // DefaultLanguage is the DEFAULT_LANGUAGE environment variable: the language of
-// server log lines and of text for a reader who states no language: en, zh-CN
-// or zh-TW. English when empty.
+// server log lines and of text for a reader who states no language: en, zh-CN,
+// zh-TW or fa. English when empty; server log lines are English unless it is
+// zh-CN or zh-TW.
 var DefaultLanguage string
 var SessionCookieTrustedURLs []string
 
@@ -74,6 +75,8 @@ var WeChatAuthEnabled = false
 var TelegramOAuthEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
+var InvitationRegisterEnabled = false
+var InvitationValidHours = 72
 
 var EmailDomainRestrictionEnabled = false // 是否启用邮箱域名限制
 var EmailAliasRestrictionEnabled = false  // 是否启用邮箱别名限制
