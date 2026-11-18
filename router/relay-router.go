@@ -69,6 +69,15 @@ func SetRelayRouter(router *gin.Engine) {
 		playgroundRouter.POST("/chat/completions", controller.Playground)
 	}
 	relayV1Router := router.Group("/v1")
+	// :countTokens is not implemented on the Gemini route either. Answer it
+	// like an unregistered route before auth/channel selection instead of
+	// silently relaying it as generateContent.
+	relayV1Router.Use(func(c *gin.Context) {
+		if c.FullPath() == "/v1/models/*path" && strings.HasSuffix(c.Request.URL.Path, ":countTokens") {
+			controller.RelayNotFound(c)
+			c.Abort()
+		}
+	})
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
