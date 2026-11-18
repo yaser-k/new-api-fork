@@ -72,7 +72,8 @@ type invitationFixture struct {
 // setupInvitationTest starts the API router on a fresh database migrated the
 // way the server migrates at startup. TEST_SECURITY_DIALECT selects mysql or
 // postgres with TEST_MYSQL_DSN or TEST_POSTGRES_DSN; SQLite is the default.
-func setupInvitationTest(t *testing.T) *invitationFixture {
+// mysqlVariables are MySQL session variables every connection sets.
+func setupInvitationTest(t *testing.T, mysqlVariables ...string) *invitationFixture {
 	t.Helper()
 	require.NoError(t, i18n.Init())
 	gin.SetMode(gin.TestMode)
@@ -111,7 +112,7 @@ func setupInvitationTest(t *testing.T) *invitationFixture {
 		t.Setenv("SQL_DSN", "")
 		common.SQLitePath = t.TempDir() + "/invitation.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	default:
-		t.Setenv("SQL_DSN", newInvitationTestDatabase(t, dialect))
+		t.Setenv("SQL_DSN", newInvitationTestDatabase(t, dialect, mysqlVariables...))
 	}
 	common.IsMasterNode, common.RedisEnabled = true, false
 	common.SessionSecret = "invitation-test-secret"
@@ -188,7 +189,7 @@ func setInvitationOption(t *testing.T, key, value string) {
 	}
 }
 
-func newInvitationTestDatabase(t *testing.T, dialect string) string {
+func newInvitationTestDatabase(t *testing.T, dialect string, mysqlVariables ...string) string {
 	t.Helper()
 	dsn := os.Getenv("TEST_" + strings.ToUpper(dialect) + "_DSN")
 	require.NotEmpty(t, dsn, "TEST_%s_DSN is required", strings.ToUpper(dialect))
@@ -201,6 +202,13 @@ func newInvitationTestDatabase(t *testing.T, dialect string) string {
 		require.NoError(t, err)
 		admin = mysql.Open(dsn)
 		config.DBName = name
+		for _, variable := range mysqlVariables {
+			name, value, _ := strings.Cut(variable, "=")
+			if config.Params == nil {
+				config.Params = map[string]string{}
+			}
+			config.Params[name] = value
+		}
 		isolated = config.FormatDSN()
 		create = "CREATE DATABASE " + name + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 	case "postgres":
@@ -583,6 +591,38 @@ func TestInvitationConcurrentRegistersWithOneNumberMakeOneAccount(t *testing.T) 
 	var holders int64
 	require.NoError(t, model.DB.Table("users").Where("phone = ?", "+447911777888").Count(&holders).Error)
 	assert.EqualValues(t, 1, holders)
+}
+
+func TestInvitationRegisterKeepsTheInvitationAfterALockWaitTimeout(t *testing.T) {
+	if os.Getenv("TEST_SECURITY_DIALECT") != "mysql" {
+		t.Skip("the lock wait timeout is MySQL's; run with TEST_SECURITY_DIALECT=mysql")
+	}
+	fixture := setupInvitationTest(t, "innodb_lock_wait_timeout=1")
+	requireInvitedPhoneNumbers(t)
+	id, token := fixture.invite(t, invitationTestDefaultEmail, "en")
+
+	// Another transaction holds the number, uncommitted, so each run of the
+	// invited sign-up waits on it until the one-second lock wait timeout.
+	held := model.DB.Begin()
+	require.NoError(t, held.Error)
+	holder := "+447911123456"
+	require.NoError(t, held.Create(&model.User{Username: "holder", Password: "unused", AffCode: "holder", Phone: &holder}).Error)
+	body := map[string]any{"username": "invited", "password": invitationTestPassword, "invite_token": token, "phone": "07911 123456"}
+	result := fixture.register(t, body)
+	require.NoError(t, held.Rollback().Error)
+
+	assert.False(t, result.Success)
+	assert.Equal(t, "The sign-up could not be completed right now. Please try again.", result.Message)
+	assert.Zero(t, countUsersWithEmail(t, invitationTestDefaultEmail))
+	assert.Zero(t, invitationRow(t, id).UsedTime, "the invitation stays usable")
+
+	// The number came free, and the invitation still makes the account.
+	result = fixture.register(t, body)
+	require.True(t, result.Success, result.Message)
+	phone, ok := invitedPhone(t, invitationTestDefaultEmail)
+	assert.True(t, ok)
+	assert.Equal(t, holder, phone)
+	assert.NotZero(t, invitationRow(t, id).UsedTime)
 }
 
 func TestAdminCreateInvitation(t *testing.T) {
