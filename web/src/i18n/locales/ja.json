@@ -6640,6 +6640,7 @@
     "The server returned the following result. Unselected models remain pending.": "サーバーから返された処理結果です。未選択のモデルは保留のままです。",
     "The settings changed since this run.": "この実行の後に設定が変わりました。",
     "The setup wizard will use this database during initialization.": "セットアップウィザードは初期化時にこのデータベースを使用します。",
+    "The sign-up could not be completed right now. Please try again.": "現在、登録を完了できませんでした。もう一度お試しください。",
     "The site exchange rate is invalid. Prices are shown in USD.": "サイトの為替レートが無効なため、価格は米ドルで表示されます。",
     "The site is not available at the moment.": "現在、このサイトは利用できません。",
     "The slug is appended to the URL:": "スラッグがURLに追加されます:",

@@ -6640,6 +6640,7 @@
     "The server returned the following result. Unselected models remain pending.": "Dưới đây là kết quả do máy chủ trả về. Mô hình không được chọn vẫn chờ xử lý.",
     "The settings changed since this run.": "Cài đặt đã thay đổi kể từ lần chạy này.",
     "The setup wizard will use this database during initialization.": "Trình hướng dẫn thiết lập sẽ sử dụng cơ sở dữ liệu này trong quá trình khởi tạo.",
+    "The sign-up could not be completed right now. Please try again.": "Hiện không thể hoàn tất đăng ký. Vui lòng thử lại.",
     "The site exchange rate is invalid. Prices are shown in USD.": "Tỷ giá trang web không hợp lệ. Giá được hiển thị bằng USD.",
     "The site is not available at the moment.": "Trang web hiện không khả dụng.",
     "The slug is appended to the URL:": "Slug được gắn vào URL:",

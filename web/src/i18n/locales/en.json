@@ -6640,6 +6640,7 @@
     "The server returned the following result. Unselected models remain pending.": "The server returned the following result. Unselected models remain pending.",
     "The settings changed since this run.": "The settings changed since this run.",
     "The setup wizard will use this database during initialization.": "The setup wizard will use this database during initialization.",
+    "The sign-up could not be completed right now. Please try again.": "The sign-up could not be completed right now. Please try again.",
     "The site exchange rate is invalid. Prices are shown in USD.": "The site exchange rate is invalid. Prices are shown in USD.",
     "The site is not available at the moment.": "The site is not available at the moment.",
     "The slug is appended to the URL:": "The slug is appended to the URL:",

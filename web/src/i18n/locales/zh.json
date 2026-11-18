@@ -6640,6 +6640,7 @@
     "The server returned the following result. Unselected models remain pending.": "以下为服务器返回的处理结果，未勾选的模型仍保留为待处理项。",
     "The settings changed since this run.": "设置改过了，再运行一次看看。",
     "The setup wizard will use this database during initialization.": "设置向导将在初始化过程中使用此数据库。",
+    "The sign-up could not be completed right now. Please try again.": "暂时无法完成注册，请重试。",
     "The site exchange rate is invalid. Prices are shown in USD.": "站点汇率无效，价格以美元显示。",
     "The site is not available at the moment.": "该站点目前不可用。",
     "The slug is appended to the URL:": "别名将附加到 URL:",

@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -40,6 +41,7 @@ const (
 	phoneTrunkPrefixMessage    = "The trunk prefix must be one to three digits"
 	phoneNationalNumberMessage = "The national number pattern is not a valid regular expression"
 	phoneHintLengthMessage     = "The phone number hint must be at most 200 characters"
+	phoneBusyMessage           = "The sign-up could not be completed right now. Please try again."
 )
 
 // phoneFormats are made-up and real number formats of several countries,
@@ -67,7 +69,8 @@ type phoneFixture struct {
 // setupPhoneTest starts the API router on a fresh database migrated the way
 // the server migrates at startup. TEST_SECURITY_DIALECT selects mysql or
 // postgres with TEST_MYSQL_DSN or TEST_POSTGRES_DSN; SQLite is the default.
-func setupPhoneTest(t *testing.T) *phoneFixture {
+// mysqlVariables are MySQL session variables every connection sets.
+func setupPhoneTest(t *testing.T, mysqlVariables ...string) *phoneFixture {
 	t.Helper()
 	require.NoError(t, i18n.Init())
 	gin.SetMode(gin.TestMode)
@@ -104,7 +107,7 @@ func setupPhoneTest(t *testing.T) *phoneFixture {
 		t.Setenv("SQL_DSN", "")
 		common.SQLitePath = t.TempDir() + "/phone.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	default:
-		t.Setenv("SQL_DSN", newPhoneTestDatabase(t, dialect))
+		t.Setenv("SQL_DSN", newPhoneTestDatabase(t, dialect, mysqlVariables...))
 	}
 	common.IsMasterNode, common.RedisEnabled = true, false
 	common.SessionSecret = "phone-test-secret"
@@ -159,7 +162,7 @@ func requirePhoneNumbers(t *testing.T, format map[string]string) {
 	setPhoneOptions(t, options)
 }
 
-func newPhoneTestDatabase(t *testing.T, dialect string) string {
+func newPhoneTestDatabase(t *testing.T, dialect string, mysqlVariables ...string) string {
 	t.Helper()
 	dsn := os.Getenv("TEST_" + strings.ToUpper(dialect) + "_DSN")
 	require.NotEmpty(t, dsn, "TEST_%s_DSN is required", strings.ToUpper(dialect))
@@ -172,6 +175,13 @@ func newPhoneTestDatabase(t *testing.T, dialect string) string {
 		require.NoError(t, err)
 		admin = mysql.Open(dsn)
 		config.DBName = name
+		for _, variable := range mysqlVariables {
+			name, value, _ := strings.Cut(variable, "=")
+			if config.Params == nil {
+				config.Params = map[string]string{}
+			}
+			config.Params[name] = value
+		}
 		isolated = config.FormatDSN()
 		create = "CREATE DATABASE " + name + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 	case "postgres":
@@ -503,6 +513,83 @@ func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
 			assert.EqualValues(t, 1, holders)
 		})
 	}
+}
+
+func TestPhoneNumberRaceRetryBoundsEachKindOfFailure(t *testing.T) {
+	phone := "+447911123456"
+	for _, test := range []struct {
+		name   string
+		number uint16
+		runs   int
+	}{
+		{"a lock wait timeout is retried once", 1205, 2},
+		{"a deadlock keeps its retries", 1213, 5},
+	} {
+		runs := 0
+		user := &model.User{Username: "racer", Phone: &phone}
+		err := model.RetryPhoneNumberRace(context.Background(), user, func() error {
+			runs++
+			return &sqlmysql.MySQLError{Number: test.number, Message: "the database's own text"}
+		})
+		assert.Equal(t, test.runs, runs, test.name)
+		require.Error(t, err, test.name)
+		assert.Equal(t, phoneBusyMessage, err.Error(), "%s: one translated answer, not the database's text", test.name)
+	}
+}
+
+func TestPhoneNumberRaceRetryStopsWhenTheClientIsGone(t *testing.T) {
+	phone := "+447911123456"
+	ctx, cancel := context.WithCancel(context.Background())
+	runs := 0
+	err := model.RetryPhoneNumberRace(ctx, &model.User{Username: "racer", Phone: &phone}, func() error {
+		runs++
+		cancel() // the client goes away while the first run deadlocks
+		return &sqlmysql.MySQLError{Number: 1213, Message: "the database's own text"}
+	})
+	assert.Equal(t, 1, runs, "no run starts after the request's context ends")
+	require.Error(t, err)
+	assert.Equal(t, phoneBusyMessage, err.Error())
+}
+
+func TestRegisterRetriesALockWaitTimeoutOnceThenAsksToTryAgain(t *testing.T) {
+	if os.Getenv("TEST_SECURITY_DIALECT") != "mysql" {
+		t.Skip("the lock wait timeout is MySQL's; run with TEST_SECURITY_DIALECT=mysql")
+	}
+	fixture := setupPhoneTest(t, "innodb_lock_wait_timeout=1")
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	setPhoneOptions(t, map[string]string{"EmailVerificationEnabled": "true"})
+	common.RegisterVerificationCodeWithKey("waiter@example.com", "424242", common.EmailVerificationPurpose)
+	rowLockWaits := func() int64 {
+		var row struct {
+			VariableName string `gorm:"column:Variable_name"`
+			Value        int64  `gorm:"column:Value"`
+		}
+		require.NoError(t, model.DB.Raw("SHOW GLOBAL STATUS LIKE 'Innodb_row_lock_waits'").Scan(&row).Error)
+		return row.Value
+	}
+
+	// Another transaction holds the number, uncommitted, so each run of the
+	// sign-up waits on it until the one-second lock wait timeout.
+	held := model.DB.Begin()
+	require.NoError(t, held.Error)
+	holder := "+447911123456"
+	require.NoError(t, held.Create(&model.User{Username: "holder", Password: "unused", AffCode: "holder", Phone: &holder}).Error)
+	waitsBefore := rowLockWaits()
+	result := fixture.register(t, "waiter", map[string]any{"phone": "07911 123456", "email": "waiter@example.com", "verification_code": "424242"})
+	runs := rowLockWaits() - waitsBefore
+	require.NoError(t, held.Rollback().Error)
+
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneBusyMessage, result.Message)
+	assert.Equal(t, phoneBusyMessage, result.MessageKey)
+	assert.EqualValues(t, 2, runs, "a lock wait timeout is retried once")
+	assert.Zero(t, countUsersNamed(t, "waiter"))
+
+	// The number came free, and the email code still makes the account.
+	result = fixture.register(t, "waiter", map[string]any{"phone": "07911 123456", "email": "waiter@example.com", "verification_code": "424242"})
+	require.True(t, result.Success, result.Message)
+	phone, _ := storedPhone(t, "waiter")
+	assert.Equal(t, holder, phone)
 }
 
 func TestPhoneNumberAccountWithoutNumberSignsInAndReadsItself(t *testing.T) {

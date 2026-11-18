@@ -6640,6 +6640,7 @@
     "The server returned the following result. Unselected models remain pending.": "Voici le résultat renvoyé par le serveur. Les modèles non sélectionnés restent en attente.",
     "The settings changed since this run.": "Les réglages ont changé depuis cet essai.",
     "The setup wizard will use this database during initialization.": "L'assistant de configuration utilisera cette base de données lors de l'initialisation.",
+    "The sign-up could not be completed right now. Please try again.": "L'inscription n'a pas pu aboutir pour le moment. Veuillez réessayer.",
     "The site exchange rate is invalid. Prices are shown in USD.": "Le taux de change du site est invalide. Les prix sont affichés en USD.",
     "The site is not available at the moment.": "Le site n'est pas disponible pour le moment.",
     "The slug is appended to the URL:": "Le slug est ajouté à l'URL :",

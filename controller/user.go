@@ -299,7 +299,7 @@ func Register(c *gin.Context) {
 	if phone != "" {
 		cleanUser.Phone = &phone
 	}
-	if err := model.RetryPhoneNumberRace(&cleanUser, func() error { return cleanUser.Insert(inviterId) }); err != nil {
+	if err := model.RetryPhoneNumberRace(c.Request.Context(), &cleanUser, func() error { return cleanUser.Insert(inviterId) }); err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")
 			return
