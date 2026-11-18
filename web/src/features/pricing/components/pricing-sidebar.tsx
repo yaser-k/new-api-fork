@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils'
 import {
   ENDPOINT_TYPES,
   FILTER_ALL,
+  MODEL_STATUS_TAGS,
   QUOTA_TYPES,
   getEndpointTypeLabels,
   getQuotaTypeLabels,
@@ -156,7 +157,12 @@ export const PricingSidebar = memo(function PricingSidebar(
     const tags = new Map<string, number>()
     const endpoints = new Map<string, number>()
     const quotas = { token: 0, request: 0, task: 0 }
+    let retired = 0
     for (const model of props.models) {
+      if (model.retired) {
+        retired++
+        continue
+      }
       if (model.vendor_name) {
         vendors.set(
           model.vendor_name,
@@ -174,7 +180,16 @@ export const PricingSidebar = memo(function PricingSidebar(
       const quotaType = getModelQuotaType(model)
       if (quotaType) quotas[quotaType]++
     }
-    return { vendors, tags, endpoints, quotas }
+    // Only the Model Tags group counts retired models; every other group
+    // counts the callable ones
+    return {
+      vendors,
+      tags,
+      endpoints,
+      quotas,
+      retired,
+      live: props.models.length - retired,
+    }
   }, [props.models])
   const quotaTypeLabels = getQuotaTypeLabels(t)
   const endpointTypeLabels = getEndpointTypeLabels(t)
@@ -183,7 +198,7 @@ export const PricingSidebar = memo(function PricingSidebar(
     {
       value: FILTER_ALL,
       label: t('All Vendors'),
-      count: props.models.length,
+      count: counts.live,
     },
     ...props.vendors
       .map((vendor) => ({
@@ -211,7 +226,7 @@ export const PricingSidebar = memo(function PricingSidebar(
     {
       value: QUOTA_TYPES.ALL,
       label: quotaTypeLabels[QUOTA_TYPES.ALL],
-      count: props.models.length,
+      count: counts.live,
     },
     {
       value: QUOTA_TYPES.TOKEN,
@@ -236,6 +251,20 @@ export const PricingSidebar = memo(function PricingSidebar(
       label: t('All Tags'),
       count: props.models.length,
     },
+    ...(counts.retired > 0
+      ? [
+          {
+            value: MODEL_STATUS_TAGS.ACTIVE,
+            label: t('Active'),
+            count: counts.live,
+          },
+          {
+            value: MODEL_STATUS_TAGS.RETIRED,
+            label: t('Retired'),
+            count: counts.retired,
+          },
+        ]
+      : []),
     ...props.tags.map((tag) => ({
       value: tag,
       label: tag,
@@ -247,7 +276,7 @@ export const PricingSidebar = memo(function PricingSidebar(
     {
       value: ENDPOINT_TYPES.ALL,
       label: endpointTypeLabels[ENDPOINT_TYPES.ALL],
-      count: props.models.length,
+      count: counts.live,
     },
     ...Object.entries(endpointTypeLabels)
       .filter(([value]) => value !== ENDPOINT_TYPES.ALL)
