@@ -79,6 +79,7 @@ func isSensitiveURLQueryKey(key string) bool {
 		"refresh_token",
 		"id_token",
 		"token",
+		"invite",
 		"authorization",
 		"auth",
 		"client_secret",

@@ -37,8 +37,9 @@ var CryptoSecret = uuid.New().String()
 var SessionCookieSecure = false
 
 // DefaultLanguage is the DEFAULT_LANGUAGE environment variable: the language of
-// server log lines and of text for a reader who states no language: en, zh-CN
-// or zh-TW. English when empty.
+// server log lines and of text for a reader who states no language: en, zh-CN,
+// zh-TW or fa. English when empty; server log lines are English unless it is
+// zh-CN or zh-TW.
 var DefaultLanguage string
 var SessionCookieTrustedURLs []string
 
@@ -74,6 +75,8 @@ var WeChatAuthEnabled = false
 var TelegramOAuthEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
+var InvitationRegisterEnabled = false
+var InvitationValidHours = 72
 
 var EmailDomainRestrictionEnabled = false // 是否启用邮箱域名限制
 var EmailAliasRestrictionEnabled = false  // 是否启用邮箱别名限制
@@ -88,6 +91,25 @@ var EmailDomainWhitelist = []string{
 	"yahoo.com",
 	"foxmail.com",
 }
+
+// RegisterPhoneRequiredEnabled asks every sign-up through the registration
+// endpoint for a phone number no other account holds. The other three options
+// describe the accepted numbers (model.PhoneNumberFormat): the country calling
+// code in digits without +, the national trunk prefix, and a regular
+// expression the whole national number matches. Without a country code any
+// number written in international form is accepted.
+var RegisterPhoneRequiredEnabled = false
+var PhoneCountryCode = ""
+var PhoneTrunkPrefix = ""
+var PhoneNationalNumberPattern = ""
+
+// RegisterPhoneHint is a line the administrator writes under the sign-up
+// phone field, shown as plain text; the format options themselves stay off
+// the public status answer.
+var RegisterPhoneHint = ""
+
+const RegisterPhoneHintMaxLength = 200 // characters
+
 var EmailLoginAuthServerList = []string{
 	"smtp.sendcloud.net",
 	"smtp.azurecomm.net",

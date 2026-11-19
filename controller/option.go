@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -250,6 +251,16 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorT(c, "Cannot enable the email domain restriction. Enter the allowed email domains first.")
 			return
 		}
+	case "PhoneCountryCode", "PhoneTrunkPrefix", "PhoneNationalNumberPattern":
+		if err := model.ValidatePhoneNumberFormatOption(option.Key, option.Value.(string)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	case "RegisterPhoneHint":
+		if utf8.RuneCountInString(option.Value.(string)) > common.RegisterPhoneHintMaxLength {
+			common.ApiErrorT(c, "The phone number hint must be at most 200 characters")
+			return
+		}
 	case "WeChatAuthEnabled":
 		if option.Value == "true" && common.WeChatServerAddress == "" {
 			common.ApiErrorT(c, "Cannot enable WeChat login. Enter the WeChat login settings first.")
@@ -258,6 +269,12 @@ func UpdateOption(c *gin.Context) {
 	case "TurnstileCheckEnabled":
 		if option.Value == "true" && common.TurnstileSiteKey == "" {
 			common.ApiErrorT(c, "Cannot enable Turnstile verification. Enter the Turnstile settings first.")
+			return
+		}
+	case "InvitationValidHours":
+		hours, err := strconv.Atoi(option.Value.(string))
+		if err != nil || hours < 1 || hours > 720 {
+			common.ApiErrorT(c, "Invitation validity must be between 1 and 720 hours")
 			return
 		}
 	case "TelegramOAuthEnabled":

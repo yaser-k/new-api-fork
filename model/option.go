@@ -48,6 +48,8 @@ func InitOptionMap() {
 	common.OptionMap["WeChatAuthEnabled"] = strconv.FormatBool(common.WeChatAuthEnabled)
 	common.OptionMap["TurnstileCheckEnabled"] = strconv.FormatBool(common.TurnstileCheckEnabled)
 	common.OptionMap["RegisterEnabled"] = strconv.FormatBool(common.RegisterEnabled)
+	common.OptionMap["InvitationRegisterEnabled"] = strconv.FormatBool(common.InvitationRegisterEnabled)
+	common.OptionMap["InvitationValidHours"] = strconv.Itoa(common.InvitationValidHours)
 	common.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(common.AutomaticDisableChannelEnabled)
 	common.OptionMap["AutomaticEnableChannelEnabled"] = strconv.FormatBool(common.AutomaticEnableChannelEnabled)
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
@@ -65,6 +67,11 @@ func InitOptionMap() {
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
 	common.OptionMap["EmailAliasRestrictionEnabled"] = strconv.FormatBool(common.EmailAliasRestrictionEnabled)
 	common.OptionMap["EmailDomainWhitelist"] = strings.Join(common.EmailDomainWhitelist, ",")
+	common.OptionMap["RegisterPhoneRequiredEnabled"] = strconv.FormatBool(common.RegisterPhoneRequiredEnabled)
+	common.OptionMap["PhoneCountryCode"] = common.PhoneCountryCode
+	common.OptionMap["PhoneTrunkPrefix"] = common.PhoneTrunkPrefix
+	common.OptionMap["PhoneNationalNumberPattern"] = common.PhoneNationalNumberPattern
+	common.OptionMap["RegisterPhoneHint"] = common.RegisterPhoneHint
 	common.OptionMap["SMTPServer"] = ""
 	common.OptionMap["EmailProvider"] = "smtp"
 	common.OptionMap["ResendApiKey"] = ""
@@ -434,10 +441,14 @@ func updateOptionMap(key string, value string) (err error) {
 			common.TurnstileCheckEnabled = boolValue
 		case "RegisterEnabled":
 			common.RegisterEnabled = boolValue
+		case "InvitationRegisterEnabled":
+			common.InvitationRegisterEnabled = boolValue
 		case "EmailDomainRestrictionEnabled":
 			common.EmailDomainRestrictionEnabled = boolValue
 		case "EmailAliasRestrictionEnabled":
 			common.EmailAliasRestrictionEnabled = boolValue
+		case "RegisterPhoneRequiredEnabled":
+			common.RegisterPhoneRequiredEnabled = boolValue
 		case "AutomaticDisableChannelEnabled":
 			common.AutomaticDisableChannelEnabled = boolValue
 		case "AutomaticEnableChannelEnabled":
@@ -507,6 +518,14 @@ func updateOptionMap(key string, value string) (err error) {
 	switch key {
 	case "EmailDomainWhitelist":
 		common.EmailDomainWhitelist = strings.Split(value, ",")
+	case "PhoneCountryCode":
+		common.PhoneCountryCode = value
+	case "PhoneTrunkPrefix":
+		common.PhoneTrunkPrefix = value
+	case "PhoneNationalNumberPattern":
+		common.PhoneNationalNumberPattern = value
+	case "RegisterPhoneHint":
+		common.RegisterPhoneHint = value
 	case "SMTPServer":
 		common.SMTPServer = value
 	case "SMTPPort":
@@ -642,6 +661,8 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSiteKey = value
 	case "TurnstileSecretKey":
 		common.TurnstileSecretKey = value
+	case "InvitationValidHours":
+		common.InvitationValidHours, _ = strconv.Atoi(value)
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
 	case "QuotaForInviter":

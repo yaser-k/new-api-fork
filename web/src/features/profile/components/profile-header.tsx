@@ -152,6 +152,18 @@ export function ProfileHeader({ profile, loading }: ProfileHeaderProps) {
                   <span className='truncate'>{profile.email}</span>
                 </>
               )}
+              {profile.phone && (
+                <>
+                  <span>•</span>
+                  <span
+                    className='truncate tabular-nums'
+                    dir='ltr'
+                    title={t('Phone number')}
+                  >
+                    {profile.phone_display || profile.phone}
+                  </span>
+                </>
+              )}
               {profile.group && (
                 <>
                   <span>•</span>

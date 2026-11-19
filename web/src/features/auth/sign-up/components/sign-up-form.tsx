@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -61,8 +62,12 @@ import { cn } from '@/lib/utils'
 
 export function SignUpForm({
   className,
+  invitation,
   ...props
-}: React.HTMLAttributes<HTMLFormElement>) {
+}: React.HTMLAttributes<HTMLFormElement> & {
+  /** Set when an invitation link opened the page; the account gets its email. */
+  invitation?: { token: string; email: string }
+}) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [verificationCode, setVerificationCode] = useState('')
@@ -97,6 +102,7 @@ export function SignUpForm({
     defaultValues: {
       username: '',
       email: '',
+      phone: '',
       password: '',
       confirmPassword: '',
     },
@@ -108,7 +114,8 @@ export function SignUpForm({
   })
 
   const emailValue = form.watch('email')
-  const emailVerificationRequired = !!status?.email_verification
+  // The mailed invitation link already proved the invited address.
+  const emailVerificationRequired = !invitation && !!status?.email_verification
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
   const requiresLegalConsent = hasUserAgreement || hasPrivacyPolicy
@@ -118,6 +125,10 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
+  // The server reads the number and is the authority; the accepted format
+  // stays on the server, and the administrator may add a line of their own.
+  const phoneRequired = Boolean(status?.register_phone_required)
+  const phoneHint = status?.register_phone_hint
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -166,6 +177,11 @@ export function SignUpForm({
       }
     }
 
+    if (phoneRequired && !data.phone?.trim()) {
+      form.setError('phone', { message: 'Phone number is required' })
+      return
+    }
+
     if (!validateTurnstile()) return
 
     setIsLoading(true)
@@ -174,9 +190,11 @@ export function SignUpForm({
         username: data.username,
         password: data.password,
         email: data.email || undefined,
+        phone: phoneRequired ? data.phone : undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
         turnstile: turnstileToken,
+        invite_token: invitation?.token,
       })
 
       if (res?.success) {
@@ -260,6 +278,19 @@ export function SignUpForm({
         className={cn('grid gap-4', className)}
         {...props}
       >
+        {invitation && (
+          <div className='grid gap-2'>
+            <Label htmlFor='invitation-email'>{t('Email')}</Label>
+            <Input
+              id='invitation-email'
+              type='email'
+              dir='ltr'
+              value={invitation.email}
+              readOnly
+            />
+          </div>
+        )}
+
         {/* Username Field */}
         <FormField
           control={form.control}
@@ -374,6 +405,37 @@ export function SignUpForm({
           </>
         )}
 
+        {phoneRequired && (
+          <FormField
+            control={form.control}
+            name='phone'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Phone number')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='tel'
+                    inputMode='tel'
+                    autoComplete='tel'
+                    dir='ltr'
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('You can use spaces, hyphens, dots and brackets.')}
+                  {phoneHint ? (
+                    <>
+                      {' '}
+                      <span className='block'>{phoneHint}</span>
+                    </>
+                  ) : null}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
         {/* Turnstile */}
         {isTurnstileEnabled && (
           <div className='mt-2'>
@@ -406,7 +468,8 @@ export function SignUpForm({
           {t('Create account')}
         </Button>
 
-        {oauthRegisterEnabled && (
+        {/* A third-party sign-in cannot create an account while a phone number is required. */}
+        {oauthRegisterEnabled && !invitation && !phoneRequired && (
           <OAuthProviders
             status={status}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}

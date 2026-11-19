@@ -40,9 +40,11 @@ export interface RegisterPayload {
   username: string
   password: string
   email?: string
+  phone?: string
   verification_code?: string
   aff_code?: string
   turnstile?: string
+  invite_token?: string
 }
 
 export interface PasswordResetPayload {
@@ -118,6 +120,8 @@ export interface SystemStatus {
     turnstile_check?: boolean
     turnstile_site_key?: string
     email_verification?: boolean
+    register_phone_required?: boolean
+    register_phone_hint?: string
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
     display_token_stat_enabled?: boolean
@@ -131,6 +135,7 @@ export interface SystemStatus {
     privacy_policy_enabled?: boolean
     oauth_register_enabled?: boolean
     register_enabled?: boolean
+    invitation_register_enabled?: boolean
     password_login_enabled?: boolean
     password_login_encryption_enabled?: boolean
     password_register_enabled?: boolean
@@ -165,6 +170,10 @@ export interface SystemStatus {
   turnstile_check?: boolean
   turnstile_site_key?: string
   email_verification?: boolean
+  /** Sign-up asks for a phone number no other account holds */
+  register_phone_required?: boolean
+  /** The administrator's line under the sign-up phone field, plain text */
+  register_phone_hint?: string
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean
   display_token_stat_enabled?: boolean
@@ -178,6 +187,7 @@ export interface SystemStatus {
   privacy_policy_enabled?: boolean
   oauth_register_enabled?: boolean
   register_enabled?: boolean
+  invitation_register_enabled?: boolean
   password_login_enabled?: boolean
   password_login_encryption_enabled?: boolean
   password_register_enabled?: boolean

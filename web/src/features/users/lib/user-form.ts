@@ -27,7 +27,7 @@ import { quotaUnitsToDollars } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 
 import { DEFAULT_GROUP } from '../constants'
-import { type UserFormData, type User } from '../types'
+import type { UserFormData, User } from '../types'
 
 // ============================================================================
 // Form Schema
@@ -37,6 +37,7 @@ export const userFormSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   display_name: z.string().optional(),
   password: z.string().optional(),
+  phone: z.string().optional(),
   role: z.number().optional(),
   quota_dollars: z.number().min(0).optional(),
   group: z.string().optional(),
@@ -56,6 +57,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   username: '',
   display_name: '',
   password: '',
+  phone: '',
   role: 1, // Default to common user
   quota_dollars: 0,
   group: DEFAULT_GROUP,
@@ -97,7 +99,10 @@ export function transformFormDataToPayload(
   // For create: only send required fields
   if (userId === undefined) {
     payload.role = role
+    payload.phone = data.phone?.trim() || undefined
   } else {
+    // The stored number comes back unchanged; an empty field clears it.
+    payload.phone = data.phone?.trim() ?? ''
     // For update: quota is adjusted atomically via /api/user/manage, not sent here
     payload.group = data.group
     payload.remark = data.remark || undefined
@@ -117,6 +122,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     username: user.username,
     display_name: user.display_name,
     password: '',
+    phone: user.phone_display || user.phone || '',
     role: user.role,
     quota_dollars: quotaUnitsToDollars(user.quota),
     group: user.group || DEFAULT_GROUP,

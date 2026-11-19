@@ -161,9 +161,16 @@ export type AuthSettings = {
   PasswordRegisterEnabled: boolean
   EmailVerificationEnabled: boolean
   RegisterEnabled: boolean
+  InvitationRegisterEnabled: boolean
+  InvitationValidHours: number
   EmailDomainRestrictionEnabled: boolean
   EmailAliasRestrictionEnabled: boolean
   EmailDomainWhitelist: string
+  RegisterPhoneRequiredEnabled: boolean
+  PhoneCountryCode: string
+  PhoneTrunkPrefix: string
+  PhoneNationalNumberPattern: string
+  RegisterPhoneHint: string
   ServerAddress: string
   GitHubOAuthEnabled: boolean
   GitHubClientId: string
