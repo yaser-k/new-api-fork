@@ -193,6 +193,14 @@ func TestEmailBodyCarriesLanguageAndDirection(t *testing.T) {
 	}
 }
 
+// A code, a link or a host name stays whole and left to right inside a mail of
+// either direction: escaped, and with no added character to be copied with it.
+func TestEmailLTRKeepsLeftToRightTextWhole(t *testing.T) {
+	assert.Equal(t, `<span dir="ltr">https://example.org/user/reset?email=a@example.org&amp;token=3fa9</span>`,
+		EmailLTR("https://example.org/user/reset?email=a@example.org&token=3fa9"))
+	assert.Equal(t, `<span dir="ltr">&lt;b&gt;3fa9c1</span>`, EmailLTR("<b>3fa9c1"))
+}
+
 // Web console responses carry the English source text as message_key plus its
 // params, and the web console translates them. The backend sends the same body
 // whatever language the request asks for.

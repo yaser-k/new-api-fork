@@ -40,3 +40,12 @@ func emailBodyIn(lang string, paragraphs []string) common.EmailBody {
 	body.WriteString(`</div>`)
 	return common.EmailBody(body.String())
 }
+
+// EmailLTR escapes text that is always written left to right (a code, a link,
+// an e-mail address, a host name) and keeps it whole inside a mail of either
+// direction. dir="ltr" on a span is HTML 4: desktop clients that do not know
+// <bdi> honour it, and browsers isolate it. It adds no characters, so copying
+// a code or a link copies nothing else.
+func EmailLTR(text string) string {
+	return `<span dir="ltr">` + html.EscapeString(text) + `</span>`
+}

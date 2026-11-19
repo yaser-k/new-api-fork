@@ -236,7 +236,7 @@ func SendEmailVerification(c *gin.Context) {
 	subject := i18n.Translate(lang, i18n.MsgEmailVerificationSubject, systemName)
 	content := i18n.EmailBody(lang,
 		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, systemName),
-		i18n.Translate(lang, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
+		i18n.Translate(lang, i18n.MsgEmailVerificationCode, map[string]any{"Code": i18n.EmailLTR(code)}),
 		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, email, content)
 	if err != nil {
@@ -265,12 +265,11 @@ func SendPasswordResetEmail(c *gin.Context) {
 			lang = i18n.StatedLang(c)
 		}
 		systemName := map[string]any{"SystemName": common.SystemName}
-		linkParams := map[string]any{"Link": link}
 		subject := i18n.Translate(lang, i18n.MsgEmailPasswordResetSubject, systemName)
 		content := i18n.EmailBody(lang,
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetGreeting, systemName),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, linkParams),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, linkParams),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, map[string]any{"Link": link}),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, map[string]any{"Link": i18n.EmailLTR(link)}),
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 		err := common.SendEmail(subject, email, content)
 		if err != nil {
