@@ -27,6 +27,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -992,6 +993,131 @@ func TestResponsesStreamOutcomesPreserveAccounting(t *testing.T) {
 				assert.Equal(t, int64(1), successes)
 			})
 		}
+	}
+}
+
+// A Responses stream the upstream ended failed reaches the client unchanged and is billed as
+// before. A failure of the upstream's own (server error, capacity) also reaches the channel-error
+// path and clears the session's channel affinity, without a retry or a second answer; a failure
+// the request caused (context length) leaves channel health and the affinity alone. A completed
+// stream records the affinity as before.
+func TestResponsesStreamFailureAffinityAndChannelHealth(t *testing.T) {
+	const created = `{"type":"response.created","response":{"id":"r","status":"in_progress"}}`
+	const completed = `{"type":"response.completed","response":{"id":"r","status":"completed","usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11}}}`
+	failed := func(code string) string {
+		return `{"type":"response.failed","response":{"id":"r","status":"failed","error":{"code":"` + code + `","message":"upstream reports ` + code + `"}}}`
+	}
+	for _, tc := range []struct {
+		name, event, terminal string
+		wantAffinity          bool
+		wantErrorRow          string
+	}{
+		{name: "server error", event: "response.failed", terminal: failed("server_error"), wantErrorRow: "server_error"},
+		{name: "model at capacity", event: "response.failed", terminal: failed("model_at_capacity"), wantErrorRow: "model_at_capacity"},
+		{name: "error event", event: "error", terminal: `{"type":"error","code":"server_error","message":"Internal server error","param":null,"sequence_number":2}`, wantErrorRow: "server_error"},
+		{name: "context length", event: "response.failed", terminal: failed("context_length_exceeded"), wantAffinity: true},
+		{name: "completed", event: "response.completed", terminal: completed, wantAffinity: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.002))`, func(*websocket.Conn, *http.Request) {})
+			previousRetries, previousErrorLog := common.RetryTimes, constant.ErrorLogEnabled
+			previousAutoDisable, previousRedis := common.AutomaticDisableChannelEnabled, common.RedisEnabled
+			previousDisableCodes := operation_setting.AutomaticDisableStatusCodesToString()
+			affinity := operation_setting.GetChannelAffinitySetting()
+			previousAffinity := *affinity
+			t.Cleanup(func() {
+				service.ClearChannelAffinityCacheAll()
+				common.RetryTimes, constant.ErrorLogEnabled = previousRetries, previousErrorLog
+				common.AutomaticDisableChannelEnabled, common.RedisEnabled = previousAutoDisable, previousRedis
+				require.NoError(t, operation_setting.AutomaticDisableStatusCodesFromString(previousDisableCodes))
+				*affinity = previousAffinity
+			})
+			common.RetryTimes, constant.ErrorLogEnabled, common.AutomaticDisableChannelEnabled = 2, true, true
+			// The affinity cache keeps the Redis client it was first built with; use its memory store.
+			common.RedisEnabled = false
+			require.NoError(t, operation_setting.AutomaticDisableStatusCodesFromString("401,402"))
+			*affinity = operation_setting.ChannelAffinitySetting{Enabled: true, DefaultTTLSeconds: 60, MaxEntries: 100, Rules: []operation_setting.ChannelAffinityRule{{
+				Name: "responses-cache", ModelRegex: []string{".*"}, PathRegex: []string{"^/v1/responses$"}, IncludeRuleName: true,
+				KeySources:         []operation_setting.ChannelAffinityKeySource{{Type: "gjson", Path: "prompt_cache_key"}},
+				SkipRetryOnFailure: true,
+			}}}
+			require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", fixture.channel.Id).Update("auto_ban", 1).Error)
+
+			var attempts atomic.Int64
+			terminal := completed
+			fixture.httpUpstream = func(w http.ResponseWriter, r *http.Request) {
+				attempts.Add(1)
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprintf(w, "data: %s\n\ndata: %s\n\n", created, terminal)
+			}
+			const requestBody = `{"model":"ws-billing","input":"hi","stream":true,"prompt_cache_key":"session-1"}`
+			stream := func() string {
+				request, err := http.NewRequest(http.MethodPost, fixture.gatewayURL+"/v1/responses", strings.NewReader(requestBody))
+				require.NoError(t, err)
+				request.Header.Set("Authorization", "Bearer sk-"+fixture.token.Key)
+				request.Header.Set("Content-Type", "application/json")
+				response, err := (&http.Client{Timeout: 3 * time.Second}).Do(request)
+				require.NoError(t, err)
+				body, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				assert.Equal(t, http.StatusOK, response.StatusCode)
+				select {
+				case <-fixture.httpDone:
+				case <-time.After(3 * time.Second):
+					t.Fatal("HTTP request did not finish")
+				}
+				return string(body)
+			}
+			boundChannel := func() (int, bool) {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
+				return service.GetPreferredChannelByAffinity(c, "ws-billing", "default")
+			}
+
+			stream()
+			channelID, found := boundChannel()
+			require.True(t, found, "a completed stream records the session's channel")
+			require.Equal(t, fixture.channel.Id, channelID)
+
+			terminal = tc.terminal
+			body := stream()
+			assert.Equal(t, "event: response.created\ndata: "+created+"\n\nevent: "+tc.event+"\ndata: "+tc.terminal+"\n\n", body,
+				"the client receives the upstream events unchanged and nothing else")
+			assert.Equal(t, int64(2), attempts.Load(), "no attempt follows a stream that reached the client")
+			_, found = boundChannel()
+			assert.Equal(t, tc.wantAffinity, found, "session affinity after the second stream")
+
+			var errorRows []model.Log
+			require.NoError(t, model.LOG_DB.Where("token_id = ? AND type = ?", fixture.token.Id, model.LogTypeError).Find(&errorRows).Error)
+			if tc.wantErrorRow == "" {
+				assert.Empty(t, errorRows, "channel health is left alone")
+			} else if assert.Len(t, errorRows, 1, "the failure reaches the channel-error path") {
+				assert.Equal(t, fixture.channel.Id, errorRows[0].ChannelId)
+				var other map[string]any
+				require.NoError(t, common.UnmarshalJsonStr(errorRows[0].Other, &other))
+				assert.Equal(t, tc.wantErrorRow, other["error_code"])
+			}
+			assert.Never(t, func() bool {
+				var channel model.Channel
+				return model.DB.First(&channel, fixture.channel.Id).Error == nil && channel.Status != common.ChannelStatusEnabled
+			}, 300*time.Millisecond, 20*time.Millisecond, "the auto-disable rules do not disable the channel")
+
+			var consumeRows []model.Log
+			require.NoError(t, model.LOG_DB.Where("token_id = ? AND type = ?", fixture.token.Id, model.LogTypeConsume).Order("id").Find(&consumeRows).Error)
+			require.Len(t, consumeRows, 2)
+			for _, row := range consumeRows {
+				assert.Equal(t, 1000, row.Quota)
+			}
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(consumeRows[1].Other, &other))
+			wantStatus := "failed"
+			if tc.terminal == completed {
+				wantStatus = "completed"
+			}
+			assert.Equal(t, wantStatus, other["stream_status"].(map[string]any)["response_status"])
+		})
 	}
 }
 
