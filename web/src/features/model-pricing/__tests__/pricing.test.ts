@@ -250,3 +250,61 @@ it('commits source provider edits while preserving target providers during batch
     'beta::target': '2',
   })
 })
+
+it('carries a public price expression with an expression price and clears it with any other price', () => {
+  const key = 'billing_setting.public_expr'
+  const draft = pricingRow('example', {
+    'billing_setting.billing_mode': 'tiered_expr',
+    'billing_setting.billing_expr': 'tier("base", p * 3)',
+    [key]: 'tier("public", p * 4)',
+  })
+  expect(draft.publicExpr).toBe('tier("public", p * 4)')
+  expect(pricingFromDraft(draft)[key]).toBe('tier("public", p * 4)')
+  expect(pricingFromDraft({ ...draft, publicExpr: '  ' })).not.toHaveProperty(
+    key
+  )
+  expect(
+    pricingFromDraft({ ...draft, billingMode: 'per-token', ratio: '1' })
+  ).not.toHaveProperty(key)
+})
+
+it('keeps a saved public price expression through price table edits until its billing expression goes', () => {
+  const key = 'billing_setting.public_expr'
+  const before = pricingOptions({
+    'billing_setting.billing_mode': '{"example":"tiered_expr"}',
+    'billing_setting.billing_expr': '{"example":"tier(\\"base\\", p * 3)"}',
+  })
+  const snapshot: ModelPricingConfig = {
+    options: before,
+    empty_version: 'empty',
+    entries: [
+      {
+        model_name: 'example',
+        version: 'v1',
+        configured: {
+          'billing_setting.billing_mode': 'tiered_expr',
+          'billing_setting.billing_expr': 'tier("base", p * 3)',
+          [key]: 'tier("public", p * 4)',
+        },
+        effective: {},
+      },
+    ],
+  }
+  const repriced = buildPricingChanges(snapshot, before, {
+    ...before,
+    'billing_setting.billing_expr': '{"example":"tier(\\"base\\", p * 5)"}',
+  })
+  expect(repriced).toHaveLength(1)
+  expect(repriced[0].pricing).toMatchObject({
+    'billing_setting.billing_expr': 'tier("base", p * 5)',
+    [key]: 'tier("public", p * 4)',
+  })
+  const ratio = buildPricingChanges(snapshot, before, {
+    ...before,
+    'billing_setting.billing_mode': '{}',
+    'billing_setting.billing_expr': '{}',
+    ModelRatio: '{"example":1}',
+  })
+  expect(ratio).toHaveLength(1)
+  expect(ratio[0].pricing).toEqual({ ModelRatio: 1 })
+})
