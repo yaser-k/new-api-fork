@@ -99,14 +99,19 @@ export function PricingTable(props: PricingTableProps) {
         getColumnClassName={(_columnId, kind) =>
           kind === 'header' ? 'text-muted-foreground font-medium' : undefined
         }
-        renderRow={(row: Row<PricingModel>) => (
-          <DataTableRow
-            key={row.id}
-            row={row}
-            className='hover:bg-muted/30 cursor-pointer transition-colors'
-            onClick={() => handleRowClick(row.original)}
-          />
-        )}
+        renderRow={(row: Row<PricingModel>) =>
+          // A retired model opens its page from the link on its name
+          row.original.retired ? (
+            <DataTableRow key={row.id} row={row} />
+          ) : (
+            <DataTableRow
+              key={row.id}
+              row={row}
+              className='hover:bg-muted/30 cursor-pointer transition-colors'
+              onClick={() => handleRowClick(row.original)}
+            />
+          )
+        }
       />
 
       {!isLoading && models.length > 0 && <DataTablePagination table={table} />}

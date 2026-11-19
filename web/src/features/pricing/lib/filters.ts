@@ -22,10 +22,11 @@ import {
   QUOTA_TYPES,
   QUOTA_TYPE_VALUES,
   ENDPOINT_TYPES,
+  MODEL_STATUS_TAGS,
   type QuotaTypeOption,
   type SortOption,
 } from '../constants'
-import type { PricingModel } from '../types'
+import type { PricingModel, RetiredModel } from '../types'
 import { compileBillingExpression } from './billing-expression/parser'
 import { visitExpression } from './billing-expression/types'
 import {
@@ -163,6 +164,7 @@ function getSortPrice(
   listedModel: PricingModel,
   kind: SortPriceKind
 ): number | undefined {
+  if (listedModel.retired) return undefined
   const model = withBasePricing(listedModel)
   if (kind === 'request') {
     const example = getCardExamplePrice(model, { tokenUnit: 'M' })
@@ -204,8 +206,12 @@ export function sortModels(
     const price = new Map(
       sorted.map((m) => [m, getSortPrice(m, priceSort.kind)])
     )
-    // Models without this kind of price stay last in both directions
+    // Models without this kind of price stay last in both directions,
+    // followed by the retired models
     sorted.sort((a, b) => {
+      if (a.retired || b.retired) {
+        return Number(!!a.retired) - Number(!!b.retired)
+      }
       const priceA = price.get(a)
       const priceB = price.get(b)
       if (priceA === undefined || priceB === undefined) {
@@ -254,6 +260,24 @@ export function filterAndSortModels(
 }
 
 /**
+ * The list entries of retired models. They have no vendor, group, endpoint,
+ * tag or pricing type, so only the "all" option of those filters keeps them.
+ */
+export function toRetiredEntries(retired: RetiredModel[]): PricingModel[] {
+  return retired.map((model, index) => ({
+    id: -(index + 1),
+    model_name: model.model_name,
+    key: model.model_name,
+    // Matches no pricing type: a retired model is not billed
+    quota_type: -1,
+    model_ratio: 0,
+    completion_ratio: 0,
+    enable_groups: [],
+    retired: model,
+  }))
+}
+
+/**
  * Parse tags from comma-separated string
  */
 export function parseTags(tagsString?: string): string[] {
@@ -290,6 +314,8 @@ export function filterByTag(
   tag: string
 ): PricingModel[] {
   if (tag === FILTER_ALL) return models
+  if (tag === MODEL_STATUS_TAGS.ACTIVE) return models.filter((m) => !m.retired)
+  if (tag === MODEL_STATUS_TAGS.RETIRED) return models.filter((m) => m.retired)
 
   const tagLower = tag.toLowerCase()
   return models.filter((m) => {
