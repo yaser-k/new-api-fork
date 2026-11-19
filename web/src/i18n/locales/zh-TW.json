@@ -2458,6 +2458,7 @@
     "Enter only the domain, without https://, a port or a page path. example.com and www.example.com are different Passkey domains; changing between them does not migrate existing Passkeys.": "只填寫網域，不包含 https://、連接埠或頁面路徑。example.com 與 www.example.com 對應不同的通行金鑰網域，切換網域不會遷移現有通行金鑰。",
     "Enter password": "輸入密碼",
     "Enter password (8–128 characters)": "輸入密碼（8–128 個字元）",
+    "Enter ports from 1 to 65535 or ranges such as 8000-9000, separated by commas": "請輸入 1 到 65535 之間的端口或 8000-9000 這樣的端口範圍，以逗號分隔",
     "Enter previous domains, one per line, without a protocol, port or path. Different ports on the same domain do not need compatible domains.": "每行填寫一個舊網域，不包含通訊協定、連接埠或路徑。同一網域的不同連接埠無須加入相容清單。",
     "Enter previous Passkey domains, one per line. Existing Passkeys can still verify with these domains; new Passkeys use the primary domain.": "每行填寫一個舊通行金鑰網域。現有通行金鑰仍可透過這些網域驗證，新通行金鑰使用主要網域。",
     "Enter quota in {{currency}}": "輸入 {{currency}} 額度",
