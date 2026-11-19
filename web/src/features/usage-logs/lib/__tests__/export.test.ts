@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createInstance } from 'i18next'
+import i18next, { createInstance } from 'i18next'
 import { describe, expect, test } from 'vitest'
 
 import type { UsageLog } from '../../data/schema'
@@ -113,6 +113,19 @@ describe('usage log CSV export', () => {
       'req-1',
       '',
     ])
+  })
+
+  test('cost cell keeps the runtime locale in a Persian interface', async () => {
+    const t = await chineseTranslator()
+    const header = getLogCsvHeader(false, t)
+    await i18next.changeLanguage('fa')
+    try {
+      const row = getLogCsvRow(consumeLog, false, t)
+
+      expect(row[header.indexOf('Cost')]).toBe('$0.5')
+    } finally {
+      await i18next.changeLanguage('en')
+    }
   })
 
   test('cache write cell counts OpenAI 12-hour writes once as part of the total', async () => {

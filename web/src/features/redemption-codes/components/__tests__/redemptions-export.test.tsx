@@ -24,6 +24,7 @@ import {
   within,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { useState } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 
@@ -234,6 +235,43 @@ test('successful batch creation opens export with returned codes and the configu
   expect(await readDownload(downloads[0])).toBe(
     'batch\tcreatedA\t¥2,000\nbatch\tcreatedB\t¥2,000\n'
   )
+})
+
+test('in a Persian interface, exports the created codes with the quota as before', async () => {
+  const downloads = captureDownloads()
+  const user = userEvent.setup()
+  useSystemConfigStore.getState().setConfig({
+    currency: {
+      ...DEFAULT_CURRENCY_CONFIG,
+      quotaDisplayType: 'CUSTOM',
+      customCurrencySymbol: 'تومان',
+    },
+  })
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: ['createdA'] },
+  })
+  await i18next.changeLanguage('fa')
+  try {
+    render(<CreateDrawer />)
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'batch' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+    const exportDialog = await screen.findByRole('dialog', {
+      name: 'Redemption codes created',
+    })
+    await user.click(
+      within(exportDialog).getByRole('checkbox', { name: 'Save as a file' })
+    )
+    await user.click(
+      within(exportDialog).getByRole('radio', { name: 'Save as TXT' })
+    )
+    await user.click(within(exportDialog).getByRole('button', { name: 'Done' }))
+
+    expect(await readDownload(downloads[0])).toBe('batch\tcreatedA\tتومان 10\n')
+  } finally {
+    await i18next.changeLanguage('en')
+  }
 })
 
 test('failed creation does not open a success export dialog', async () => {
