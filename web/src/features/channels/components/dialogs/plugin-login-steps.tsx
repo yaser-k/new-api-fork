@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { toIntlLocale } from '@/i18n/languages'
 import { isHttpUrl } from '@/lib/content-format'
 import { formatTimestampToDate } from '@/lib/format'
 import { resolveLocalizedText } from '@/lib/localized-text'
@@ -71,7 +72,8 @@ function VendorLink(props: { url: string; label: string }) {
 export function PluginCredentialDetails(props: {
   credential?: PluginCredentialSummary
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const credential = props.credential
   const name = credential?.label || credential?.account_id
   const account =
@@ -92,7 +94,11 @@ export function PluginCredentialDetails(props: {
         {Boolean(credential?.expires_at) && (
           <p className='text-muted-foreground text-xs'>
             {t('Expires {{time}}', {
-              time: formatTimestampToDate(credential?.expires_at),
+              time: formatTimestampToDate(
+                credential?.expires_at,
+                'seconds',
+                locale
+              ),
             })}
           </p>
         )}
