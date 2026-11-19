@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
+	"net/url"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -240,14 +242,18 @@ func SendEmailVerification(c *gin.Context) {
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
 	// The address may not belong to an account yet, so the mail follows the
 	// request language.
-	systemName := map[string]any{"SystemName": common.SystemName}
-	subject := i18n.T(c, i18n.MsgEmailVerificationSubject, systemName)
-	content := fmt.Sprintf("<p>%s</p>"+
-		"<p>%s</p>"+
-		"<p>%s</p>",
-		i18n.T(c, i18n.MsgEmailVerificationGreeting, systemName),
-		i18n.T(c, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
-		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
+	lang := i18n.StatedLang(c)
+	// The code only registers an account; the greeting names the site by the
+	// host of the server address, else by the system name.
+	site := html.EscapeString(common.SystemName)
+	if address, err := url.Parse(system_setting.ServerAddress); err == nil && address.Host != "" {
+		site = i18n.EmailLTR(address.Host)
+	}
+	subject := i18n.Translate(lang, i18n.MsgEmailVerificationSubject, map[string]any{"SystemName": common.SystemName})
+	content := i18n.EmailBody(lang,
+		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, map[string]any{"Site": site}),
+		i18n.Translate(lang, i18n.MsgEmailVerificationCode, map[string]any{"Code": i18n.EmailLTR(code)}),
+		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, email, content)
 	if err != nil {
 		common.ApiError(c, err)
@@ -275,15 +281,11 @@ func SendPasswordResetEmail(c *gin.Context) {
 			lang = i18n.StatedLang(c)
 		}
 		systemName := map[string]any{"SystemName": common.SystemName}
-		linkParams := map[string]any{"Link": link}
 		subject := i18n.Translate(lang, i18n.MsgEmailPasswordResetSubject, systemName)
-		content := fmt.Sprintf("<p>%s</p>"+
-			"<p>%s</p>"+
-			"<p>%s </p>"+
-			"<p>%s</p>",
+		content := i18n.EmailBody(lang,
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetGreeting, systemName),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, linkParams),
-			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, linkParams),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, map[string]any{"Link": link}),
+			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, map[string]any{"Link": i18n.EmailLTR(link)}),
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 		err := common.SendEmail(subject, email, content)
 		if err != nil {

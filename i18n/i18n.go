@@ -97,10 +97,7 @@ func T(c *gin.Context, key string, args ...map[string]any) string {
 // Translate translates a message key for the specified language. An empty
 // language means the reader stated none and gets common.DefaultLanguage.
 func Translate(lang, key string, args ...map[string]any) string {
-	if lang == "" {
-		lang = common.DefaultLanguage
-	}
-	loc := GetLocalizer(lang)
+	loc := GetLocalizer(messageLang(lang))
 
 	config := &i18n.LocalizeConfig{
 		MessageID: key,
@@ -116,6 +113,15 @@ func Translate(lang, key string, args ...map[string]any) string {
 		return key
 	}
 	return msg
+}
+
+// messageLang returns the language Translate writes a message for lang in: a
+// supported language, common.DefaultLanguage when lang is empty, else English.
+func messageLang(lang string) string {
+	if lang == "" {
+		lang = common.DefaultLanguage
+	}
+	return normalizeLang(lang)
 }
 
 // userLangLoaderFunc is a function that loads user language from database/cache
