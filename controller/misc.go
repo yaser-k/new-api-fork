@@ -231,14 +231,13 @@ func SendEmailVerification(c *gin.Context) {
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
 	// The address may not belong to an account yet, so the mail follows the
 	// request language.
+	lang := i18n.StatedLang(c)
 	systemName := map[string]any{"SystemName": common.SystemName}
-	subject := i18n.T(c, i18n.MsgEmailVerificationSubject, systemName)
-	content := fmt.Sprintf("<p>%s</p>"+
-		"<p>%s</p>"+
-		"<p>%s</p>",
-		i18n.T(c, i18n.MsgEmailVerificationGreeting, systemName),
-		i18n.T(c, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
-		i18n.T(c, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
+	subject := i18n.Translate(lang, i18n.MsgEmailVerificationSubject, systemName)
+	content := i18n.EmailBody(lang,
+		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, systemName),
+		i18n.Translate(lang, i18n.MsgEmailVerificationCode, map[string]any{"Code": code}),
+		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, email, content)
 	if err != nil {
 		common.ApiError(c, err)
@@ -268,10 +267,7 @@ func SendPasswordResetEmail(c *gin.Context) {
 		systemName := map[string]any{"SystemName": common.SystemName}
 		linkParams := map[string]any{"Link": link}
 		subject := i18n.Translate(lang, i18n.MsgEmailPasswordResetSubject, systemName)
-		content := fmt.Sprintf("<p>%s</p>"+
-			"<p>%s</p>"+
-			"<p>%s </p>"+
-			"<p>%s</p>",
+		content := i18n.EmailBody(lang,
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetGreeting, systemName),
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetLink, linkParams),
 			i18n.Translate(lang, i18n.MsgEmailPasswordResetLinkFallback, linkParams),

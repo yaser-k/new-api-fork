@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"html"
 
 	"github.com/QuantumNous/new-api/common"
@@ -50,7 +49,7 @@ func NotifyAccountSecurityChange(lang, email, eventKey string, eventArgs ...map[
 	}
 	event := html.EscapeString(i18n.Translate(lang, eventKey, eventArgs...))
 	subject := i18n.Translate(lang, i18n.MsgEmailSecurityNoticeSubject, map[string]any{"SystemName": common.SystemName})
-	content := fmt.Sprintf("<p>%s</p><p>%s</p>",
+	content := i18n.EmailBody(lang,
 		i18n.Translate(lang, i18n.MsgEmailSecurityNoticeChanged, map[string]any{"Event": event}),
 		i18n.Translate(lang, i18n.MsgEmailSecurityNoticeAdvice))
 	return common.SendEmail(subject, email, content)
