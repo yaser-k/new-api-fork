@@ -52,6 +52,19 @@ export function readAccountSetting(
 type DisplayCurrencyState = {
   displayCurrency: DisplayCurrency
   setDisplayCurrency: (displayCurrency: DisplayCurrency) => void
+  /**
+   * The currency the page on screen shows instead of the viewer's choice, as
+   * the pricing pages do from their link. Never stored.
+   */
+  viewDisplayCurrency: DisplayCurrency | null
+  setViewDisplayCurrency: (viewDisplayCurrency: DisplayCurrency | null) => void
+}
+
+/** The currency figures are shown in: the page's view, else the choice. */
+export function shownDisplayCurrency(
+  state: Pick<DisplayCurrencyState, 'displayCurrency' | 'viewDisplayCurrency'>
+): DisplayCurrency {
+  return state.viewDisplayCurrency ?? state.displayCurrency
 }
 
 /**
@@ -63,6 +76,9 @@ export const useDisplayCurrencyStore = create<DisplayCurrencyState>()(
     (set) => ({
       displayCurrency: DEFAULT_DISPLAY_CURRENCY,
       setDisplayCurrency: (displayCurrency) => set({ displayCurrency }),
+      viewDisplayCurrency: null,
+      setViewDisplayCurrency: (viewDisplayCurrency) =>
+        set({ viewDisplayCurrency }),
     }),
     {
       name: 'display-currency',
