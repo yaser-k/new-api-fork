@@ -53,6 +53,7 @@ import type {
   WaffoPayMethod,
 } from '../types'
 import { CreemProductsSection } from './creem-products-section'
+import { PaymentUsdFigure } from './payment-usd-figure'
 
 interface RechargeFormCardProps {
   topupInfo: TopupInfo | null
@@ -321,6 +322,10 @@ export function RechargeFormCard({
                     ) : (
                       <span className='text-sm font-semibold'>
                         {formatCurrency(paymentAmount, locale)}
+                        <PaymentUsdFigure
+                          amount={paymentAmount}
+                          priceRatio={priceRatio}
+                        />
                       </span>
                     )}
                   </div>
