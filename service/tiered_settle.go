@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,10 +17,23 @@ import (
 // TieredResultWrapper wraps billingexpr.TieredResult for use at the service layer.
 type TieredResultWrapper = billingexpr.TieredResult
 
+// billableVideoSeconds reads the input video seconds an upstream reported as
+// the expression's vid_sec: a negative, NaN or infinite value reads as 0, and
+// the value is not rounded. Seconds are known only from the answer, so the
+// pre-consume estimate runs with vid_sec 0 and settlement charges them.
+func billableVideoSeconds(usage *dto.Usage) float64 {
+	seconds := usage.InputVideoSeconds
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 {
+		return 0
+	}
+	return min(seconds, math.MaxInt32)
+}
+
 // BuildTieredTokenParams constructs billingexpr.TokenParams from a dto.Usage,
 // normalizing P and C so they mean "tokens not separately priced by the
 // expression". Sub-categories (cache, image, audio) are only subtracted
-// when the expression references them via their own variable.
+// when the expression references them via their own variable. Input video
+// seconds are not tokens and never change P, C or Len.
 //
 // GPT-format APIs report prompt_tokens / completion_tokens as totals that
 // include all sub-categories (cache, image, audio). Claude-format APIs
@@ -172,6 +186,8 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 		ImgO:  imgO,
 		AI:    ai,
 		AO:    ao,
+
+		VidSec: billableVideoSeconds(usage),
 	}
 }
 
