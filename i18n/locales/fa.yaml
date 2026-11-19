@@ -47,7 +47,7 @@ relay.response_rejected: "پاسخ بر اساس سیاست متوقف شد"
 # Emails and the name of the token created at registration
 user.default_token_name: "کلید API اولیۀ {{.Username}}"
 email.verification.subject: "تأیید ایمیل {{.SystemName}}"
-email.verification.greeting: "سلام، شما در حال تأیید نشانی ایمیل خود برای {{.SystemName}} هستید."
+email.verification.greeting: "سلام، شما در حال تأیید نشانی ایمیل خود برای ثبت‌نام در {{.Site}} هستید."
 email.verification.code: "کد تأیید شما: <strong>{{.Code}}</strong>"
 email.verification.validity: "این کد تأیید تا {{.Minutes}} دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید."
 email.password_reset.subject: "بازنشانی رمز عبور {{.SystemName}}"

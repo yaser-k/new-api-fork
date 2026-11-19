@@ -118,6 +118,13 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 		`<p`+ltr+`>Your verification code is: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
 		`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p></div>`)+"$",
 		send("en-US"))
+	// U+200C joins ثبت‌نام and کرده‌اید.
+	const rtl = ` dir="rtl" style="direction:rtl;text-align:right"`
+	assert.Regexp(t, "^"+regexp.QuoteMeta(`<div lang="fa"`+rtl+`>`+
+		`<p`+rtl+`>سلام، شما در حال تأیید نشانی ایمیل خود برای ثبت‌نام در <span dir="ltr">example.org</span> هستید.</p>`+
+		`<p`+rtl+`>کد تأیید شما: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
+		`<p`+rtl+`>این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.</p></div>`)+"$",
+		send("fa-IR"))
 
 	for _, tc := range []struct{ address, site string }{
 		{"https://example.org", `<span dir="ltr">example.org</span>`},
