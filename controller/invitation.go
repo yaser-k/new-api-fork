@@ -149,7 +149,8 @@ func openInvitation(c *gin.Context, token string) *model.Invitation {
 
 // insertInvitedUser creates the account and spends the invitation in one
 // transaction, so a token spent, revoked or replaced meanwhile creates no
-// account.
+// account, and a phone number another account took meanwhile leaves the
+// invitation unspent.
 func insertInvitedUser(user *model.User, token string, inviterId int) error {
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
 		if err := user.InsertWithTx(tx, inviterId); err != nil {

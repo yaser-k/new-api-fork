@@ -218,7 +218,8 @@ func Register(c *gin.Context) {
 	var request invitationRegisterRequest
 	err := common.DecodeJson(c.Request.Body, &request)
 	// An invitation is the permission to register, whatever the registration
-	// switches say.
+	// switches say. The phone number rule below holds for it as for any
+	// sign-up.
 	var invitation *model.Invitation
 	if request.InviteToken != "" {
 		if invitation = openInvitation(c, request.InviteToken); invitation == nil {
@@ -250,6 +251,19 @@ func Register(c *gin.Context) {
 	if err := common.Validate.Struct(&user); err != nil {
 		common.ApiErrorT(c, "Invalid input {{error}}", map[string]any{"error": err.Error()})
 		return
+	}
+	// With the option off the field is ignored. The insert refuses a number
+	// another account holds.
+	phone := ""
+	if common.RegisterPhoneRequiredEnabled {
+		raw := ""
+		if user.Phone != nil {
+			raw = *user.Phone
+		}
+		if phone, err = model.CurrentPhoneNumberFormat().Normalize(raw); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	if common.EmailVerificationEnabled && invitation == nil {
 		if user.Email == "" || user.VerificationCode == "" {
@@ -297,11 +311,16 @@ func Register(c *gin.Context) {
 	if emailVerified {
 		cleanUser.Email = user.Email
 	}
-	if invitation != nil {
-		err = insertInvitedUser(&cleanUser, request.InviteToken, inviterId)
-	} else {
-		err = cleanUser.Insert(inviterId)
+	if phone != "" {
+		cleanUser.Phone = &phone
 	}
+	// Each run inserts the account from the same values; see RetryPhoneNumberRace.
+	err = model.RetryPhoneNumberRace(c.Request.Context(), &cleanUser, func() error {
+		if invitation != nil {
+			return insertInvitedUser(&cleanUser, request.InviteToken, inviterId)
+		}
+		return cleanUser.Insert(inviterId)
+	})
 	if err != nil {
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorT(c, "Email address is already in use")
@@ -424,6 +443,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
+	user.FillPhoneDisplay()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -518,6 +538,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 	userSetting := user.GetSetting()
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
+	user.FillPhoneDisplay()
 	return map[string]any{
 		"id":                user.Id,
 		"username":          user.Username,
@@ -526,6 +547,8 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
+		"phone":             user.Phone,
+		"phone_display":     user.PhoneDisplay,
 		"github_id":         user.GitHubId,
 		"discord_id":        user.DiscordId,
 		"oidc_id":           user.OidcId,
@@ -707,6 +730,26 @@ func UpdateUser(c *gin.Context) {
 	auditParams := map[string]any{
 		"username": originUser.Username,
 		"id":       updatedUser.Id,
+	}
+	// The user drawer sends the number back as it showed it; only another
+	// number is read, so a format changed since does not block other edits.
+	// An empty number clears it.
+	storedPhone := ""
+	if originUser.Phone != nil {
+		storedPhone = *originUser.Phone
+	}
+	if updatedUser.Phone != nil && *updatedUser.Phone != storedPhone && *updatedUser.Phone != model.CurrentPhoneNumberFormat().Display(storedPhone) {
+		phone := ""
+		if strings.TrimSpace(*updatedUser.Phone) != "" {
+			if phone, err = model.CurrentPhoneNumberFormat().Normalize(*updatedUser.Phone); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+		}
+		updatedUser.Phone = &phone
+		auditParams["phone_changed"] = phone != storedPhone
+	} else {
+		updatedUser.Phone = nil
 	}
 	// Resetting a password or rewriting the admin permission matrix changes what
 	// the managed account can do or who can sign in to it.
@@ -1081,6 +1124,14 @@ func CreateUser(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
+	}
+	if user.Phone != nil && strings.TrimSpace(*user.Phone) != "" {
+		phone, err := model.CurrentPhoneNumberFormat().Normalize(*user.Phone)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		cleanUser.Phone = &phone
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {

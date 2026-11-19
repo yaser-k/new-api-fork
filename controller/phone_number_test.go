@@ -1,0 +1,826 @@
+package controller_test
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/router"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/gin-gonic/gin"
+	sqlmysql "github.com/go-sql-driver/mysql"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+const (
+	phoneTestPassword          = "phone-test-password"
+	phoneRequiredMessage       = "Phone number is required"
+	phoneLengthMessage         = "The phone number is too short or too long"
+	phoneFormatMessage         = "The phone number does not match the accepted format"
+	phoneCharactersMessage     = "The phone number may contain only digits, spaces, hyphens, dots, brackets and a leading +"
+	phoneTakenMessage          = "Phone number is already in use"
+	phoneCountryCodeMessage    = "The country calling code must be one to three digits that do not start with 0"
+	phoneTrunkPrefixMessage    = "The trunk prefix must be one to three digits"
+	phoneNationalNumberMessage = "The national number pattern is not a valid regular expression"
+	phoneHintLengthMessage     = "The phone number hint must be at most 200 characters"
+	phoneBusyMessage           = "The sign-up could not be completed right now. Please try again."
+)
+
+// phoneFormats are made-up and real number formats of several countries,
+// given as the options an administrator sets.
+var (
+	phoneTrunkFormat = map[string]string{"PhoneCountryCode": "44", "PhoneTrunkPrefix": "0", "PhoneNationalNumberPattern": `7\d{9}`}
+	phonePlainFormat = map[string]string{"PhoneCountryCode": "47", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": `[49]\d{7}`}
+	phoneSharedCode  = map[string]string{"PhoneCountryCode": "1", "PhoneTrunkPrefix": "1", "PhoneNationalNumberPattern": `[2-9]\d{2}[2-9]\d{6}`}
+	phoneNoFormat    = map[string]string{"PhoneCountryCode": "", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": ""}
+	phoneDefaults    = map[string]string{"RegisterPhoneRequiredEnabled": "false", "PhoneCountryCode": "", "PhoneTrunkPrefix": "", "PhoneNationalNumberPattern": "", "RegisterPhoneHint": ""}
+)
+
+type phoneResponse struct {
+	Success    bool           `json:"success"`
+	Message    string         `json:"message"`
+	MessageKey string         `json:"message_key"`
+	Data       map[string]any `json:"data"`
+}
+
+type phoneFixture struct {
+	engine     *gin.Engine
+	adminToken string
+}
+
+// setupPhoneTest starts the API router on a fresh database migrated the way
+// the server migrates at startup. TEST_SECURITY_DIALECT selects mysql or
+// postgres with TEST_MYSQL_DSN or TEST_POSTGRES_DSN; SQLite is the default.
+// mysqlVariables are MySQL session variables every connection sets.
+func setupPhoneTest(t *testing.T, mysqlVariables ...string) *phoneFixture {
+	t.Helper()
+	require.NoError(t, i18n.Init())
+	gin.SetMode(gin.TestMode)
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMain, previousLog := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis, previousSecret, previousMaster := common.RedisEnabled, common.SessionSecret, common.IsMasterNode
+	previousSQLitePath, previousOptions := common.SQLitePath, common.OptionMap
+	previousCritical, previousGlobal := common.CriticalRateLimitEnable, common.GlobalApiRateLimitEnable
+	previousDefaultToken := constant.GenerateDefaultToken
+	t.Cleanup(func() {
+		if model.DB != nil && model.DB != previousDB {
+			if connection, err := model.DB.DB(); err == nil {
+				_ = connection.Close()
+			}
+		}
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousMain, previousLog)
+		common.RedisEnabled, common.SessionSecret, common.IsMasterNode = previousRedis, previousSecret, previousMaster
+		common.SQLitePath = previousSQLitePath
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+		common.CriticalRateLimitEnable, common.GlobalApiRateLimitEnable = previousCritical, previousGlobal
+		constant.GenerateDefaultToken = previousDefaultToken
+	})
+
+	dialect := os.Getenv("TEST_SECURITY_DIALECT")
+	if dialect == "" {
+		dialect = "sqlite"
+	}
+	t.Setenv("LOG_SQL_DSN", "")
+	switch dialect {
+	case "sqlite":
+		t.Setenv("SQL_DSN", "")
+		common.SQLitePath = t.TempDir() + "/phone.db?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_txlock=immediate"
+	default:
+		t.Setenv("SQL_DSN", newPhoneTestDatabase(t, dialect, mysqlVariables...))
+	}
+	common.IsMasterNode, common.RedisEnabled = true, false
+	common.SessionSecret = "phone-test-secret"
+	require.NoError(t, model.InitDB())
+	require.NoError(t, model.InitLogDB())
+	model.InitOptionMap()
+	t.Logf("database: %s", dialect)
+	// Every test starts and ends with the phone options at their defaults, also
+	// when it changed them through the API.
+	resetPhoneOptions := func() {
+		for key, value := range phoneDefaults {
+			_ = model.UpdateOption(key, value)
+		}
+	}
+	resetPhoneOptions()
+	t.Cleanup(resetPhoneOptions)
+
+	common.CriticalRateLimitEnable, common.GlobalApiRateLimitEnable = false, false
+	constant.GenerateDefaultToken = false
+	setPhoneOptions(t, map[string]string{
+		"RegisterEnabled": "true", "PasswordRegisterEnabled": "true", "EmailVerificationEnabled": "false",
+		"EmailDomainRestrictionEnabled": "false", "EmailAliasRestrictionEnabled": "false", "TurnstileCheckEnabled": "false",
+	})
+
+	fixture := &phoneFixture{engine: gin.New()}
+	require.NotPanics(t, func() { router.SetApiRouter(fixture.engine) })
+	fixture.adminToken, _ = createPhoneTestSession(t, "phone-admin", common.RoleAdminUser)
+	return fixture
+}
+
+// setPhoneOptions saves options as the settings page does and restores the
+// previous values when the test ends.
+func setPhoneOptions(t *testing.T, options map[string]string) {
+	t.Helper()
+	for key, value := range options {
+		common.OptionMapRWMutex.RLock()
+		previous, existed := common.OptionMap[key]
+		common.OptionMapRWMutex.RUnlock()
+		require.NoError(t, model.UpdateOption(key, value), key)
+		if existed {
+			t.Cleanup(func() { _ = model.UpdateOption(key, previous) })
+		}
+	}
+}
+
+func requirePhoneNumbers(t *testing.T, format map[string]string) {
+	t.Helper()
+	options := map[string]string{"RegisterPhoneRequiredEnabled": "true"}
+	for key, value := range format {
+		options[key] = value
+	}
+	setPhoneOptions(t, options)
+}
+
+func newPhoneTestDatabase(t *testing.T, dialect string, mysqlVariables ...string) string {
+	t.Helper()
+	dsn := os.Getenv("TEST_" + strings.ToUpper(dialect) + "_DSN")
+	require.NotEmpty(t, dsn, "TEST_%s_DSN is required", strings.ToUpper(dialect))
+	name := fmt.Sprintf("newapi_phone_%d", time.Now().UnixNano())
+	var admin gorm.Dialector
+	var isolated, create string
+	switch dialect {
+	case "mysql":
+		config, err := sqlmysql.ParseDSN(dsn)
+		require.NoError(t, err)
+		admin = mysql.Open(dsn)
+		config.DBName = name
+		for _, variable := range mysqlVariables {
+			name, value, _ := strings.Cut(variable, "=")
+			if config.Params == nil {
+				config.Params = map[string]string{}
+			}
+			config.Params[name] = value
+		}
+		isolated = config.FormatDSN()
+		create = "CREATE DATABASE " + name + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+	case "postgres":
+		parsed, err := url.Parse(dsn)
+		require.NoError(t, err)
+		admin = postgres.Open(dsn)
+		parsed.Path = "/" + name
+		isolated = parsed.String()
+		create = "CREATE DATABASE " + name
+	default:
+		t.Fatalf("unsupported dialect %s", dialect)
+	}
+	db, err := gorm.Open(admin, &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(create).Error)
+	t.Cleanup(func() {
+		if model.DB != nil {
+			if connection, err := model.DB.DB(); err == nil {
+				_ = connection.Close()
+			}
+		}
+		_ = db.Exec("DROP DATABASE " + name).Error
+		if connection, err := db.DB(); err == nil {
+			_ = connection.Close()
+		}
+	})
+	return isolated
+}
+
+// createPhoneTestSession creates an account without a phone number, as every
+// account that exists before the option is turned on, and signs it in.
+func createPhoneTestSession(t *testing.T, username string, role int) (string, int) {
+	t.Helper()
+	password, err := common.Password2Hash(phoneTestPassword)
+	require.NoError(t, err)
+	user := &model.User{Username: username, Password: password, DisplayName: username, Role: role, Status: common.UserStatusEnabled, Group: "default", AffCode: username, AuthVersion: 1}
+	require.NoError(t, model.DB.Create(user).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "phone-test")
+	require.NoError(t, err)
+	return bundle.AccessToken, user.Id
+}
+
+func (fixture *phoneFixture) request(t *testing.T, method, path, bearer string, body any) phoneResponse {
+	t.Helper()
+	var reader io.Reader
+	if body != nil {
+		encoded, err := common.Marshal(body)
+		require.NoError(t, err)
+		reader = strings.NewReader(string(encoded))
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Content-Type", "application/json")
+	if bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	response := httptest.NewRecorder()
+	fixture.engine.ServeHTTP(response, request)
+	var result phoneResponse
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result), response.Body.String())
+	return result
+}
+
+func (fixture *phoneFixture) register(t *testing.T, username string, extra map[string]any) phoneResponse {
+	t.Helper()
+	body := map[string]any{"username": username, "password": phoneTestPassword}
+	for key, value := range extra {
+		body[key] = value
+	}
+	return fixture.request(t, http.MethodPost, "/api/user/register", "", body)
+}
+
+// storedPhone reads the phone column of an account; ok is false when the
+// account has no number.
+func storedPhone(t *testing.T, username string) (phone string, ok bool) {
+	t.Helper()
+	var row struct{ Phone sql.NullString }
+	require.NoError(t, model.DB.Unscoped().Table("users").Select("phone").Where("username = ?", username).Take(&row).Error)
+	return row.Phone.String, row.Phone.Valid
+}
+
+func setStoredPhone(t *testing.T, userId int, phone string) {
+	t.Helper()
+	require.NoError(t, model.DB.Table("users").Where("id = ?", userId).Update("phone", phone).Error)
+}
+
+func countUsersNamed(t *testing.T, username string) int64 {
+	t.Helper()
+	var count int64
+	require.NoError(t, model.DB.Unscoped().Model(&model.User{}).Where("username = ?", username).Count(&count).Error)
+	return count
+}
+
+func userIdNamed(t *testing.T, username string) int {
+	t.Helper()
+	var user model.User
+	require.NoError(t, model.DB.Where("username = ?", username).First(&user).Error)
+	return user.Id
+}
+
+func TestPhoneNumberOptionOffKeepsRegistrationUnchanged(t *testing.T) {
+	fixture := setupPhoneTest(t)
+
+	result := fixture.register(t, "no-phone", nil)
+	require.True(t, result.Success, result.Message)
+	_, hasPhone := storedPhone(t, "no-phone")
+	assert.False(t, hasPhone)
+
+	// With the option off the field is ignored, whatever it holds.
+	for username, phone := range map[string]string{"ignored-phone": "+44 7911 123456", "ignored-letters": "call me"} {
+		result = fixture.register(t, username, map[string]any{"phone": phone})
+		require.True(t, result.Success, "%s: %s", username, result.Message)
+		_, hasPhone = storedPhone(t, username)
+		assert.False(t, hasPhone, username)
+	}
+
+	status := fixture.request(t, http.MethodGet, "/api/status", "", nil)
+	require.True(t, status.Success)
+	assert.Equal(t, false, status.Data["register_phone_required"])
+}
+
+func TestPhoneNumberStatusCarriesTheRequirementAndTheHintOnly(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+
+	// The format stays on the server; the public answer says only whether a
+	// number is required, and the administrator's hint when one is set.
+	status := fixture.request(t, http.MethodGet, "/api/status", "", nil)
+	require.True(t, status.Success)
+	assert.Equal(t, true, status.Data["register_phone_required"])
+	for _, key := range []string{"phone_country_code", "phone_trunk_prefix", "phone_national_number_pattern", "register_phone_hint", "phone"} {
+		assert.NotContains(t, status.Data, key)
+	}
+
+	setPhoneOptions(t, map[string]string{"RegisterPhoneHint": "Mobile numbers only, as printed on your bill."})
+	status = fixture.request(t, http.MethodGet, "/api/status", "", nil)
+	require.True(t, status.Success)
+	assert.Equal(t, "Mobile numbers only, as printed on your bill.", status.Data["register_phone_hint"])
+}
+
+func TestRegisterRefusesEachInvalidPhoneNumberWithItsMessage(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	result := fixture.register(t, "first-holder", map[string]any{"phone": "07911 123456"})
+	require.True(t, result.Success, result.Message)
+
+	for index, test := range []struct {
+		name    string
+		extra   map[string]any
+		message string
+	}{
+		{"absent", nil, phoneRequiredMessage},
+		{"empty", map[string]any{"phone": ""}, phoneRequiredMessage},
+		{"separators only", map[string]any{"phone": " - ( ) "}, phoneRequiredMessage},
+		{"too short", map[string]any{"phone": "0791"}, phoneLengthMessage},
+		{"too long", map[string]any{"phone": "07911 123456 789012"}, phoneLengthMessage},
+		{"pattern refuses", map[string]any{"phone": "020 7946 0000"}, phoneFormatMessage},
+		{"another country code", map[string]any{"phone": "+33 6 12 34 56 78"}, phoneFormatMessage},
+		{"letters", map[string]any{"phone": "07911 12345a"}, phoneCharactersMessage},
+		{"extension", map[string]any{"phone": "07911 123457 ext 1"}, phoneCharactersMessage},
+		{"other characters", map[string]any{"phone": "07911#123457"}, phoneCharactersMessage},
+		{"plus inside", map[string]any{"phone": "0791+1123457"}, phoneCharactersMessage},
+		{"held by another account", map[string]any{"phone": "+44 7911 123456"}, phoneTakenMessage},
+	} {
+		username := fmt.Sprintf("refused-%d", index)
+		result := fixture.register(t, username, test.extra)
+		assert.False(t, result.Success, test.name)
+		assert.Equal(t, test.message, result.Message, test.name)
+		assert.Equal(t, test.message, result.MessageKey, test.name)
+		assert.Zero(t, countUsersNamed(t, username), "%s creates no account", test.name)
+	}
+}
+
+func TestRegisterStoresEverySpellingInOneNormalForm(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	for _, group := range []struct {
+		name      string
+		format    map[string]string
+		spellings map[string]string // spelling -> normal form
+	}{
+		{"trunk", phoneTrunkFormat, map[string]string{
+			"+44 7911 123401":     "+447911123401",
+			"0044 7911 123402":    "+447911123402",
+			"44 7911 123403":      "+447911123403",
+			"07911 123404":        "+447911123404",
+			"7911 123405":         "+447911123405",
+			"+44 (0) 7911 123406": "+447911123406",
+			"(07911) 123-407":     "+447911123407",
+			"07911.123.408":       "+447911123408",
+			"[07911] 123 409":     "+447911123409",
+			"۰۷۹۱۱ ۱۲۳ ۴۱۰":       "+447911123410",
+			"‏+۴۴ ۷۹۱۱ ۱۲۳۴۱۱‏":   "+447911123411",
+			"٠٧٩١١١٢٣٤١٢":         "+447911123412",
+			"०७९११ १२३४१३":        "+447911123413",
+			"＋４４ ７９１１ １２３４１４":     "+447911123414",
+			"07911 123415":        "+447911123415",
+			"07911–123416":        "+447911123416",
+		}},
+		{"plain", phonePlainFormat, map[string]string{
+			"+47 412 34 567": "+4741234567",
+			"0047 41234568":  "+4741234568",
+			"47 412 34 569":  "+4741234569",
+			"912 34 570":     "+4791234570",
+		}},
+		{"shared", phoneSharedCode, map[string]string{
+			"+1 (415) 555-0101": "+14155550101",
+			"1 415 555 0102":    "+14155550102",
+			"(415) 555-0103":    "+14155550103",
+			"001 415 555 0104":  "+14155550104",
+		}},
+		{"international", phoneNoFormat, map[string]string{
+			"+1 415 555 0201":  "+14155550201",
+			"0049 30 1234567":  "+49301234567",
+			"+683 4002":        "+6834002",
+			"+۴۹ ۳۰ ۱۲۳۴ ۵۶۷۸": "+493012345678",
+		}},
+	} {
+		requirePhoneNumbers(t, group.format)
+		index := 0
+		for spelling, normal := range group.spellings {
+			index++
+			username := fmt.Sprintf("%s-%d", group.name, index)
+			result := fixture.register(t, username, map[string]any{"phone": spelling})
+			if !assert.True(t, result.Success, "%s %q: %s", group.name, spelling, result.Message) {
+				continue
+			}
+			phone, ok := storedPhone(t, username)
+			assert.True(t, ok, spelling)
+			assert.Equal(t, normal, phone, "%s %q", group.name, spelling)
+		}
+	}
+
+	requirePhoneNumbers(t, phoneNoFormat)
+	for spelling, message := range map[string]string{
+		"415 555 0202":          phoneFormatMessage,
+		"+0 415 555 0203":       phoneFormatMessage,
+		"+1 415":                phoneLengthMessage,
+		"+1 415 555 0204 12345": phoneLengthMessage,
+	} {
+		result := fixture.register(t, "intl-refused", map[string]any{"phone": spelling})
+		assert.False(t, result.Success, spelling)
+		assert.Equal(t, message, result.Message, spelling)
+	}
+}
+
+func TestPhoneNumberIsOneValueWhateverTheFormatOptions(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneNoFormat)
+	result := fixture.register(t, "first-format", map[string]any{"phone": "+44 7911 123456"})
+	require.True(t, result.Success, result.Message)
+
+	// The same number, written nationally under the options that came later.
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	result = fixture.register(t, "second-format", map[string]any{"phone": "07911 123456"})
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneTakenMessage, result.Message)
+	result = fixture.register(t, "third-format", map[string]any{"phone": "07911 654321"})
+	require.True(t, result.Success, result.Message)
+
+	// And the other way round.
+	requirePhoneNumbers(t, phoneNoFormat)
+	result = fixture.register(t, "fourth-format", map[string]any{"phone": "0044 7911 654321"})
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneTakenMessage, result.Message)
+	assert.Zero(t, countUsersNamed(t, "second-format")+countUsersNamed(t, "fourth-format"))
+
+	for username, international := range map[string]string{"first-format": "+447911123456", "third-format": "+447911654321"} {
+		phone, ok := storedPhone(t, username)
+		assert.True(t, ok, username)
+		assert.Equal(t, international, phone, username)
+	}
+}
+
+func TestRegisterPhoneNumberRefusalLeavesTheEmailCodeUsable(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	setPhoneOptions(t, map[string]string{"EmailVerificationEnabled": "true"})
+	common.RegisterVerificationCodeWithKey("coded@example.com", "424242", common.EmailVerificationPurpose)
+
+	result := fixture.register(t, "coded", map[string]any{"email": "coded@example.com", "verification_code": "424242", "phone": "0791"})
+	require.False(t, result.Success)
+	assert.Equal(t, phoneLengthMessage, result.Message)
+	assert.Zero(t, countUsersNamed(t, "coded"))
+
+	result = fixture.register(t, "coded", map[string]any{"email": "coded@example.com", "verification_code": "424242", "phone": "07911 123499"})
+	require.True(t, result.Success, result.Message)
+	phone, ok := storedPhone(t, "coded")
+	assert.True(t, ok)
+	assert.Equal(t, "+447911123499", phone)
+}
+
+func TestRegisterConcurrentSameNumberMakesOneAccount(t *testing.T) {
+	// With email codes on, each sign-up also locks its email, which on MySQL
+	// can end a losing transaction with a deadlock instead of the unique index.
+	// Every loser is still refused as in use, on every database, and keeps its
+	// email code.
+	for _, emailCodes := range []bool{false, true} {
+		t.Run(fmt.Sprintf("email codes %v", emailCodes), func(t *testing.T) {
+			fixture := setupPhoneTest(t)
+			requirePhoneNumbers(t, phoneTrunkFormat)
+			setPhoneOptions(t, map[string]string{"EmailVerificationEnabled": strconv.FormatBool(emailCodes)})
+			spellings := []string{"07911 123456", "+44 7911 123456", "0044 7911 123456", "7911 123456"}
+			results := make([]phoneResponse, len(spellings))
+			var wg sync.WaitGroup
+			for index := range spellings {
+				email := fmt.Sprintf("racer-%d@example.com", index)
+				common.RegisterVerificationCodeWithKey(email, "424242", common.EmailVerificationPurpose)
+				wg.Go(func() {
+					results[index] = fixture.register(t, fmt.Sprintf("racer-%d", index), map[string]any{"phone": spellings[index], "email": email, "verification_code": "424242"})
+				})
+			}
+			wg.Wait()
+
+			successes := 0
+			for index, result := range results {
+				if result.Success {
+					successes++
+					continue
+				}
+				assert.Equal(t, phoneTakenMessage, result.Message, "racer %d", index)
+				assert.Zero(t, countUsersNamed(t, fmt.Sprintf("racer-%d", index)))
+				// The loser's email code still makes its account with another number.
+				again := fixture.register(t, fmt.Sprintf("racer-%d", index), map[string]any{"phone": fmt.Sprintf("07911 2%05d", index), "email": fmt.Sprintf("racer-%d@example.com", index), "verification_code": "424242"})
+				assert.True(t, again.Success, "racer %d again: %s", index, again.Message)
+			}
+			assert.Equal(t, 1, successes, "%+v", results)
+			var holders int64
+			require.NoError(t, model.DB.Unscoped().Table("users").Where("phone = ?", "+447911123456").Count(&holders).Error)
+			assert.EqualValues(t, 1, holders)
+		})
+	}
+}
+
+func TestPhoneNumberRaceRetryBoundsEachKindOfFailure(t *testing.T) {
+	phone := "+447911123456"
+	for _, test := range []struct {
+		name   string
+		number uint16
+		runs   int
+	}{
+		{"a lock wait timeout is retried once", 1205, 2},
+		{"a deadlock keeps its retries", 1213, 5},
+	} {
+		runs := 0
+		user := &model.User{Username: "racer", Phone: &phone}
+		err := model.RetryPhoneNumberRace(context.Background(), user, func() error {
+			runs++
+			return &sqlmysql.MySQLError{Number: test.number, Message: "the database's own text"}
+		})
+		assert.Equal(t, test.runs, runs, test.name)
+		require.Error(t, err, test.name)
+		assert.Equal(t, phoneBusyMessage, err.Error(), "%s: one translated answer, not the database's text", test.name)
+	}
+}
+
+func TestPhoneNumberRaceRetryStopsWhenTheClientIsGone(t *testing.T) {
+	phone := "+447911123456"
+	ctx, cancel := context.WithCancel(context.Background())
+	runs := 0
+	err := model.RetryPhoneNumberRace(ctx, &model.User{Username: "racer", Phone: &phone}, func() error {
+		runs++
+		cancel() // the client goes away while the first run deadlocks
+		return &sqlmysql.MySQLError{Number: 1213, Message: "the database's own text"}
+	})
+	assert.Equal(t, 1, runs, "no run starts after the request's context ends")
+	require.Error(t, err)
+	assert.Equal(t, phoneBusyMessage, err.Error())
+}
+
+func TestRegisterRetriesALockWaitTimeoutOnceThenAsksToTryAgain(t *testing.T) {
+	if os.Getenv("TEST_SECURITY_DIALECT") != "mysql" {
+		t.Skip("the lock wait timeout is MySQL's; run with TEST_SECURITY_DIALECT=mysql")
+	}
+	fixture := setupPhoneTest(t, "innodb_lock_wait_timeout=1")
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	setPhoneOptions(t, map[string]string{"EmailVerificationEnabled": "true"})
+	common.RegisterVerificationCodeWithKey("waiter@example.com", "424242", common.EmailVerificationPurpose)
+	rowLockWaits := func() int64 {
+		var row struct {
+			VariableName string `gorm:"column:Variable_name"`
+			Value        int64  `gorm:"column:Value"`
+		}
+		require.NoError(t, model.DB.Raw("SHOW GLOBAL STATUS LIKE 'Innodb_row_lock_waits'").Scan(&row).Error)
+		return row.Value
+	}
+
+	// Another transaction holds the number, uncommitted, so each run of the
+	// sign-up waits on it until the one-second lock wait timeout.
+	held := model.DB.Begin()
+	require.NoError(t, held.Error)
+	holder := "+447911123456"
+	require.NoError(t, held.Create(&model.User{Username: "holder", Password: "unused", AffCode: "holder", Phone: &holder}).Error)
+	waitsBefore := rowLockWaits()
+	result := fixture.register(t, "waiter", map[string]any{"phone": "07911 123456", "email": "waiter@example.com", "verification_code": "424242"})
+	runs := rowLockWaits() - waitsBefore
+	require.NoError(t, held.Rollback().Error)
+
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneBusyMessage, result.Message)
+	assert.Equal(t, phoneBusyMessage, result.MessageKey)
+	assert.EqualValues(t, 2, runs, "a lock wait timeout is retried once")
+	assert.Zero(t, countUsersNamed(t, "waiter"))
+
+	// The number came free, and the email code still makes the account.
+	result = fixture.register(t, "waiter", map[string]any{"phone": "07911 123456", "email": "waiter@example.com", "verification_code": "424242"})
+	require.True(t, result.Success, result.Message)
+	phone, _ := storedPhone(t, "waiter")
+	assert.Equal(t, holder, phone)
+}
+
+func TestPhoneNumberAccountWithoutNumberSignsInAndReadsItself(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	_, id := createPhoneTestSession(t, "before-option", common.RoleCommonUser)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+
+	login := fixture.request(t, http.MethodPost, "/api/user/login", "", map[string]any{"username": "before-option", "password": phoneTestPassword})
+	require.True(t, login.Success, login.Message)
+	token, _ := login.Data["access_token"].(string)
+	require.NotEmpty(t, token, "%+v", login.Data)
+	user, _ := login.Data["user"].(map[string]any)
+	assert.Contains(t, user, "phone")
+	assert.Nil(t, user["phone"])
+
+	self := fixture.request(t, http.MethodGet, "/api/user/self", token, nil)
+	require.True(t, self.Success, self.Message)
+	assert.EqualValues(t, id, self.Data["id"])
+	assert.Contains(t, self.Data, "phone")
+	assert.Nil(t, self.Data["phone"])
+
+	// An account an administrator gave a number reads it in its own data.
+	setStoredPhone(t, id, "+447911123456")
+	self = fixture.request(t, http.MethodGet, "/api/user/self", token, nil)
+	require.True(t, self.Success, self.Message)
+	assert.Equal(t, "+447911123456", self.Data["phone"])
+	assert.Equal(t, "07911123456", self.Data["phone_display"], "shown as the options write it nationally")
+}
+
+func TestPhoneNumberSelfUpdateCannotChangeIt(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	token, id := createPhoneTestSession(t, "owner", common.RoleCommonUser)
+	setStoredPhone(t, id, "+447911123456")
+
+	for _, phone := range []any{"+44 7911 654321", "", nil} {
+		result := fixture.request(t, http.MethodPut, "/api/user/self", token, map[string]any{"username": "owner", "display_name": "Owner", "phone": phone})
+		require.True(t, result.Success, result.Message)
+		stored, ok := storedPhone(t, "owner")
+		assert.True(t, ok, "%v", phone)
+		assert.Equal(t, "+447911123456", stored, "%v", phone)
+	}
+	var displayName string
+	require.NoError(t, model.DB.Table("users").Where("id = ?", id).Select("display_name").Scan(&displayName).Error)
+	assert.Equal(t, "Owner", displayName, "the rest of the update applies")
+}
+
+func TestAdminSetsChangesAndClearsThePhoneNumber(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	_, id := createPhoneTestSession(t, "managed", common.RoleCommonUser)
+	_, otherId := createPhoneTestSession(t, "other", common.RoleCommonUser)
+	setStoredPhone(t, otherId, "+447911000000")
+	update := func(phone any) phoneResponse {
+		body := map[string]any{"id": id, "username": "managed", "display_name": "managed", "group": "default"}
+		if phone != nil {
+			body["phone"] = phone
+		}
+		return fixture.request(t, http.MethodPut, "/api/user/", fixture.adminToken, body)
+	}
+
+	result := update("+44 7911 222333")
+	require.True(t, result.Success, result.Message)
+	phone, ok := storedPhone(t, "managed")
+	assert.True(t, ok)
+	assert.Equal(t, "+447911222333", phone)
+
+	read := fixture.request(t, http.MethodGet, fmt.Sprintf("/api/user/%d", id), fixture.adminToken, nil)
+	require.True(t, read.Success, read.Message)
+	assert.Equal(t, "+447911222333", read.Data["phone"])
+	assert.Equal(t, "07911222333", read.Data["phone_display"])
+	// The search finds the number by its digits and by a spelling it parses.
+	for _, keyword := range []string{"7911222333", "07911222333", "%2B447911222333"} {
+		search := fixture.request(t, http.MethodGet, "/api/user/search?keyword="+keyword, fixture.adminToken, nil)
+		require.True(t, search.Success, search.Message)
+		items, _ := search.Data["items"].([]any)
+		require.Len(t, items, 1, keyword)
+		assert.Equal(t, "managed", items[0].(map[string]any)["username"], keyword)
+		assert.Equal(t, "07911222333", items[0].(map[string]any)["phone_display"], keyword)
+	}
+
+	result = update(nil)
+	require.True(t, result.Success, result.Message)
+	phone, _ = storedPhone(t, "managed")
+	assert.Equal(t, "+447911222333", phone, "an update without the field keeps the number")
+	result = update("07911222333")
+	require.True(t, result.Success, result.Message)
+	phone, _ = storedPhone(t, "managed")
+	assert.Equal(t, "+447911222333", phone, "the drawer sends back the national spelling it showed")
+
+	result = update("0044 7911 000000")
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneTakenMessage, result.Message)
+	result = update("020 7946 0000")
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneFormatMessage, result.Message)
+	phone, _ = storedPhone(t, "managed")
+	assert.Equal(t, "+447911222333", phone, "a refused update keeps the number")
+
+	result = update("")
+	require.True(t, result.Success, result.Message)
+	_, ok = storedPhone(t, "managed")
+	assert.False(t, ok, "an empty number clears it")
+	// Two accounts without a number do not collide.
+	_, ok = storedPhone(t, "phone-admin")
+	assert.False(t, ok)
+}
+
+func TestAdminCreateUserMayTakeAPhoneNumber(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	create := func(username string, phone any) phoneResponse {
+		body := map[string]any{"username": username, "password": phoneTestPassword, "display_name": username, "role": common.RoleCommonUser}
+		if phone != nil {
+			body["phone"] = phone
+		}
+		return fixture.request(t, http.MethodPost, "/api/user/", fixture.adminToken, body)
+	}
+
+	result := create("created-without", nil)
+	require.True(t, result.Success, result.Message)
+	_, ok := storedPhone(t, "created-without")
+	assert.False(t, ok)
+
+	result = create("created-with", "7911 444555")
+	require.True(t, result.Success, result.Message)
+	phone, ok := storedPhone(t, "created-with")
+	assert.True(t, ok)
+	assert.Equal(t, "+447911444555", phone)
+
+	result = create("created-taken", "+44 7911 444555")
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneTakenMessage, result.Message)
+	result = create("created-letters", "07911 44455x")
+	assert.False(t, result.Success)
+	assert.Equal(t, phoneCharactersMessage, result.Message)
+	assert.Zero(t, countUsersNamed(t, "created-taken")+countUsersNamed(t, "created-letters"))
+}
+
+func TestPhoneNumberOfADeletedAccountIsFreeOnlyWhenTheAccountIsGone(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	requirePhoneNumbers(t, phoneTrunkFormat)
+	result := fixture.register(t, "leaving", map[string]any{"phone": "07911 555666"})
+	require.True(t, result.Success, result.Message)
+	id := userIdNamed(t, "leaving")
+
+	_, err := model.DeleteUserById(id)
+	require.NoError(t, err)
+	result = fixture.register(t, "after-soft-delete", map[string]any{"phone": "07911 555666"})
+	assert.False(t, result.Success, "a soft-deleted account keeps its number")
+	assert.Equal(t, phoneTakenMessage, result.Message)
+
+	_, err = model.HardDeleteUserById(id)
+	require.NoError(t, err)
+	result = fixture.register(t, "after-hard-delete", map[string]any{"phone": "07911 555666"})
+	require.True(t, result.Success, result.Message)
+	phone, _ := storedPhone(t, "after-hard-delete")
+	assert.Equal(t, "+447911555666", phone)
+}
+
+func TestPhoneNumberFormatOptionsAreValidated(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	rootToken, _ := createPhoneTestSession(t, "phone-root", common.RoleRootUser)
+	for _, test := range []struct {
+		key, value, message string
+	}{
+		{"PhoneCountryCode", "0", phoneCountryCodeMessage},
+		{"PhoneCountryCode", "1234", phoneCountryCodeMessage},
+		{"PhoneCountryCode", "+44", phoneCountryCodeMessage},
+		{"PhoneCountryCode", "44", ""},
+		{"PhoneCountryCode", "", ""},
+		{"PhoneTrunkPrefix", "0a", phoneTrunkPrefixMessage},
+		{"PhoneTrunkPrefix", "0000", phoneTrunkPrefixMessage},
+		{"PhoneTrunkPrefix", "0", ""},
+		{"PhoneNationalNumberPattern", `7[0-9`, phoneNationalNumberMessage},
+		{"PhoneNationalNumberPattern", `(`, phoneNationalNumberMessage},
+		{"PhoneNationalNumberPattern", `7\d{9}`, ""},
+		{"RegisterPhoneRequiredEnabled", "true", ""},
+		{"RegisterPhoneHint", strings.Repeat("é", 201), phoneHintLengthMessage},
+		{"RegisterPhoneHint", strings.Repeat("é", 200), ""},
+	} {
+		result := fixture.request(t, http.MethodPut, "/api/option/", rootToken, map[string]any{"key": test.key, "value": test.value})
+		if test.message == "" {
+			assert.True(t, result.Success, "%s=%q: %s", test.key, test.value, result.Message)
+			continue
+		}
+		assert.False(t, result.Success, "%s=%q", test.key, test.value)
+		assert.Equal(t, test.message, result.Message, "%s=%q", test.key, test.value)
+	}
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	assert.Equal(t, `7\d{9}`, common.OptionMap["PhoneNationalNumberPattern"])
+	assert.Equal(t, "0", common.OptionMap["PhoneTrunkPrefix"])
+}
+
+type phoneTestTransport func(*http.Request) (*http.Response, error)
+
+func (transport phoneTestTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestWeChatSignInWithRequiredPhoneNumberCreatesNoAccount(t *testing.T) {
+	fixture := setupPhoneTest(t)
+	previousTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	// The WeChat server answers each code with the openid "wx-<code>".
+	http.DefaultTransport = phoneTestTransport(func(request *http.Request) (*http.Response, error) {
+		body := `{"success":true,"message":"","data":"wx-` + request.URL.Query().Get("code") + `"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})
+	setPhoneOptions(t, map[string]string{"WeChatServerAddress": "https://wechat.example.com", "WeChatServerToken": "wechat-token", "WeChatAuthEnabled": "true"})
+	_, boundId := createPhoneTestSession(t, "wechat-bound", common.RoleCommonUser)
+	require.NoError(t, model.DB.Table("users").Where("id = ?", boundId).Update("wechat_id", "wx-bound").Error)
+	countWeChat := func(id string) int64 {
+		var count int64
+		require.NoError(t, model.DB.Unscoped().Table("users").Where("wechat_id = ?", id).Count(&count).Error)
+		return count
+	}
+	requirePhoneNumbers(t, phoneTrunkFormat)
+
+	result := fixture.request(t, http.MethodGet, "/api/oauth/wechat?code=new", "", nil)
+	assert.False(t, result.Success)
+	assert.Equal(t, "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings", result.MessageKey)
+	assert.Zero(t, countWeChat("wx-new"))
+
+	result = fixture.request(t, http.MethodGet, "/api/oauth/wechat?code=bound", "", nil)
+	require.True(t, result.Success, result.Message)
+	assert.NotEmpty(t, result.Data["access_token"], "a bound account still signs in")
+
+	setPhoneOptions(t, map[string]string{"RegisterPhoneRequiredEnabled": "false"})
+	result = fixture.request(t, http.MethodGet, "/api/oauth/wechat?code=new", "", nil)
+	require.True(t, result.Success, "with the option off a first sign-in registers as before: %s", result.Message)
+	assert.EqualValues(t, 1, countWeChat("wx-new"))
+}

@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -101,6 +102,7 @@ export function SignUpForm({
     defaultValues: {
       username: '',
       email: '',
+      phone: '',
       password: '',
       confirmPassword: '',
     },
@@ -123,6 +125,10 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
+  // The server reads the number and is the authority; the accepted format
+  // stays on the server, and the administrator may add a line of their own.
+  const phoneRequired = Boolean(status?.register_phone_required)
+  const phoneHint = status?.register_phone_hint
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -171,6 +177,11 @@ export function SignUpForm({
       }
     }
 
+    if (phoneRequired && !data.phone?.trim()) {
+      form.setError('phone', { message: 'Phone number is required' })
+      return
+    }
+
     if (!validateTurnstile()) return
 
     setIsLoading(true)
@@ -179,6 +190,7 @@ export function SignUpForm({
         username: data.username,
         password: data.password,
         email: data.email || undefined,
+        phone: phoneRequired ? data.phone : undefined,
         verification_code: verificationCode || undefined,
         aff_code: getAffiliateCode(),
         turnstile: turnstileToken,
@@ -394,6 +406,37 @@ export function SignUpForm({
           </>
         )}
 
+        {phoneRequired && (
+          <FormField
+            control={form.control}
+            name='phone'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Phone number')}</FormLabel>
+                <FormControl>
+                  <Input
+                    type='tel'
+                    inputMode='tel'
+                    autoComplete='tel'
+                    dir='ltr'
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription>
+                  {t('You can use spaces, hyphens, dots and brackets.')}
+                  {phoneHint ? (
+                    <>
+                      {' '}
+                      <span className='block'>{phoneHint}</span>
+                    </>
+                  ) : null}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
         {/* Turnstile */}
         {isTurnstileEnabled && (
           <div className='mt-2'>
@@ -426,7 +469,8 @@ export function SignUpForm({
           {t('Create account')}
         </Button>
 
-        {oauthRegisterEnabled && !invitation && (
+        {/* A third-party sign-in cannot create an account while a phone number is required. */}
+        {oauthRegisterEnabled && !invitation && !phoneRequired && (
           <OAuthProviders
             status={status}
             disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
