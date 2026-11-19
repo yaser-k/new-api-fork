@@ -101,6 +101,10 @@ const MODELS_SECTIONS = [
               settings['claude.thinking_adapter_enabled'],
             thinking_adapter_budget_tokens_percentage:
               settings['claude.thinking_adapter_budget_tokens_percentage'],
+            refusal_billing_waiver_enabled:
+              settings['claude.refusal_billing_waiver_enabled'],
+            refusal_billed_categories:
+              settings['claude.refusal_billed_categories'],
           },
         }}
       />
