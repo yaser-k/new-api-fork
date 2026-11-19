@@ -485,7 +485,7 @@ func TestSharedTaskBillingExpressionSelectionAndFrozenSettlement(t *testing.T) {
 			if tc.plugin == "billing-beta" {
 				field = "credits"
 			}
-			result, usage, err := service.EvaluateTaskCompletionUsage(info.TieredBillingSnapshot, map[string]any{field: float64(4)})
+			result, usage, err := service.EvaluateTaskCompletionUsage(info.TieredBillingSnapshot, map[string]any{field: float64(4)}, 0)
 			require.NoError(t, err)
 			assert.Equal(t, float64(4), usage[field])
 			assert.Equal(t, float64(2), info.TieredBillingSnapshot.UsageFacts[field])
@@ -595,7 +595,7 @@ func TestSharedEndpointBillingKeepsOrdinaryAndPluginPricesSeparate(t *testing.T)
 			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
 				"billing_setting.billing_expr": `{}`, billing_setting.PluginBillingExprOption: `{}`,
 			}))
-			settlement, _, err := service.EvaluateTaskCompletionUsage(task.TieredBillingSnapshot, map[string]any{"image_count": float64(3)})
+			settlement, _, err := service.EvaluateTaskCompletionUsage(task.TieredBillingSnapshot, map[string]any{"image_count": float64(3)}, 0)
 			require.NoError(t, err)
 			assert.Equal(t, tc.taskFinal, settlement.ActualQuotaAfterGroup)
 			if tc.wantError != "" {
@@ -883,6 +883,78 @@ export function extractUsage() { return {seconds:2}; }
 			}
 			require.NotNil(t, info.TieredBillingSnapshot)
 			assert.Equal(t, tc.expressions["retry-b::declared-model"], info.TieredBillingSnapshot.ExprString)
+		})
+	}
+}
+
+// A task retried onto another channel reserves and settles on the channel that
+// executes it: the attempt on the first channel fails upstream and the retry
+// completes immediately on the second.
+func TestRelayTaskSubmitPricesTheExecutingChannel(t *testing.T) {
+	service.InitHttpClient()
+	const source = `
+export const meta = {apiVersion:1,key:"channel-task",name:"Channel task",version:"1.0.0",author:{name:"Test"},models:["declared-model"],fetchMode:"per_task",usageSchema:{seconds:{type:"number",unit:"second",description:"Video generation unit price"}}};
+export function buildSubmitRequest(ctx) { return {url: ctx.baseUrl+"/submit", method:"POST", body:{model: ctx.model}, action:"text_to_video"}; }
+export function parseSubmitResponse(ctx, response) { return {taskId: response.body.id, taskData: response.body, immediate:{status:"SUCCESS"}}; }
+export function extractUsageOnComplete(ctx, result, body) { return body.usage; }
+export function buildQueryRequest(ctx) { return {url: ctx.baseUrl+"/query"}; }
+export function parseTaskResult() { return {status:"SUCCESS"}; }
+export function extractUsage() { return {seconds:2}; }
+`
+	const expression = `channel() == 3 ? tier("route_b", u("seconds") * 0.4) : tier("base", u("seconds") * 0.05)`
+	for _, tc := range []struct {
+		name                  string
+		channels              []int
+		wantReserve, wantPaid int
+		wantTier              string
+	}{
+		// 2 seconds reserved and 4 seconds completed, at 500000 quota per USD.
+		{name: "retry leaves the priced channel", channels: []int{3, 5}, wantReserve: 50000, wantPaid: 100000, wantTier: "base"},
+		{name: "retry lands on the priced channel", channels: []int{5, 3}, wantReserve: 400000, wantPaid: 800000, wantTier: "route_b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			database := setupRelayChannelDB(t)
+			for _, id := range tc.channels {
+				require.NoError(t, database.Create(&model.Channel{Id: id, Name: "channel-task", Status: common.ChannelStatusEnabled}).Error)
+			}
+			saveBillingConfig(t)
+			require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+				billing_setting.PluginBillingExprOption: `{"channel-task::declared-model":` + strconv.Quote(expression) + `}`,
+				"billing_setting.billing_mode":          `{}`,
+				"billing_setting.billing_expr":          `{}`,
+				"group_ratio_setting.group_ratio":       `{"default":1}`,
+			}))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if strings.HasPrefix(r.URL.Path, "/first/") {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+				_, _ = w.Write([]byte(`{"id":"job","usage":{"seconds":4}}`))
+			}))
+			defer server.Close()
+
+			c, info := newTaskSubmitContext(t, "declared-model", "")
+			c.Set("group", "default")
+			info.UserGroup, info.UsingGroup, info.OriginModelName = "default", "default", "declared-model"
+			info.Billing = &imageReservation{limit: 1 << 30}
+			pinMappingOrderPlugin(t, c, source)
+			var result *TaskSubmitResult
+			var taskErr *dto.TaskError
+			for attempt, channelID := range tc.channels {
+				path := "/first"
+				if attempt > 0 {
+					path = "/second"
+				}
+				common.SetContextKey(c, constant.ContextKeyChannelId, channelID)
+				common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, server.URL+path)
+				result, taskErr = RelayTaskSubmit(c, info)
+			}
+
+			require.Nil(t, taskErr, "submission error: %+v", taskErr)
+			assert.Equal(t, tc.wantPaid, result.Quota)
+			require.NotNil(t, info.TieredBillingSnapshot)
+			assert.Equal(t, tc.wantReserve, info.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
+			assert.Equal(t, tc.wantTier, info.TieredBillingSnapshot.EstimatedTier)
 		})
 	}
 }

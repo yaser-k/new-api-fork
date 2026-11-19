@@ -47,6 +47,7 @@ export const BILLING_FUNCTIONS: Readonly<Record<string, number>> = {
   fixed: 1,
   param: 1,
   header: 1,
+  channel: 0,
   has: 2,
   u: 1,
   hour: 1,
