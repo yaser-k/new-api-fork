@@ -5,12 +5,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -68,6 +71,64 @@ func TestResendDeliversThroughSelectedProvider(t *testing.T) {
 	})
 	require.NoError(t, common.SendEmail("验证码", "one@example.com; two@example.com", "<p>123456</p>"))
 	assert.Equal(t, 1, calls, "no SMTP configuration is needed and no duplicate request is made")
+}
+
+// The verification code only registers an account. The mail's first line names
+// the site by the host of the server address, or by the system name when none
+// is set, in every backend language; the mail is wrapped in the language and
+// direction of the request, and the code stays whole.
+func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	previousDB, previousRedis, previousAddress := model.DB, common.RedisEnabled, system_setting.ServerAddress
+	previousName, previousLanguage, previousMinutes := common.SystemName, common.DefaultLanguage, common.VerificationValidMinutes
+	model.DB, common.RedisEnabled = db, false
+	common.SystemName, common.DefaultLanguage, common.VerificationValidMinutes = "New <API>", "", 10
+	t.Cleanup(func() {
+		model.DB, common.RedisEnabled, system_setting.ServerAddress = previousDB, previousRedis, previousAddress
+		common.SystemName, common.DefaultLanguage, common.VerificationValidMinutes = previousName, previousLanguage, previousMinutes
+	})
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
+	sent := ""
+	http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			HTML string `json:"html"`
+		}
+		require.NoError(t, common.DecodeJson(request.Body, &body))
+		sent = body.HTML
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"email-test-id"}`)), Header: make(http.Header)}, nil
+	})
+	send := func(acceptLanguage string) string {
+		sent = ""
+		response := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(response)
+		context.Request = httptest.NewRequest(http.MethodGet, "/api/verification?email=new@example.com", nil)
+		context.Request.Header.Set("Accept-Language", acceptLanguage)
+		SendEmailVerification(context)
+		require.Contains(t, response.Body.String(), `"success":true`)
+		return sent
+	}
+
+	const ltr = ` dir="ltr" style="direction:ltr;text-align:left"`
+	system_setting.ServerAddress = "https://example.org"
+	assert.Regexp(t, "^"+regexp.QuoteMeta(`<div lang="en"`+ltr+`>`+
+		`<p`+ltr+`>Hello, you are verifying your email address to register at <span dir="ltr">example.org</span>.</p>`+
+		`<p`+ltr+`>Your verification code is: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
+		`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p></div>`)+"$",
+		send("en-US"))
+
+	for _, tc := range []struct{ address, site string }{
+		{"https://example.org", `<span dir="ltr">example.org</span>`},
+		{"http://localhost:3000/", `<span dir="ltr">localhost:3000</span>`},
+		{"", "New &lt;API&gt;"},
+	} {
+		system_setting.ServerAddress = tc.address
+		for _, lang := range i18n.SupportedLanguages() {
+			assert.Contains(t, send(lang), tc.site, "server address %q, %s", tc.address, lang)
+		}
+	}
 }
 
 func TestResendFailuresDoNotRetryFallbackOrExposeSensitiveContent(t *testing.T) {

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
+	"net/url"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -232,10 +234,15 @@ func SendEmailVerification(c *gin.Context) {
 	// The address may not belong to an account yet, so the mail follows the
 	// request language.
 	lang := i18n.StatedLang(c)
-	systemName := map[string]any{"SystemName": common.SystemName}
-	subject := i18n.Translate(lang, i18n.MsgEmailVerificationSubject, systemName)
+	// The code only registers an account; the greeting names the site by the
+	// host of the server address, else by the system name.
+	site := html.EscapeString(common.SystemName)
+	if address, err := url.Parse(system_setting.ServerAddress); err == nil && address.Host != "" {
+		site = i18n.EmailLTR(address.Host)
+	}
+	subject := i18n.Translate(lang, i18n.MsgEmailVerificationSubject, map[string]any{"SystemName": common.SystemName})
 	content := i18n.EmailBody(lang,
-		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, systemName),
+		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, map[string]any{"Site": site}),
 		i18n.Translate(lang, i18n.MsgEmailVerificationCode, map[string]any{"Code": i18n.EmailLTR(code)}),
 		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, email, content)
