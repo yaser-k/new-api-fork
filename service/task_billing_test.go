@@ -17,6 +17,8 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -1853,6 +1855,82 @@ func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
 
 			assert.Equal(t, testCase.wantSettled, settled)
 			assert.Equal(t, testCase.wantQuota, task.Quota)
+		})
+	}
+}
+
+// usePublicPriceExpressions loads billing modes and public price expressions
+// for one test and restores the previous settings after it.
+func usePublicPriceExpressions(t *testing.T, modes, public map[string]string) {
+	t.Helper()
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() { require.NoError(t, config.GlobalConfig.LoadFromDB(saved)) })
+	encodedModes, err := common.Marshal(modes)
+	require.NoError(t, err)
+	encodedPublic, err := common.Marshal(public)
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode": string(encodedModes), billing_setting.PublicExprOption: string(encodedPublic),
+	}))
+}
+
+func TestTaskConsumeLogsFlagExpressionsOfModelsWithPublicPrices(t *testing.T) {
+	usePublicPriceExpressions(t,
+		map[string]string{"routed-task-model": "tiered_expr", "plain-task-model": "tiered_expr"},
+		map[string]string{"routed-task-model": `tier("public", u("seconds") * 0.6)`},
+	)
+	expression := `param("route") == "b" ? tier("route_b", u("seconds") * 0.6) : tier("base", u("seconds") * 0.4)`
+	for _, tc := range []struct {
+		name, model, mapped string
+		internal            bool
+	}{
+		{"a model with a public expression", "routed-task-model", "", true},
+		{"a model without one", "plain-task-model", "", false},
+		{"a model priced by the model it maps to", "task-alias", "routed-task-model", true},
+		{"a model with its own price that maps to one with a public expression", "plain-task-model", "routed-task-model", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			seedUser(t, 41, 10_000)
+			seedChannel(t, 41)
+			upstream := tc.model
+			if tc.mapped != "" {
+				upstream = tc.mapped
+			}
+			snapshot := &billingexpr.BillingSnapshot{BillingMode: "tiered_expr", ModelName: tc.model, ExprString: expression, EstimatedTier: "route_b"}
+			task := makeTask(41, 41, 100, 0, BillingSourceWallet, 0)
+			task.Properties = model.Properties{OriginModelName: tc.model, UpstreamModelName: upstream}
+			task.PrivateData.BillingContext.OriginModelName = tc.model
+			task.PrivateData.BillingContext.TieredSnapshot = snapshot
+			info := &relaycommon.RelayInfo{
+				UserId:                41,
+				OriginModelName:       tc.model,
+				UsingGroup:            "default",
+				ChannelMeta:           &relaycommon.ChannelMeta{ChannelId: 41, UpstreamModelName: upstream, IsModelMapped: tc.mapped != ""},
+				TaskRelayInfo:         &relaycommon.TaskRelayInfo{Action: "GENERATE"},
+				PriceData:             types.PriceData{Quota: 100, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
+				TieredBillingSnapshot: snapshot,
+			}
+
+			submitted := callLogTaskConsumption(t, info, task)
+			assert.Equal(t, 100, submitted.Quota)
+			var submittedOther map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(submitted.Other, &submittedOther))
+			// The row written at submission and the rows written when the task
+			// settles or is refunded.
+			for _, other := range []map[string]any{submittedOther, taskBillingOther(task).Snapshot()} {
+				assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"], "the stored expression is the billing expression")
+				assert.Equal(t, "route_b", other["matched_tier"])
+				if tc.internal {
+					assert.Equal(t, true, other["expr_internal"])
+				} else {
+					assert.NotContains(t, other, "expr_internal")
+				}
+			}
 		})
 	}
 }
