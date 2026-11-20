@@ -629,8 +629,14 @@ export function formatLocalCurrencyAmount(
 ): string {
   if (amount == null || Number.isNaN(amount)) return '-'
 
+  // A local amount is in the site's currency whatever the viewer chose to
+  // read figures in, so it keeps the site's display type.
   const { config } = getCurrencyDisplay()
-  const meta = getBillingDisplayMeta(config)
+  const { siteCurrency } = useSystemConfigStore.getState().config
+  const meta = getBillingDisplayMeta({
+    ...config,
+    quotaDisplayType: siteCurrency.quotaDisplayType,
+  })
   const merged = mergeOptions(options)
 
   return formatCurrencyValue(amount, merged, meta)
