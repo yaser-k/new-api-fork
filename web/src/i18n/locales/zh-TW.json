@@ -3466,6 +3466,7 @@
     "Inviter ID: {{id}}": "邀請人 ID：{{id}}",
     "Inviter Reward": "邀請者獎勵",
     "Invites": "邀請",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "目前邀請用戶不會獲得獎勵。您先前的推薦獎勵仍保留在這裡。",
     "Invoke developer-defined functions with structured arguments": "使用結構化參數呼叫開發者定義的函數",
     "InvokeModel (legacy)": "InvokeModel（舊介面）",
     "io.net API Key": "io.net API 金鑰",

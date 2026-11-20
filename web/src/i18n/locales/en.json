@@ -3466,6 +3466,7 @@
     "Inviter ID: {{id}}": "Inviter ID: {{id}}",
     "Inviter Reward": "Inviter Reward",
     "Invites": "Invites",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.",
     "Invoke developer-defined functions with structured arguments": "Invoke developer-defined functions with structured arguments",
     "InvokeModel (legacy)": "InvokeModel (legacy)",
     "io.net API Key": "io.net API Key",

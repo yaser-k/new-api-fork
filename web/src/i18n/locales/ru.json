@@ -3466,6 +3466,7 @@
     "Inviter ID: {{id}}": "ID пригласившего: {{id}}",
     "Inviter Reward": "Награда приглашающему",
     "Invites": "Приглашения",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "Сейчас за приглашение пользователей вознаграждение не начисляется. Ваши прежние реферальные вознаграждения остаются здесь.",
     "Invoke developer-defined functions with structured arguments": "Вызывать заданные разработчиком функции со структурированными аргументами",
     "InvokeModel (legacy)": "InvokeModel (прежний API)",
     "io.net API Key": "Ключ API io.net",
