@@ -285,6 +285,14 @@ func ObjectData(c *gin.Context, object any) error {
 	if object == nil {
 		return errors.New("object is nil")
 	}
+	// A chat chunk carries the usage a client sees, not the server's own
+	// accounting that settlement reads from the original.
+	switch chunk := object.(type) {
+	case *dto.ChatCompletionsStreamResponse:
+		object = chunk.ForClient()
+	case dto.ChatCompletionsStreamResponse:
+		object = chunk.ForClient()
+	}
 	jsonData, err := common.Marshal(object)
 	if err != nil {
 		return fmt.Errorf("error marshalling object: %w", err)

@@ -166,6 +166,9 @@ func convertResponsesResponseForClient(c *gin.Context, info *relaycommon.RelayIn
 	if result.Usage != nil && result.Usage.TotalTokens != 0 {
 		usage = result.Usage
 	}
+	if chat, ok := result.Value.(*dto.OpenAITextResponse); ok {
+		return chat.ForClient(), usage, nil
+	}
 	return result.Value, usage, nil
 }
 
