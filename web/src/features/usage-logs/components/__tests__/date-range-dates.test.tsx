@@ -48,8 +48,8 @@ describe('CompactDateTimeRangePicker in Persian', () => {
     expect(
       await screen.findByRole('grid', { name: 'مهر ۱۴۰۵' })
     ).toBeInTheDocument()
-    expect(screen.getByLabelText('Start Time')).toHaveValue('۰۰:۰۰')
-    expect(screen.getByLabelText('End Time')).toHaveValue('۱۱:۳۵')
+    expect(screen.getByLabelText('Start Time')).toHaveValue('۰۰:۰۰:۰۰')
+    expect(screen.getByLabelText('End Time')).toHaveValue('۱۱:۳۵:۰۰')
 
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
     expect(onChange).toHaveBeenCalledWith({ start, end })
@@ -98,12 +98,39 @@ describe('CompactDateTimeRangePicker time fields', () => {
     expect(
       screen.getByRole('grid', { name: 'September 2026' })
     ).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /September 25th, 2026/ }))
+    await user.click(
+      screen.getByRole('button', { name: /September 25th, 2026/ })
+    )
     await user.click(screen.getByRole('button', { name: 'Confirm' }))
 
     expect(onChange).toHaveBeenCalledWith({
       start: new Date(2026, 8, 25, 0, 0, 0, 0),
       end: new Date(2026, 8, 25, 23, 59, 59, 999),
+    })
+  })
+
+  it('keeps the seconds of typed times: a start at that second, an end through it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 8, 25, 12))
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(<CompactDateTimeRangePicker onChange={onChange} />)
+
+    await user.click(screen.getAllByRole('button', { name: 'Date Range' })[0])
+    await user.click(
+      screen.getByRole('button', { name: /September 25th, 2026/ })
+    )
+    const startTime = screen.getByLabelText('Start Time')
+    await user.clear(startTime)
+    await user.type(startTime, '09:30:15')
+    const endTime = screen.getByLabelText('End Time')
+    await user.clear(endTime)
+    await user.type(endTime, '18:05:30')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(onChange).toHaveBeenCalledWith({
+      start: new Date(2026, 8, 25, 9, 30, 15, 0),
+      end: new Date(2026, 8, 25, 18, 5, 30, 999),
     })
   })
 
