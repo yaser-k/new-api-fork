@@ -175,7 +175,13 @@ func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, te
 		}
 		hasPlaceholder := fmtMessage.Content == nil || (fmtMessage.IsStringContent() && fmtMessage.StringContent() == "")
 		if hasPlaceholder {
-			fmtMessage.SetStringContent("...")
+			// A turn with tool calls is carried by its tool_use blocks; only a turn with nothing
+			// else needs the placeholder text Claude requires.
+			if len(fmtMessage.ParseToolCalls()) > 0 {
+				fmtMessage.SetStringContent("")
+			} else {
+				fmtMessage.SetStringContent("...")
+			}
 		}
 		formatMessages = append(formatMessages, fmtMessage)
 		lastMessage = fmtMessage
