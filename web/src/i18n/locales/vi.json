@@ -3501,6 +3501,7 @@
     "Inviter ID: {{id}}": "ID người mời: {{id}}",
     "Inviter Reward": "Phần thưởng người mời",
     "Invites": "Mời",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "Hiện tại mời người dùng không nhận được phần thưởng. Phần thưởng giới thiệu trước đây của bạn vẫn được giữ ở đây.",
     "Invoke developer-defined functions with structured arguments": "Gọi các hàm do nhà phát triển định nghĩa với đối số có cấu trúc",
     "InvokeModel (legacy)": "InvokeModel (API cũ)",
     "io.net API Key": "Khóa API io.net",

@@ -3501,6 +3501,7 @@
     "Inviter ID: {{id}}": "招待者 ID：{{id}}",
     "Inviter Reward": "招待した側の報酬",
     "Invites": "招待",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "現在、ユーザーを招待しても報酬はありません。これまでの紹介報酬はここに残ります。",
     "Invoke developer-defined functions with structured arguments": "構造化された引数で開発者定義の関数を呼び出す",
     "InvokeModel (legacy)": "InvokeModel（従来の API）",
     "io.net API Key": "io.net API キー",

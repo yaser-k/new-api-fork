@@ -36,6 +36,8 @@ interface AffiliateRewardsCardProps {
   onTransfer: () => void
   complianceConfirmed?: boolean
   loading?: boolean
+  /** Whether inviting a user currently earns the inviter a reward */
+  rewardEnabled?: boolean
 }
 
 export function AffiliateRewardsCard({
@@ -44,6 +46,7 @@ export function AffiliateRewardsCard({
   onTransfer,
   complianceConfirmed = true,
   loading,
+  rewardEnabled = true,
 }: AffiliateRewardsCardProps) {
   const { t, i18n } = useTranslation()
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
@@ -63,6 +66,12 @@ export function AffiliateRewardsCard({
   }
 
   const hasRewards = (user?.aff_quota ?? 0) > 0
+  // Without a reward the card stays only to show an earlier referral history.
+  const hasReferralHistory =
+    hasRewards ||
+    (user?.aff_history_quota ?? 0) > 0 ||
+    (user?.aff_count ?? 0) > 0
+  if (!rewardEnabled && !hasReferralHistory) return null
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -76,9 +85,13 @@ export function AffiliateRewardsCard({
               {t('Referral Program')}
             </h3>
             <p className='text-muted-foreground line-clamp-1 text-xs'>
-              {t(
-                'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
-              )}
+              {rewardEnabled
+                ? t(
+                    'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
+                  )
+                : t(
+                    'Inviting users earns no reward at the moment. Your earlier referral rewards stay here.'
+                  )}
             </p>
           </div>
         </div>
@@ -104,19 +117,23 @@ export function AffiliateRewardsCard({
         </div>
 
         <div className='flex items-center gap-2'>
-          <Input
-            value={affiliateLink}
-            readOnly
-            className='border-muted bg-background/70 h-9 min-w-0 flex-1 font-mono text-xs'
-          />
-          <CopyButton
-            value={affiliateLink}
-            variant='outline'
-            className='bg-background size-9 shrink-0'
-            iconClassName='size-4'
-            tooltip={t('Copy referral link')}
-            aria-label={t('Copy referral link')}
-          />
+          {rewardEnabled && (
+            <>
+              <Input
+                value={affiliateLink}
+                readOnly
+                className='border-muted bg-background/70 h-9 min-w-0 flex-1 font-mono text-xs'
+              />
+              <CopyButton
+                value={affiliateLink}
+                variant='outline'
+                className='bg-background size-9 shrink-0'
+                iconClassName='size-4'
+                tooltip={t('Copy referral link')}
+                aria-label={t('Copy referral link')}
+              />
+            </>
+          )}
           {hasRewards && (
             <Button
               onClick={onTransfer}
