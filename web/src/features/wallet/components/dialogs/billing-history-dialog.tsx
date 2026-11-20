@@ -45,8 +45,9 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatCurrencyFromUSD } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
+import { formatFixed, formatGregorianTitle, formatNumber } from '@/lib/format'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
 import {
@@ -64,7 +65,8 @@ export function BillingHistoryDialog({
   open,
   onOpenChange,
 }: BillingHistoryDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const {
     records,
     total,
@@ -111,12 +113,12 @@ export function BillingHistoryDialog({
           {/* Search and Filter Bar */}
           <div className='flex items-center gap-2'>
             <div className='relative flex-1'>
-              <Search className='text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
+              <Search className='text-muted-foreground absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2' />
               <Input
                 placeholder={t('Search by order number...')}
                 value={keyword}
                 onChange={(e) => handleSearch(e.target.value)}
-                className='h-9 pl-10'
+                className='h-9 ps-10'
               />
             </div>
             <Select
@@ -146,7 +148,7 @@ export function BillingHistoryDialog({
           </div>
 
           {/* Records List */}
-          <div className='max-h-[min(54vh,520px)] overflow-y-auto pr-1'>
+          <div className='max-h-[min(54vh,520px)] overflow-y-auto pe-1'>
             {loading && (
               <div className='space-y-3'>
                 {['first', 'second', 'third', 'fourth', 'fifth'].map(
@@ -197,7 +199,10 @@ export function BillingHistoryDialog({
                       <div className='flex items-start justify-between gap-2'>
                         <div className='flex-1 space-y-1'>
                           <div className='flex min-w-0 items-center gap-2'>
-                            <code className='text-foreground truncate font-mono text-sm'>
+                            <code
+                              dir='ltr'
+                              className='text-foreground truncate font-mono text-sm'
+                            >
                               {record.trade_no}
                             </code>
                             <Button
@@ -221,8 +226,14 @@ export function BillingHistoryDialog({
                               />
                             )}
                           </div>
-                          <div className='text-muted-foreground text-xs'>
-                            {formatTimestamp(record.create_time)}
+                          <div
+                            className='text-muted-foreground text-xs'
+                            title={formatGregorianTitle(
+                              record.create_time,
+                              locale
+                            )}
+                          >
+                            {formatTimestamp(record.create_time, locale)}
                           </div>
                         </div>
                         <StatusBadge
@@ -252,6 +263,7 @@ export function BillingHistoryDialog({
                               digitsLarge: 2,
                               digitsSmall: 2,
                               abbreviate: false,
+                              locale,
                             })}
                           </div>
                         </div>
@@ -260,7 +272,7 @@ export function BillingHistoryDialog({
                             {t('Payment')}
                           </Label>
                           <div className='text-sm font-semibold text-red-600'>
-                            {formatNumber(record.money)}
+                            {formatNumber(record.money, locale)}
                           </div>
                         </div>
                       </div>
@@ -289,8 +301,10 @@ export function BillingHistoryDialog({
           {!loading && records.length > 0 && (
             <div className='flex flex-col items-center gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between'>
               <div className='text-muted-foreground text-xs sm:text-sm'>
-                {t('Showing')} {(page - 1) * pageSize + 1}-
-                {Math.min(page * pageSize, total)} {t('of')} {total}
+                {t('Showing')}{' '}
+                {formatFixed((page - 1) * pageSize + 1, 0, locale)}-
+                {formatFixed(Math.min(page * pageSize, total), 0, locale)}{' '}
+                {t('of')} {formatFixed(total, 0, locale)}
               </div>
               <div className='flex items-center gap-2'>
                 <Button
@@ -300,12 +314,14 @@ export function BillingHistoryDialog({
                   disabled={page <= 1}
                   className='h-8 w-8 p-0'
                 >
-                  <ChevronLeft className='h-4 w-4' />
+                  <ChevronLeft className='h-4 w-4 rtl:rotate-180' />
                 </Button>
                 <div className='text-muted-foreground flex items-center gap-1 text-sm'>
-                  <span className='font-medium'>{page}</span>
+                  <span className='font-medium'>
+                    {formatFixed(page, 0, locale)}
+                  </span>
                   <span>/</span>
-                  <span>{totalPages}</span>
+                  <span>{formatFixed(totalPages, 0, locale)}</span>
                 </div>
                 <Button
                   variant='outline'
@@ -314,7 +330,7 @@ export function BillingHistoryDialog({
                   disabled={page >= totalPages}
                   className='h-8 w-8 p-0'
                 >
-                  <ChevronRight className='h-4 w-4' />
+                  <ChevronRight className='h-4 w-4 rtl:rotate-180' />
                 </Button>
               </div>
             </div>

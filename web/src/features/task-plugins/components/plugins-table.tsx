@@ -35,6 +35,8 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { getChannelTypeLabel } from '@/features/channels/lib'
 import { MODEL_PRICING_ISSUES_QUERY_KEY } from '@/features/system-settings/models/pricing-issues'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatNumber } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
 import { resolveLocalizedText } from '@/lib/localized-text'
 
@@ -80,6 +82,7 @@ type PluginsTableProps = {
 
 export function PluginsTable(props: PluginsTableProps) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const queryClient = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState<TaskPluginListItem | null>(
     null
@@ -277,7 +280,7 @@ export function PluginsTable(props: PluginsTableProps) {
             channelType = (
               <span className='text-xs'>
                 {t(getChannelTypeLabel(channelTypes[0]))}
-                <span className='text-muted-foreground ml-1'>
+                <span className='text-muted-foreground ms-1'>
                   {channelTypes.map((type) => `#${type}`).join(' ')}
                 </span>
               </span>
@@ -300,7 +303,8 @@ export function PluginsTable(props: PluginsTableProps) {
       {
         id: 'models',
         header: t('Models'),
-        cell: ({ row }) => row.original.meta.models?.length ?? 0,
+        cell: ({ row }) =>
+          formatNumber(row.original.meta.models?.length ?? 0, locale),
       },
       {
         id: 'enabled',
@@ -390,7 +394,7 @@ export function PluginsTable(props: PluginsTableProps) {
         ),
       },
     ],
-    [communityIndex, i18n.language, props, statusMutation, t]
+    [communityIndex, i18n.language, locale, props, statusMutation, t]
   )
   const plugins = pluginsQuery.data
   const kindCounts = useMemo(
@@ -423,13 +427,13 @@ export function PluginsTable(props: PluginsTableProps) {
         {t(
           '{{count}} enabled channels and {{tasks}} in-flight tasks still use this plugin.',
           {
-            count: blockedUsage.channels.length,
-            tasks: blockedUsage.in_flight_count,
+            count: formatNumber(blockedUsage.channels.length, locale),
+            tasks: formatNumber(blockedUsage.in_flight_count, locale),
           }
         )}
       </p>
       {blockedUsage.channels.length > 0 && (
-        <ul className='list-disc pl-5'>
+        <ul className='list-disc ps-5'>
           {blockedUsage.channels.map((channel) => (
             <li key={channel.id}>
               #{channel.id} {channel.name}
