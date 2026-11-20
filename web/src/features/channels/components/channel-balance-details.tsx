@@ -54,14 +54,16 @@ export function ChannelBalanceDetails(props: ChannelBalanceDetailsProps) {
           {window.resetAt ? (
             <>
               {' · '}
-              {t('Reset at:')} {formatTimestampToDate(window.resetAt)}
+              {t('Reset at:')}{' '}
+              {formatTimestampToDate(window.resetAt, 'seconds', locale)}
             </>
           ) : null}
         </li>
       ))}
       {props.updatedTime ? (
         <li>
-          {t('Last updated:')} {formatTimestampToDate(props.updatedTime)}
+          {t('Last updated:')}{' '}
+          {formatTimestampToDate(props.updatedTime, 'seconds', locale)}
         </li>
       ) : null}
       {error && (

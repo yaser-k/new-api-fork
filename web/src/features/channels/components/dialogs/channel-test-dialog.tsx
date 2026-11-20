@@ -79,6 +79,7 @@ import {
 } from '@/components/ui/tooltip'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { toIntlLocale } from '@/i18n/languages'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { updateChannel } from '../../api'
@@ -1231,7 +1232,7 @@ function TestResultCell({
   model: string
   onOpenDetails: (details: FailureDetailsState) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   if (!result || result.status === 'idle') {
     return <span className='text-muted-foreground text-sm'>-</span>
@@ -1249,7 +1250,11 @@ function TestResultCell({
   if (result.status === 'success') {
     return typeof result.responseTime === 'number' ? (
       <span className='text-muted-foreground text-sm'>
-        {formatResponseTime(result.responseTime, t)}
+        {formatResponseTime(
+          result.responseTime,
+          t,
+          toIntlLocale(i18n.resolvedLanguage || i18n.language)
+        )}
       </span>
     ) : (
       <span className='text-muted-foreground text-sm'>-</span>
