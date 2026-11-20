@@ -27,10 +27,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { useStatus } from '@/hooks/use-status'
 import {
-  INTERFACE_LANGUAGE_OPTIONS,
-  normalizeInterfaceLanguage,
-} from '@/i18n/languages'
+  getOfferedInterfaceLanguages,
+  readInterfaceLanguageSettings,
+  rememberChosenInterfaceLanguage,
+} from '@/i18n/interface-language-policy'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -38,9 +41,14 @@ import { useAuthStore } from '@/stores/auth-store'
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation()
   const user = useAuthStore((s) => s.auth.user)
+  const { status } = useStatus()
+  const offeredLanguages = getOfferedInterfaceLanguages(
+    readInterfaceLanguageSettings(status as Record<string, unknown> | null)
+  )
   const currentLanguage = normalizeInterfaceLanguage(i18n.language)
   const handleChangeLanguage = useCallback(
     async (code: string) => {
+      rememberChosenInterfaceLanguage(code)
       await i18n.changeLanguage(code)
       if (user) {
         try {
@@ -62,7 +70,7 @@ export function LanguageSwitcher() {
         <span className='sr-only'>{t('Change language')}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>
-        {INTERFACE_LANGUAGE_OPTIONS.map((lang) => (
+        {offeredLanguages.map((lang) => (
           <DropdownMenuItem
             key={lang.code}
             onClick={() => handleChangeLanguage(lang.code)}
