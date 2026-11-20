@@ -330,7 +330,7 @@ function PluginCodeResult(props: PluginCodeResultProps) {
         <Button
           variant='ghost'
           size='sm'
-          className='ml-auto'
+          className='ms-auto'
           onClick={props.onClear}
         >
           {t('Clear')}

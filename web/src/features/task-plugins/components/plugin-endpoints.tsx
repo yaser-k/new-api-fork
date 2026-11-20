@@ -57,6 +57,7 @@ function EndpointRow(props: {
       </Badge>
       <div className='min-w-0 space-y-1.5 pt-1'>
         <span
+          dir='ltr'
           className={cn(
             'block font-mono text-xs break-all',
             props.muted && 'text-muted-foreground'
@@ -260,7 +261,7 @@ export function PluginEndpoints(props: {
                 <ToggleGroupItem value='vendor'>
                   {t('Vendor path')}
                 </ToggleGroupItem>
-                <ToggleGroupItem value='key' className='font-mono'>
+                <ToggleGroupItem value='key' dir='ltr' className='font-mono'>
                   /{props.pluginKey}
                 </ToggleGroupItem>
               </ToggleGroup>
