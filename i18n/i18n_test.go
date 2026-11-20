@@ -201,6 +201,22 @@ func TestEmailLTRKeepsLeftToRightTextWhole(t *testing.T) {
 	assert.Equal(t, `<span dir="ltr">&lt;b&gt;3fa9c1</span>`, EmailLTR("<b>3fa9c1"))
 }
 
+// A code is a block of its own, placed as it is between the paragraphs of a
+// mail of either direction: centred, left to right, large, bold and monospace,
+// its characters spaced by letter-spacing, its background set with a text
+// colour, and holding no character but the escaped code.
+func TestEmailCodeIsABlockOfItsOwn(t *testing.T) {
+	const block = `<div dir="ltr" style="direction:ltr;text-align:center;margin:16px 0;padding:12px 16px;` +
+		`background-color:#f3f4f6;color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono','Courier New',monospace;` +
+		`font-size:28px;font-weight:bold;line-height:1.4;letter-spacing:6px">`
+	assert.Equal(t, block+`3fa9c1</div>`, EmailCode("3fa9c1"))
+	assert.Equal(t, block+`&lt;b&gt;3fa9</div>`, EmailCode("<b>3fa9"))
+
+	const rtl = ` dir="rtl" style="direction:rtl;text-align:right"`
+	assert.Equal(t, common.EmailBody(`<div lang="fa"`+rtl+`><p`+rtl+`>کد تأیید</p>`+block+`3fa9c1</div><p`+rtl+`>خداحافظ.</p></div>`),
+		emailBodyIn("fa", []string{"کد تأیید", EmailCode("3fa9c1"), "خداحافظ."}))
+}
+
 // Web console responses carry the English source text as message_key plus its
 // params, and the web console translates them. The backend sends the same body
 // whatever language the request asks for.

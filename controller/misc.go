@@ -243,7 +243,8 @@ func SendEmailVerification(c *gin.Context) {
 	subject := i18n.Translate(lang, i18n.MsgEmailVerificationSubject, map[string]any{"SystemName": common.SystemName})
 	content := i18n.EmailBody(lang,
 		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, map[string]any{"Site": site}),
-		i18n.Translate(lang, i18n.MsgEmailVerificationCode, map[string]any{"Code": i18n.EmailLTR(code)}),
+		i18n.Translate(lang, i18n.MsgEmailVerificationCode),
+		i18n.EmailCode(code),
 		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
 	err = common.SendEmail(subject, email, content)
 	if err != nil {

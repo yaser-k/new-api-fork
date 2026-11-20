@@ -76,7 +76,8 @@ func TestResendDeliversThroughSelectedProvider(t *testing.T) {
 // The verification code only registers an account. The mail's first line names
 // the site by the host of the server address, or by the system name when none
 // is set, in every backend language; the mail is wrapped in the language and
-// direction of the request, and the code stays whole.
+// direction of the request. The code stands whole on a line of its own, in the
+// HTML and in the plain text.
 func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -91,13 +92,14 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 		common.SystemName, common.DefaultLanguage, common.VerificationValidMinutes = previousName, previousLanguage, previousMinutes
 	})
 	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
-	sent := ""
+	sent, sentText := "", ""
 	http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
 		var body struct {
 			HTML string `json:"html"`
+			Text string `json:"text"`
 		}
 		require.NoError(t, common.DecodeJson(request.Body, &body))
-		sent = body.HTML
+		sent, sentText = body.HTML, body.Text
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"email-test-id"}`)), Header: make(http.Header)}, nil
 	})
 	send := func(acceptLanguage string) string {
@@ -112,12 +114,22 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 	}
 
 	const ltr = ` dir="ltr" style="direction:ltr;text-align:left"`
+	code := regexp.MustCompile(regexp.QuoteMeta(strings.TrimSuffix(i18n.EmailCode(""), "</div>")) + `([0-9a-f]{6})</div>`)
 	system_setting.ServerAddress = "https://example.org"
+	sentHTML := send("en-US")
 	assert.Regexp(t, "^"+regexp.QuoteMeta(`<div lang="en"`+ltr+`>`+
 		`<p`+ltr+`>Hello, you are verifying your email address to register at <span dir="ltr">example.org</span>.</p>`+
-		`<p`+ltr+`>Your verification code is: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
-		`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p></div>`)+"$",
-		send("en-US"))
+		`<p`+ltr+`>Your verification code</p>`)+
+		code.String()+
+		regexp.QuoteMeta(`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p></div>`)+"$",
+		sentHTML)
+	match := code.FindStringSubmatch(sentHTML)
+	require.Len(t, match, 2)
+	assert.Equal(t, "Hello, you are verifying your email address to register at example.org.\n\n"+
+		"Your verification code\n\n"+
+		match[1]+"\n\n"+
+		"The verification code is valid for 10 minutes. If you did not request it, please ignore this email.",
+		sentText)
 
 	for _, tc := range []struct{ address, site string }{
 		{"https://example.org", `<span dir="ltr">example.org</span>`},
