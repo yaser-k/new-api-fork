@@ -38,7 +38,7 @@ import {
   waitFor,
 } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createInstance } from 'i18next'
+import globalI18n, { createInstance } from 'i18next'
 import { I18nextProvider } from 'react-i18next'
 import { Toaster, toast } from 'sonner'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -141,8 +141,9 @@ beforeEach(() => {
     .setConfig({ currency: { ...DEFAULT_CURRENCY_CONFIG } })
   vi.spyOn(api, 'get').mockResolvedValue({ data: { success: true, data: {} } })
 })
-afterEach(() => {
+afterEach(async () => {
   cleanup()
+  await globalI18n.changeLanguage('en')
   toast.dismiss()
   localStorage.clear()
   clients.splice(0).forEach((client) => client.clear())
@@ -203,6 +204,23 @@ it.each([
     }
   }
 )
+
+it('re-renders quota amounts with Persian digits after switching the interface language without a reload', async () => {
+  // The app-wide i18next instance, as the running app uses it.
+  render(<ApiKeyQuotaCell apiKey={key} now={now} />)
+  expect(screen.getByRole('button')).toHaveTextContent('80120')
+
+  await act(async () => {
+    await globalI18n.changeLanguage('fa')
+  })
+  expect(screen.getByRole('button')).toHaveTextContent('۸۰۱۲۰')
+  expect(screen.getByRole('button')).toHaveAccessibleName(/۴۰٪/)
+
+  await act(async () => {
+    await globalI18n.changeLanguage('en')
+  })
+  expect(screen.getByRole('button')).toHaveTextContent('80120')
+})
 
 it('keeps remaining and used amounts at opposite inline edges in right-to-left layouts', () => {
   renderQuota()
