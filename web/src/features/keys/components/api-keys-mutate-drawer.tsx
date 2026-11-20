@@ -69,6 +69,7 @@ import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
 import { handleServerError } from '@/lib/handle-server-error'
 import { resolveLocalizedTextString } from '@/lib/localized-text-string'
 import {
+  getServerErrorMessage,
   requireServerSuccess,
   translateServerText,
 } from '@/lib/server-error-message'
@@ -80,7 +81,11 @@ import {
   getApiKey,
   getTokenAutoGroups,
 } from '../api'
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
+import {
+  API_KEY_VALIDATION,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+} from '../constants'
 import {
   getApiKeyFormSchema,
   type ApiKeyFormValues,
@@ -313,32 +318,53 @@ export function ApiKeysMutateDrawer({
           handleServerError(result, t(ERROR_MESSAGES.UPDATE_FAILED))
         }
       } else {
-        // Create mode - handle batch creation
-        const count = data.tokenCount || 1
+        // Create mode - handle batch creation, one key at a time
+        const count = data.tokenCount ?? 1
         let successCount = 0
+        let failure: unknown = null
 
-        for (let i = 0; i < count; i++) {
-          const result = await createApiKey({
-            ...basePayload,
-            name:
-              i === 0 && data.name
-                ? data.name
-                : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
-          })
-          if (result.success) {
-            successCount++
-          } else {
-            handleServerError(result, t(ERROR_MESSAGES.CREATE_FAILED))
-            break
+        for (let i = 0; i < count && failure === null; i++) {
+          try {
+            const result = await createApiKey({
+              ...basePayload,
+              name:
+                i === 0 && data.name
+                  ? data.name
+                  : `${data.name || 'default'}-${Math.random().toString(36).slice(2, 8)}`,
+            })
+            if (result.success) {
+              successCount++
+            } else {
+              failure = result
+            }
+          } catch (error) {
+            failure = error
           }
         }
 
-        if (successCount > 0) {
+        if (failure === null) {
           toast.success(
             t('Successfully created {{count}} API Key(s)', {
               count: successCount,
             })
           )
+        } else if (count === 1) {
+          handleServerError(failure, t(ERROR_MESSAGES.CREATE_FAILED))
+        } else {
+          // A stopped batch reports how many of its keys exist, then why.
+          handleServerError(failure, t(ERROR_MESSAGES.CREATE_FAILED), {
+            title: t('Created {{created}} of {{total}} API keys', {
+              created: successCount,
+              total: count,
+            }),
+            description: getServerErrorMessage(
+              failure,
+              t(ERROR_MESSAGES.CREATE_FAILED)
+            ),
+          })
+        }
+
+        if (successCount > 0) {
           onOpenChange(false)
           triggerRefresh()
         }
@@ -590,13 +616,18 @@ export function ApiKeysMutateDrawer({
                       <FormControl>
                         <Input
                           {...field}
+                          value={
+                            Number.isFinite(field.value) ? field.value : ''
+                          }
                           type='number'
-                          min='1'
+                          min={API_KEY_VALIDATION.COUNT_MIN}
+                          max={API_KEY_VALIDATION.COUNT_MAX}
+                          step={1}
                           placeholder={t('Number of keys to create')}
                           onChange={(e) =>
-                            field.onChange(
-                              Number.parseInt(e.target.value, 10) || 1
-                            )
+                            // NaN for an empty or partial entry, so the
+                            // schema reports it instead of a guessed count.
+                            field.onChange(e.target.valueAsNumber)
                           }
                         />
                       </FormControl>

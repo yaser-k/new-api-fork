@@ -73,6 +73,19 @@ export const API_KEY_STATUS_OPTIONS = Object.values(API_KEY_STATUSES).map(
 export const DEFAULT_GROUP = '' as const
 
 // ============================================================================
+// Validation Constants
+// ============================================================================
+
+// The create drawer sends one request per key, one after another. COUNT_MAX
+// bounds how long a batch runs and what a mistyped Quantity can create; it
+// matches the redemption code batch limit and sits well below the server's
+// per-user key limit (1000 by default), which the server enforces itself.
+export const API_KEY_VALIDATION = {
+  COUNT_MIN: 1,
+  COUNT_MAX: 100,
+} as const
+
+// ============================================================================
 // Error Messages (i18n keys: use t(ERROR_MESSAGES.xxx) when displaying)
 // ============================================================================
 
