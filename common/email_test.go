@@ -9,14 +9,25 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"io"
+	"io/fs"
 	"math/big"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
+	"net/mail"
 	"net/smtp"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -187,7 +198,8 @@ func (s *fakeSMTPServer) serve() {
 				if strings.TrimRight(dataLine, "\r\n") == "." {
 					break
 				}
-				data.WriteString(dataLine)
+				// Undo the sender's dot-stuffing, as a mail server does.
+				data.WriteString(strings.TrimPrefix(dataLine, "."))
 			}
 			s.messages <- data.String()
 			if err := writeSMTPLine(rw, "250 2.0.0 Queued"); err != nil {
@@ -560,4 +572,224 @@ func TestSendEmailExplicitStartTLSRejectsUntrustedCertificateByDefault(t *testin
 	err := SendEmail("Verification", "receiver@example.com", "<p>123456</p>")
 	require.Error(t, err)
 	require.Contains(t, fmt.Sprint(err), "certificate")
+}
+
+// withEmailOptions replaces the saved options SendEmail reads for one test.
+func withEmailOptions(t *testing.T, options map[string]string) {
+	t.Helper()
+	OptionMapRWMutex.Lock()
+	original := OptionMap
+	OptionMap = options
+	OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		OptionMapRWMutex.Lock()
+		OptionMap = original
+		OptionMapRWMutex.Unlock()
+	})
+}
+
+const (
+	testLTR = ` dir="ltr" style="direction:ltr;text-align:left"`
+	testRTL = ` dir="rtl" style="direction:rtl;text-align:right"`
+)
+
+// A mail is placed in the frame of its language tag, else of its base
+// language, else of "*", else in none. Without a frame its HTML is the body,
+// byte for byte, and an option that sets no frame is the same as none.
+func TestEmailFrameIsChosenByTheMailLanguage(t *testing.T) {
+	body := func(lang, block string) EmailBody {
+		return EmailBody(`<div lang="` + lang + `"` + block + `><p` + block + `>Hello.</p></div>`)
+	}
+	const frames = `{"*":"any[{{body}}]","fa":"fa[{{body}}]","zh":"zh[{{body}}]","ZH-tw":"zh-TW[{{body}}]"}`
+	for _, tc := range []struct {
+		name   string
+		option string
+		body   EmailBody
+		frame  string
+	}{
+		{"the tag", frames, body("zh-TW", testLTR), "zh-TW"},
+		{"the tag, right to left", frames, body("fa", testRTL), "fa"},
+		{"the base language", frames, body("zh-CN", testLTR), "zh"},
+		{"the default", frames, body("en", testLTR), "any"},
+		{"a body that names no language", frames, "<p>123456</p>", "any"},
+		{"no default", `{"fa":"fa[{{body}}]"}`, body("en", testLTR), ""},
+		{"no frame", `{}`, body("fa", testRTL), ""},
+		{"an empty option", "", body("fa", testRTL), ""},
+		{"a blank option", " \n", body("en", testLTR), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := string(tc.body)
+			if tc.frame != "" {
+				want = tc.frame + "[" + want + "]"
+			}
+			assert.Equal(t, want, renderEmail(tc.body, tc.option, "https://example.org").html)
+		})
+	}
+}
+
+// Every placeholder is replaced once, literally, and every value but the body
+// is HTML-escaped. A placeholder inside a value, the body included, stays as it
+// is, and anything else that looks like a placeholder stays as written.
+func TestEmailFramePlaceholders(t *testing.T) {
+	previousName := SystemName
+	t.Cleanup(func() { SystemName = previousName })
+	SystemName = `New <API> & "Co"`
+	frame, err := Marshal(map[string]string{
+		"*": `<div lang="{{lang}}" dir="{{dir}}" style="text-align:{{align}}">` +
+			`<a href="{{server_address}}">{{system_name}}</a>{{body}}{{unknown}} {{ body }} {{Body}}</div>`,
+	})
+	require.NoError(t, err)
+	body := `<div lang="fa"` + testRTL + `><p` + testRTL + `>{{lang}} {{system_name}} &lt;b&gt;</p></div>`
+
+	assert.Equal(t, `<div lang="fa" dir="rtl" style="text-align:right">`+
+		`<a href="https://example.org/?a=1&amp;b=&#34;2&#34;">New &lt;API&gt; &amp; &#34;Co&#34;</a>`+
+		body+`{{unknown}} {{ body }} {{Body}}</div>`,
+		renderEmail(EmailBody(body), string(frame), `https://example.org/?a=1&b="2"`).html)
+
+	ltr := `<div lang="en"` + testLTR + `><p` + testLTR + `>Hello.</p></div>`
+	assert.Equal(t, `<div lang="en" dir="ltr" style="text-align:left"><a href="">New &lt;API&gt; &amp; &#34;Co&#34;</a>`+
+		ltr+`{{unknown}} {{ body }} {{Body}}</div>`,
+		renderEmail(EmailBody(ltr), string(frame), "").html)
+}
+
+// A saved frame that cannot be used never stops a mail: the mail goes without
+// a frame, with its plain text.
+func TestEmailWithAnUnusableFrameGoesWithoutOne(t *testing.T) {
+	body := EmailBody(`<div lang="en"` + testLTR + `><p` + testLTR + `>Hello.</p></div>`)
+	for _, option := range []string{`{"*":"no body"}`, `{"*":"{{body}}{{body}}"}`, `not json`, `{"default":"{{body}}"}`, `{"*":"` + strings.Repeat("x", EmailFrameMaxBytes) + `{{body}}"}`} {
+		parts := renderEmail(body, option, "")
+		assert.Equal(t, string(body), parts.html, option)
+		assert.Equal(t, "Hello.", parts.text, option)
+	}
+}
+
+// The plain text is made from the body alone: tags removed, entities decoded,
+// white space collapsed, each block on lines of its own with a blank line
+// between blocks, a line break where the HTML has one, and a link as its text
+// followed by its address (once when the text is the address).
+func TestEmailPlainTextIsMadeFromTheBody(t *testing.T) {
+	const frame = `{"*":"<p>Header</p>{{body}}<p>Footer</p>"}`
+	body := `<div lang="fa"` + testRTL + `>` +
+		`<p` + testRTL + `>سلام،  ثبت‌نام در <span dir="ltr">example.org</span> &amp; <strong>New &lt;API&gt;</strong>.</p>` +
+		`<p` + testRTL + `>کد تأیید شما</p>` +
+		`<div dir="ltr" style="text-align:center">3fa9c1</div>` +
+		`<p` + testRTL + `>برای بازنشانی، <a href='https://example.org/user/reset?email=a@example.org&amp;token=3fa9'>اینجا</a> کلیک کنید.</p>` +
+		`<p` + testRTL + `>پیوند زیر را کپی کنید:<br> ⁨<span dir="ltr">https://example.org/a</span>⁩</p>` +
+		`<p` + testRTL + `>Top-up link: <a href='https://example.org/topup'>https://example.org/topup</a><br/></p>` +
+		`<p` + testRTL + `> </p></div>`
+
+	assert.Equal(t, "سلام، ثبت‌نام در example.org & New <API>.\n\n"+
+		"کد تأیید شما\n\n"+
+		"3fa9c1\n\n"+
+		"برای بازنشانی، اینجا <https://example.org/user/reset?email=a@example.org&token=3fa9> کلیک کنید.\n\n"+
+		"پیوند زیر را کپی کنید:\n⁨https://example.org/a⁩\n\n"+
+		"Top-up link: https://example.org/topup",
+		renderEmail(EmailBody(body), frame, "").text)
+	assert.Equal(t, "123456", renderEmail("123456", frame, "").text)
+}
+
+// An SMTP mail is multipart/alternative: the plain text first, then the HTML in
+// its frame, both UTF-8 and quoted-printable, behind a boundary that cannot
+// occur in either part. No line passes 998 octets, however long the frame and
+// a right-to-left body are, and the other headers are as before.
+func TestSendEmailWritesPlainTextThenFramedHTML(t *testing.T) {
+	server := newFakeSMTPServerWithSTARTTLSAdvertisement(t, false)
+	defer server.close()
+	withSMTPSettings(t)
+	SMTPServer, SMTPPort, SMTPSSLEnabled, SMTPStartTLSEnabled = server.host, server.port, false, false
+	SMTPAccount, SMTPFrom, SMTPToken, SystemName = "", "sender@example.org", "", "New API"
+	faFrame := `<div style="text-align:{{align}}"><img src="https://example.org/logo.png" alt="{{system_name}}">` +
+		strings.Repeat(`<span style="color:#555555">example.org</span> `, 120) + `</div>{{body}}<p>.` + strings.Repeat("=_", 600) + `</p>`
+	frame, err := Marshal(map[string]string{"fa": faFrame})
+	require.NoError(t, err)
+	withEmailOptions(t, map[string]string{"EmailProvider": "smtp", EmailFrameOption: string(frame)})
+	sentence := strings.Repeat("این یک جملهٔ بلند برای آزمودن طول خط‌های نامه است. ", 60)
+	body := `<div lang="fa"` + testRTL + `><p` + testRTL + `>` + sentence + `</p><p` + testRTL + `>.` + sentence + `</p></div>`
+
+	require.NoError(t, SendEmail("تأیید ایمیل", "receiver@example.org", EmailBody(body)))
+	var raw string
+	select {
+	case raw = <-server.messages:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for SMTP DATA")
+	}
+
+	for line := range strings.SplitSeq(raw, "\r\n") {
+		require.LessOrEqual(t, len(line), 998)
+	}
+	message, err := mail.ReadMessage(strings.NewReader(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "receiver@example.org", message.Header.Get("To"))
+	assert.Equal(t, "New API <sender@example.org>", message.Header.Get("From"))
+	subject, err := new(mime.WordDecoder).DecodeHeader(message.Header.Get("Subject"))
+	require.NoError(t, err)
+	assert.Equal(t, "تأیید ایمیل", subject)
+	assert.NotEmpty(t, message.Header.Get("Date"))
+	assert.NotEmpty(t, message.Header.Get("Message-ID"))
+	assert.Equal(t, "1.0", message.Header.Get("MIME-Version"))
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	assert.Equal(t, "multipart/alternative", mediaType)
+	require.True(t, strings.HasPrefix(params["boundary"], "=_"), params["boundary"])
+	assert.LessOrEqual(t, len("Content-Type: "+message.Header.Get("Content-Type")), 78)
+
+	reader := multipart.NewReader(message.Body, params["boundary"])
+	var parts []string
+	for {
+		part, err := reader.NextRawPart()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		assert.Equal(t, "quoted-printable", part.Header.Get("Content-Transfer-Encoding"))
+		content, err := io.ReadAll(quotedprintable.NewReader(part))
+		require.NoError(t, err)
+		parts = append(parts, part.Header.Get("Content-Type"), strings.ReplaceAll(string(content), "\r\n", "\n"))
+	}
+	assert.Equal(t, []string{
+		"text/plain; charset=UTF-8", strings.TrimSpace(sentence) + "\n\n." + strings.TrimSpace(sentence),
+		"text/html; charset=UTF-8", strings.NewReplacer("{{align}}", "right", "{{system_name}}", "New API", "{{body}}", body).Replace(faFrame),
+	}, parts)
+}
+
+// Every mail leaves through SendEmail, which writes both parts and the frame:
+// no package but this one speaks SMTP or calls the Resend API, so a new caller
+// cannot send a mail that skips either.
+func TestMailLeavesOnlyThroughSendEmail(t *testing.T) {
+	root, err := filepath.Abs("..")
+	require.NoError(t, err)
+	var senders []string
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name := entry.Name(); path != root && (name == "web" || name == "node_modules" || strings.HasPrefix(name, ".")) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || filepath.Dir(path) == filepath.Join(root, "common") {
+			return nil
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		for _, spec := range file.Imports {
+			if spec.Path.Value == `"net/smtp"` {
+				senders = append(senders, path)
+			}
+		}
+		if strings.Contains(string(source), "api.resend.com") {
+			senders = append(senders, path)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Empty(t, senders)
 }
