@@ -42,6 +42,10 @@ export const userSchema = z.object({
   wechat_id: z.string().optional(),
   telegram_id: z.string().optional(),
   email: z.string().optional(),
+  /** The stored international number */
+  phone: z.string().nullable().optional(),
+  /** The number as the format options write it nationally, for showing */
+  phone_display: z.string().optional(),
   quota: z.number(),
   used_quota: z.number(),
   request_count: z.number(),
@@ -121,6 +125,8 @@ export interface UserFormData {
   username: string
   display_name: string
   password?: string
+  /** The server reads it; an empty number clears it on update */
+  phone?: string
   role?: number // Only used when creating user
   quota?: number // Only used when updating user
   group?: string // Only used when updating user

@@ -323,6 +323,8 @@ func handleOAuthLogin(c *gin.Context, provider oauth.Provider, oauthUser *oauth.
 			common.ApiErrorT(c, "User has been deleted")
 		case *OAuthRegistrationDisabledError:
 			common.ApiErrorT(c, "New user registration has been disabled by administrator")
+		case *OAuthPhoneNumberRequiredError:
+			common.ApiErrorT(c, phoneNumberRequiredForProviderMessage, providerParams(provider.GetName()))
 		case *OAuthEmailAlreadyTakenError:
 			common.ApiErrorT(c, "Email address is already in use")
 		case *OAuthLegacyBindingNotConfirmedError:
@@ -479,6 +481,10 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	if !common.RegisterEnabled {
 		return nil, nil, &OAuthRegistrationDisabledError{}
 	}
+	// Only the sign-up form asks for the phone number a new account needs.
+	if common.RegisterPhoneRequiredEnabled {
+		return nil, nil, &OAuthPhoneNumberRequiredError{}
+	}
 
 	// Set up new user
 	user.Username = provider.GetProviderPrefix() + strconv.Itoa(model.GetMaxUserId()+1)
@@ -601,6 +607,18 @@ type OAuthRegistrationDisabledError struct{}
 func (e *OAuthRegistrationDisabledError) Error() string {
 	return "registration is disabled"
 }
+
+// OAuthPhoneNumberRequiredError refuses a first third-party sign-in that would
+// create an account while RegisterPhoneRequiredEnabled is on.
+type OAuthPhoneNumberRequiredError struct{}
+
+func (e *OAuthPhoneNumberRequiredError) Error() string {
+	return "registration requires a phone number"
+}
+
+// phoneNumberRequiredForProviderMessage answers a third-party sign-in that
+// would create an account while a phone number is required at registration.
+const phoneNumberRequiredForProviderMessage = "Registration requires a phone number. Register with a phone number first, then link {{provider}} in account settings"
 
 type OAuthEmailAlreadyTakenError struct{}
 

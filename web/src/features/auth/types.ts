@@ -40,6 +40,7 @@ export interface RegisterPayload {
   username: string
   password: string
   email?: string
+  phone?: string
   verification_code?: string
   aff_code?: string
   turnstile?: string
@@ -119,6 +120,8 @@ export interface SystemStatus {
     turnstile_check?: boolean
     turnstile_site_key?: string
     email_verification?: boolean
+    register_phone_required?: boolean
+    register_phone_hint?: string
     self_use_mode_enabled?: boolean
     display_in_currency?: boolean
     display_token_stat_enabled?: boolean
@@ -167,6 +170,10 @@ export interface SystemStatus {
   turnstile_check?: boolean
   turnstile_site_key?: string
   email_verification?: boolean
+  /** Sign-up asks for a phone number no other account holds */
+  register_phone_required?: boolean
+  /** The administrator's line under the sign-up phone field, plain text */
+  register_phone_hint?: string
   self_use_mode_enabled?: boolean
   display_in_currency?: boolean
   display_token_stat_enabled?: boolean

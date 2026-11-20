@@ -82,6 +82,11 @@ func WeChatAuth(c *gin.Context) {
 		}
 	} else {
 		if common.RegisterEnabled {
+			// Only the sign-up form asks for the phone number a new account needs.
+			if common.RegisterPhoneRequiredEnabled {
+				common.ApiErrorT(c, phoneNumberRequiredForProviderMessage, providerParams("WeChat"))
+				return
+			}
 			user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
 			user.DisplayName = "WeChat User"
 			user.Role = common.RoleCommonUser
