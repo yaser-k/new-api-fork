@@ -209,6 +209,10 @@ export function buildPricingChanges(
       pricing['billing_setting.billing_expr'] =
         newValues['billing_setting.billing_expr']
     }
+    // A public price stands in for a billing expression only.
+    if (pricing['billing_setting.billing_expr'] === undefined) {
+      delete pricing['billing_setting.public_expr']
+    }
     changes.push({
       model_name: name,
       expected_version: entry?.version ?? snapshot.empty_version,
