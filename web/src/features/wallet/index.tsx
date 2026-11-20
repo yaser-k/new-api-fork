@@ -346,7 +346,8 @@ export function Wallet(props: WalletProps) {
               complianceConfirmed={
                 topupInfo?.payment_compliance_confirmed !== false
               }
-              loading={affiliateLoading}
+              rewardEnabled={topupInfo?.inviter_reward_enabled === true}
+              loading={affiliateLoading || topupLoading}
             />
           </div>
         </SectionPageLayout.Content>
