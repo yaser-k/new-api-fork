@@ -16,8 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { afterEach, describe, expect, test } from 'vitest'
+import i18next from 'i18next'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { INTERFACE_LANGUAGE_OPTIONS, toIntlLocale } from '@/i18n/languages'
 import {
   DEFAULT_CURRENCY_CONFIG,
   useSystemConfigStore,
@@ -116,5 +118,145 @@ describe('left-to-right currency symbols', () => {
       '$1,234.5'
     )
     expect(getCurrencyLabel()).toBe('Tokens')
+  })
+})
+
+describe('amounts in the interface language', () => {
+  const TOMAN = `${FSI}تومان${PDI}`
+  const useToman = () =>
+    useCurrency({ quotaDisplayType: 'CUSTOM', customCurrencySymbol: 'تومان' })
+
+  beforeEach(() => {
+    // The browser of a Persian reader may still be set to English; pin the
+    // runtime locale so only the interface language can bring Persian digits.
+    const NativeNumberFormat = Intl.NumberFormat
+    vi.spyOn(Intl, 'NumberFormat').mockImplementation(function (
+      locales?: Intl.LocalesArgument,
+      options?: Intl.NumberFormatOptions
+    ) {
+      return new NativeNumberFormat(locales ?? 'en-US', options)
+    } as typeof Intl.NumberFormat)
+  })
+
+  afterEach(async () => {
+    await i18next.changeLanguage('en')
+  })
+
+  test('a Persian interface puts Persian digits before a Persian currency word', async () => {
+    await i18next.changeLanguage('fa')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700)).toBe(`۲۰۳٬۷۰۰ ${TOMAN}`)
+    expect(formatCurrencyFromUSD(203700)).toBe(`۲۰۳٬۷۰۰ ${TOMAN}`)
+  })
+
+  test('an English interface keeps the Persian currency word before the number', async () => {
+    await i18next.changeLanguage('en')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700)).toBe(`${TOMAN} 203,700`)
+  })
+
+  test.each<{
+    name: string
+    currency: Partial<CurrencyConfig>
+    persian: string
+    english: string
+  }>([
+    {
+      name: 'the dollar sign',
+      currency: { quotaDisplayType: 'USD' },
+      persian: '\u200e$۲۰۳٬۷۰۰',
+      english: '$203,700',
+    },
+    {
+      name: 'the yuan sign',
+      currency: { quotaDisplayType: 'CNY', usdExchangeRate: 7 },
+      persian: '\u200e¥۱٬۴۲۵٬۹۰۰',
+      english: '¥1,425,900',
+    },
+    {
+      name: 'a custom dollar sign',
+      currency: { quotaDisplayType: 'CUSTOM', customCurrencySymbol: '$' },
+      persian: '$ ۲۰۳٬۷۰۰',
+      english: '$ 203,700',
+    },
+    {
+      name: 'a custom euro sign',
+      currency: { quotaDisplayType: 'CUSTOM', customCurrencySymbol: '€' },
+      persian: '€ ۲۰۳٬۷۰۰',
+      english: '€ 203,700',
+    },
+  ])(
+    '$name stays before the number in a Persian and an English interface',
+    async (item) => {
+      useCurrency(item.currency)
+
+      await i18next.changeLanguage('fa')
+      expect(formatBillingCurrencyFromUSD(203700)).toBe(item.persian)
+      await i18next.changeLanguage('en')
+      expect(formatBillingCurrencyFromUSD(203700)).toBe(item.english)
+    }
+  )
+
+  test('an explicit locale wins over a Persian interface', async () => {
+    await i18next.changeLanguage('fa')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700, { locale: 'en-US' })).toBe(
+      `${TOMAN} 203,700`
+    )
+  })
+
+  test('an explicit Persian locale wins over an English interface', async () => {
+    await i18next.changeLanguage('en')
+    useCurrency({ quotaDisplayType: 'USD' })
+
+    expect(formatBillingCurrencyFromUSD(203700, { locale: 'fa' })).toBe(
+      '\u200e$۲۰۳٬۷۰۰'
+    )
+  })
+
+  test('an explicit Persian locale puts the Persian currency word after the number', async () => {
+    await i18next.changeLanguage('en')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700, { locale: 'fa' })).toBe(
+      `۲۰۳٬۷۰۰ ${TOMAN}`
+    )
+  })
+
+  test('an explicitly undefined locale keeps the runtime locale and the symbol first', async () => {
+    await i18next.changeLanguage('fa')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(203700, { locale: undefined })).toBe(
+      `${TOMAN} 203,700`
+    )
+  })
+
+  test.each(
+    INTERFACE_LANGUAGE_OPTIONS.filter(
+      (option) => (option.code as string) !== 'fa'
+    ).map((option) => option.code)
+  )(
+    'the %s interface formats in its own locale with the currency word first',
+    async (code) => {
+      await i18next.changeLanguage(code)
+      useToman()
+
+      const formatted = formatBillingCurrencyFromUSD(1234.5)
+      expect(formatted).toBe(
+        formatBillingCurrencyFromUSD(1234.5, { locale: toIntlLocale(code) })
+      )
+      expect(formatted.startsWith(`${TOMAN} `)).toBe(true)
+    }
+  )
+
+  test('an interface language that is not a valid locale falls back to the runtime locale', async () => {
+    await i18next.changeLanguage('not a language')
+    useToman()
+
+    expect(formatBillingCurrencyFromUSD(1234.5)).toBe(`${TOMAN} 1,234.5`)
   })
 })
