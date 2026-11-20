@@ -20,6 +20,10 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
+import {
+  useDisplayCurrencyStore,
+  type DisplayCurrency,
+} from '@/stores/display-currency-store'
 
 export type CurrencyDisplayType = 'USD' | 'CNY' | 'TOKENS' | 'CUSTOM'
 
@@ -44,7 +48,13 @@ export interface SystemConfig {
   footerHtml?: string
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
+  /** Currency settings as this viewer reads them (see applyDisplayCurrency) */
   currency: CurrencyConfig
+  /**
+   * The admin's currency settings, whatever the viewer chose: for amounts the
+   * site charges in its own currency and for editors of the site's values.
+   */
+  siteCurrency: CurrencyConfig
 }
 
 export const DEFAULT_CURRENCY_CONFIG: CurrencyConfig = {
@@ -54,6 +64,24 @@ export const DEFAULT_CURRENCY_CONFIG: CurrencyConfig = {
   usdExchangeRate: 1,
   customCurrencySymbol: '¤',
   customCurrencyExchangeRate: 1,
+}
+
+/** Whether a viewer may read this site's figures in US dollars instead. */
+export function offersDisplayCurrency(site: CurrencyConfig): boolean {
+  return site.quotaDisplayType === 'CUSTOM' || site.quotaDisplayType === 'CNY'
+}
+
+/**
+ * The currency settings a viewer reads figures in: the site's own, or US
+ * dollars (rate 1, symbol $) when the viewer chose them on a site that shows
+ * a currency of its own. Every formatter follows from the display type.
+ */
+export function applyDisplayCurrency(
+  site: CurrencyConfig,
+  displayCurrency: DisplayCurrency
+): CurrencyConfig {
+  if (displayCurrency !== 'USD' || !offersDisplayCurrency(site)) return site
+  return { ...site, quotaDisplayType: 'USD' }
 }
 
 interface SystemConfigState {
@@ -76,20 +104,40 @@ export const useSystemConfigStore = create<SystemConfigState>()(
         systemName: DEFAULT_SYSTEM_NAME,
         logo: DEFAULT_LOGO,
         currency: { ...DEFAULT_CURRENCY_CONFIG },
+        siteCurrency: { ...DEFAULT_CURRENCY_CONFIG },
       },
       loading: true,
       loadedLogoUrl: DEFAULT_LOGO,
       setConfig: (newConfig) =>
-        set((state) => ({
-          config: {
-            ...state.config,
-            ...newConfig,
-            currency: {
-              ...state.config.currency,
-              ...(newConfig.currency ?? {}),
+        set((state) => {
+          // `currency` edits the settings as displayed. The viewer's choice
+          // shows only in the display type, so a type that just repeats it is
+          // not a change of the site's; `siteCurrency` sets the site's values.
+          const edit = { ...newConfig.currency }
+          const shown = state.config.currency.quotaDisplayType
+          if (
+            edit.quotaDisplayType === shown &&
+            shown !== state.config.siteCurrency.quotaDisplayType
+          ) {
+            delete edit.quotaDisplayType
+          }
+          const siteCurrency = {
+            ...state.config.siteCurrency,
+            ...edit,
+            ...newConfig.siteCurrency,
+          }
+          return {
+            config: {
+              ...state.config,
+              ...newConfig,
+              siteCurrency,
+              currency: applyDisplayCurrency(
+                siteCurrency,
+                useDisplayCurrencyStore.getState().displayCurrency
+              ),
             },
-          },
-        })),
+          }
+        }),
       setLoadedLogoUrl: (url) => set({ loadedLogoUrl: url }),
       setLoading: (loading) => set({ loading }),
     }),
@@ -99,9 +147,44 @@ export const useSystemConfigStore = create<SystemConfigState>()(
         config: state.config,
         loadedLogoUrl: state.loadedLogoUrl,
       }),
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<SystemConfigState>
+        // A config saved before siteCurrency existed holds the site's values
+        // in currency.
+        const siteCurrency = {
+          ...DEFAULT_CURRENCY_CONFIG,
+          ...(saved.config?.siteCurrency ?? saved.config?.currency),
+        }
+        return {
+          ...current,
+          ...saved,
+          config: {
+            ...current.config,
+            ...saved.config,
+            siteCurrency,
+            currency: applyDisplayCurrency(
+              siteCurrency,
+              useDisplayCurrencyStore.getState().displayCurrency
+            ),
+          },
+        }
+      },
     }
   )
 )
+
+useDisplayCurrencyStore.subscribe((state, previous) => {
+  if (state.displayCurrency === previous.displayCurrency) return
+  useSystemConfigStore.setState((current) => ({
+    config: {
+      ...current.config,
+      currency: applyDisplayCurrency(
+        current.config.siteCurrency,
+        state.displayCurrency
+      ),
+    },
+  }))
+})
 
 // Selector helpers for convenience
 export const getSystemName = () =>
