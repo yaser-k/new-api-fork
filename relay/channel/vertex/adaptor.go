@@ -94,6 +94,34 @@ func removeFunctionCallIDs(request *dto.GeminiChatRequest) {
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
+	// The URL follows the model (Init), so the body must too: only Claude models take
+	// Anthropic's rawPredict body.
+	switch a.RequestMode {
+	case RequestModeGemini:
+		result, err := service.ConvertRequest(c, info, types.RelayFormatGemini, request)
+		if err != nil {
+			return nil, err
+		}
+		geminiRequest, ok := result.Value.(*dto.GeminiChatRequest)
+		if !ok {
+			return nil, fmt.Errorf("expected Gemini generateContent request, got %T", result.Value)
+		}
+		if model_setting.GetGeminiSettings().RemoveFunctionResponseIdEnabled {
+			removeFunctionCallIDs(geminiRequest)
+		}
+		c.Set("request_model", request.Model)
+		return geminiRequest, nil
+	case RequestModeOpenSource:
+		result, err := service.ConvertRequest(c, info, types.RelayFormatOpenAI, request)
+		if err != nil {
+			return nil, err
+		}
+		openAIRequest, ok := result.Value.(*dto.GeneralOpenAIRequest)
+		if !ok {
+			return nil, fmt.Errorf("expected OpenAI chat completions request, got %T", result.Value)
+		}
+		return openAIRequest, nil
+	}
 	claudeAdaptor := claude.Adaptor{}
 	if _, err := claudeAdaptor.ConvertClaudeRequest(c, info, request); err != nil {
 		return nil, err
