@@ -22,6 +22,7 @@ import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
 import { SystemUpdateAction } from '@/features/system-update/system-update-action'
+import { useHeaderDirection } from '@/hooks/use-header-direction'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 
@@ -110,6 +111,7 @@ export function AppHeader({
 
   // Notifications hook
   const notifications = useNotifications()
+  const { linksDir } = useHeaderDirection()
 
   return (
     <Header>
@@ -126,7 +128,7 @@ export function AppHeader({
         <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
           {showTopNav && (
             <div className='me-1 hidden lg:block'>
-              <TopNav links={links} />
+              <TopNav links={links} dir={linksDir} />
             </div>
           )}
           {showSearch && (
