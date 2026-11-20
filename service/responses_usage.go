@@ -2,12 +2,15 @@ package service
 
 import (
 	"fmt"
+	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/tokenkit"
 )
 
@@ -149,6 +152,43 @@ func ObserveResponsesOutcome(info *relaycommon.RelayInfo, event *dto.ResponsesSt
 	case event.Type == "response.completed" || event.Type == "response.done" || responseStatus == "completed":
 		info.StreamStatus.MarkCompleted()
 	}
+}
+
+// upstreamFailureCodes are the Responses error codes and types of a failure that is the
+// upstream's own rather than the request's: a server error, capacity, or rate limit.
+var upstreamFailureCodes = []string{
+	"server_error", "internal_error", "service_unavailable", "overloaded", "overloaded_error",
+	"server_is_overloaded", "model_at_capacity", "rate_limit_exceeded", "rate_limit_error",
+}
+
+// ResponsesChannelFailure returns the error of a terminal Responses failure event when the
+// failure is the upstream's own, for the channel-error path. It returns nil for any other event
+// and for a failure the request caused (invalid parameters, context length, content policy),
+// which leaves channel health alone.
+func ResponsesChannelFailure(event *dto.ResponsesStreamResponse) *types.NewAPIError {
+	if event == nil {
+		return nil
+	}
+	var upstreamErr types.OpenAIError
+	switch event.Type {
+	case "error":
+		upstreamErr = types.OpenAIError{Message: event.Message, Param: event.Param, Code: event.Code}
+	case "response.failed", "response.error":
+		if event.Response == nil || event.Response.GetOpenAIError() == nil {
+			return nil
+		}
+		upstreamErr = *event.Response.GetOpenAIError()
+	default:
+		return nil
+	}
+	code := ""
+	if upstreamErr.Code != nil {
+		code = strings.ToLower(fmt.Sprint(upstreamErr.Code))
+	}
+	if !slices.Contains(upstreamFailureCodes, code) && !slices.Contains(upstreamFailureCodes, strings.ToLower(upstreamErr.Type)) {
+		return nil
+	}
+	return types.WithOpenAIError(upstreamErr, http.StatusInternalServerError)
 }
 
 func ApplyResponsesUsage(dst *dto.Usage, src *dto.Usage) {
