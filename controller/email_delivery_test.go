@@ -131,6 +131,101 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 	}
 }
 
+// An administrator, or a script, sets the mail frame through the option API and
+// reads it back. The next mail is placed in it, and an empty value sends the
+// body as it is again.
+func TestEmailFrameOptionIsSavedReadBackAndUsed(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	previousDB, previousRedis, previousName := model.DB, common.RedisEnabled, common.SystemName
+	model.DB, common.RedisEnabled, common.SystemName = db, false, "New API"
+	t.Cleanup(func() { model.DB, common.RedisEnabled, common.SystemName = previousDB, previousRedis, previousName })
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com", common.EmailFrameOption: ""})
+	sent := ""
+	http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			HTML string `json:"html"`
+		}
+		require.NoError(t, common.DecodeJson(request.Body, &body))
+		sent = body.HTML
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"email-test-id"}`)), Header: make(http.Header)}, nil
+	})
+	save := func(value string) string {
+		body, err := common.Marshal(OptionUpdateRequest{Key: common.EmailFrameOption, Value: value})
+		require.NoError(t, err)
+		response := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(response)
+		context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
+		UpdateOption(context)
+		return response.Body.String()
+	}
+	const frame = `{"*":"<div style=\"text-align:{{align}}\">{{system_name}}</div>{{body}}","fa":"<div dir=\"rtl\">{{body}}</div>"}`
+	body := i18n.EmailBody("en", "Hello.")
+
+	assert.Contains(t, save(frame), `"success":true`)
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/option/", nil)
+	GetOptions(context)
+	var options struct {
+		Data []model.Option `json:"data"`
+	}
+	require.NoError(t, common.DecodeJson(response.Body, &options))
+	assert.Contains(t, options.Data, model.Option{Key: common.EmailFrameOption, Value: frame})
+	require.NoError(t, common.SendEmail("Hello", "one@example.com", body))
+	assert.Equal(t, `<div style="text-align:left">New API</div>`+string(body), sent)
+
+	assert.Contains(t, save(""), `"success":true`)
+	require.NoError(t, common.SendEmail("Hello", "one@example.com", body))
+	assert.Equal(t, string(body), sent)
+}
+
+// A mail frame that breaks a rule is refused when saved, with a message that
+// names the rule, and the saved frame stays as it was.
+func TestEmailFrameOptionRefusesEachBrokenRule(t *testing.T) {
+	const shape = "The mail frame must be a JSON object that maps language tags, or * for every other language, to HTML"
+	for _, tc := range []struct {
+		name, value, key, message string
+	}{
+		{"HTML that is not JSON", `<p>{{body}}</p>`, shape, shape},
+		{"a JSON array", `["{{body}}"]`, shape, shape},
+		{"null", `null`, shape, shape},
+		{"a frame that is not text", `{"*":1}`, shape, shape},
+		{"a key that is not a language tag", `{"default":"{{body}}"}`,
+			"The mail frame key {{key}} is not a language tag or *", "The mail frame key default is not a language tag or *"},
+		{"a language named twice", `{"fa":"{{body}}","FA":"{{body}}"}`,
+			"The mail frame names the language {{lang}} more than once", "The mail frame names the language fa more than once"},
+		{"no body placeholder", `{"*":"<p>{{system_name}}</p>"}`,
+			"The mail frame for {{key}} has no {{placeholder}} placeholder for the mail body", "The mail frame for * has no {{body}} placeholder for the mail body"},
+		{"the body placeholder twice", `{"fa":"{{body}}<hr>{{body}}"}`,
+			"The mail frame for {{key}} has the {{placeholder}} placeholder more than once", "The mail frame for fa has the {{body}} placeholder more than once"},
+		{"a value past the size bound", `{"*":"{{body}}` + strings.Repeat("x", common.EmailFrameMaxBytes) + `"}`,
+			"The mail frame must be at most {{max}} bytes", "The mail frame must be at most 32768 bytes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const saved = `{"*":"{{body}}"}`
+			configureEmailDelivery(t, map[string]string{common.EmailFrameOption: saved})
+			body, err := common.Marshal(OptionUpdateRequest{Key: common.EmailFrameOption, Value: tc.value})
+			require.NoError(t, err)
+			response := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(response)
+			context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
+			require.NotPanics(t, func() { UpdateOption(context) }, "a refused frame must fail before accessing storage")
+			var result struct {
+				Success    bool   `json:"success"`
+				Message    string `json:"message"`
+				MessageKey string `json:"message_key"`
+			}
+			require.NoError(t, common.DecodeJson(response.Body, &result))
+			assert.False(t, result.Success)
+			assert.Equal(t, tc.key, result.MessageKey)
+			assert.Equal(t, tc.message, result.Message)
+			assert.Equal(t, saved, common.OptionMap[common.EmailFrameOption])
+		})
+	}
+}
+
 func TestResendFailuresDoNotRetryFallbackOrExposeSensitiveContent(t *testing.T) {
 	for _, status := range []int{302, 400, 401, 403, 429, 500} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {

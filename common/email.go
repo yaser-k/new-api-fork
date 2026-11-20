@@ -86,15 +86,18 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 type EmailBody string
 
 // SendEmail sends a mail made from content in two parts, a plain-text part and
-// then the HTML, through the selected provider. Every mail leaves through here,
-// so none can leave without either part.
+// then the HTML in the administrator's frame (see EmailFrameOption), through
+// the selected provider. Every mail leaves through here, so none can leave
+// without either part.
 func SendEmail(subject string, receiver string, content EmailBody) error {
 	OptionMapRWMutex.RLock()
 	provider := OptionMap["EmailProvider"]
 	resendKey := OptionMap["ResendApiKey"]
 	resendFrom := OptionMap["ResendFrom"]
+	frameOption := OptionMap[EmailFrameOption]
+	serverAddress := OptionMap["ServerAddress"]
 	OptionMapRWMutex.RUnlock()
-	parts := renderEmail(content)
+	parts := renderEmail(content, frameOption, serverAddress)
 	// One selector controls delivery. Never fall back to a second provider:
 	// a failed response does not prove that the first provider did not send.
 	switch provider {
