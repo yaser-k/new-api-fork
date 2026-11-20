@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
@@ -393,11 +394,16 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, billing
 		}
 	}
 
+	// channel() prices the channel selected for this attempt; before the retry
+	// loop that is the first attempt's. The frozen input keeps no channel, so
+	// settlement reads the channel that answered.
+	attemptInput := requestInput
+	attemptInput.ChannelID = common.GetContextKeyInt(c, constant.ContextKeyChannelId)
 	rawCost, trace, err := billingexpr.RunExprByHashWithRequest(exprStr, exprHash, billingexpr.TokenParams{
 		P:   float64(promptTokens),
 		C:   0,
 		Len: float64(promptTokens),
-	}, requestInput)
+	}, attemptInput)
 	if err != nil {
 		return hosttypes.PriceData{}, fmt.Errorf("model %s tiered expr run failed: %w", billingModelName, err)
 	}
