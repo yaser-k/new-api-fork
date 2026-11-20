@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -248,6 +249,16 @@ func UpdateOption(c *gin.Context) {
 	case "EmailDomainRestrictionEnabled":
 		if option.Value == "true" && len(common.EmailDomainWhitelist) == 0 {
 			common.ApiErrorT(c, "Cannot enable the email domain restriction. Enter the allowed email domains first.")
+			return
+		}
+	case "PhoneCountryCode", "PhoneTrunkPrefix", "PhoneNationalNumberPattern":
+		if err := model.ValidatePhoneNumberFormatOption(option.Key, option.Value.(string)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	case "RegisterPhoneHint":
+		if utf8.RuneCountInString(option.Value.(string)) > common.RegisterPhoneHintMaxLength {
+			common.ApiErrorT(c, "The phone number hint must be at most 200 characters")
 			return
 		}
 	case "WeChatAuthEnabled":

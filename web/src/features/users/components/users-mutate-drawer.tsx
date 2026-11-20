@@ -391,6 +391,31 @@ export function UsersMutateDrawer({
 
                 <FormField
                   control={form.control}
+                  name='phone'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Phone number')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type='tel'
+                          inputMode='tel'
+                          autoComplete='off'
+                          dir='ltr'
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Optional. Only administrators can set or change it.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name='password'
                   render={({ field }) => (
                     <FormItem>
