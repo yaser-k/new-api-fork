@@ -14,13 +14,22 @@ type ResponseModel struct {
 
 // matches reports whether an upstream declaration is compatible with the
 // requested or upstream model: equal ignoring case, a dated or variant name
-// that extends it, or the same name behind a provider path such as
-// "deepseek/deepseek-v4.1-flash".
+// that extends it, the same name behind a provider path such as
+// "deepseek/deepseek-v4.1-flash", or the configured name without its routing
+// prefix, as an inference profile such as "global.vendor.model" answers with
+// "vendor.model".
 func (r *ResponseModel) matches(model string) bool {
 	returned := strings.ToLower(model)
 	for _, expected := range []string{r.RequestedModel, r.UpstreamModel} {
 		expected = strings.ToLower(expected)
-		if expected != "" && (strings.HasPrefix(returned, expected) || strings.HasSuffix(returned, expected)) {
+		if expected == "" {
+			continue
+		}
+		if strings.HasPrefix(returned, expected) || strings.HasSuffix(returned, expected) {
+			return true
+		}
+		if prefix, name, found := strings.Cut(expected, "."); found && prefix != "" && name != "" &&
+			!strings.Contains(prefix, "/") && strings.HasPrefix(returned, name) {
 			return true
 		}
 	}
