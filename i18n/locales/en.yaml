@@ -49,7 +49,7 @@ relay.response_rejected: "Response stopped by policy"
 # Emails and the name of the token created at registration
 user.default_token_name: "{{.Username}}'s initial token"
 email.verification.subject: "{{.SystemName}} email verification"
-email.verification.greeting: "Hello, you are verifying your email address for {{.SystemName}}."
+email.verification.greeting: "Hello, you are verifying your email address to register at {{.Site}}."
 email.verification.code: "Your verification code is: <strong>{{.Code}}</strong>"
 email.verification.validity: "The verification code is valid for {{.Minutes}} minutes. If you did not request it, please ignore this email."
 email.password_reset.subject: "{{.SystemName}} password reset"

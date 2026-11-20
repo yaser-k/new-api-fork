@@ -164,6 +164,52 @@ func TestLocalesRenderEveryKey(t *testing.T) {
 	}
 }
 
+// A mail names the language its text is written in, and the wrapper and every
+// paragraph carry that language's direction: a right-to-left language reads
+// right to left and a left-to-right one keeps its layout. A language without a
+// backend locale is written, and laid out, in English.
+func TestEmailBodyCarriesLanguageAndDirection(t *testing.T) {
+	require.NoError(t, Init())
+	previous := common.DefaultLanguage
+	t.Cleanup(func() { common.DefaultLanguage = previous })
+	common.DefaultLanguage = ""
+	const ltr = ` dir="ltr" style="direction:ltr;text-align:left"`
+	const rtl = ` dir="rtl" style="direction:rtl;text-align:right"`
+
+	assert.Equal(t, common.EmailBody(`<div lang="en"`+ltr+`><p`+ltr+`>Hello.</p><p`+ltr+`>Bye.</p></div>`), EmailBody("en-US", "Hello.", "Bye."))
+	assert.Equal(t, common.EmailBody(`<div lang="fa"`+rtl+`><p`+rtl+`>سلام.</p><p`+rtl+`>خداحافظ.</p></div>`), emailBodyIn("fa", []string{"سلام.", "خداحافظ."}))
+
+	for _, tc := range []struct {
+		defaultLanguage string
+		lang            string
+		want            string
+	}{
+		{"", "fr", `<div lang="en"` + ltr + `>`},
+		{"", "zhTW", `<div lang="zh-TW"` + ltr + `>`},
+		{"", "", `<div lang="en"` + ltr + `>`},
+		{"zh-CN", "", `<div lang="zh-CN"` + ltr + `>`},
+	} {
+		common.DefaultLanguage = tc.defaultLanguage
+		assert.True(t, strings.HasPrefix(string(EmailBody(tc.lang, "x")), tc.want), "%q with default %q", tc.lang, tc.defaultLanguage)
+	}
+
+	// The direction comes from the script a language tag names or implies.
+	for lang, direction := range map[string]string{
+		"ar-EG": rtl, "he": rtl, "ur": rtl, "ckb": rtl, "az-Arab": rtl, "dv": rtl,
+		"ku": ltr, "az": ltr, "zh-CN": ltr, "ja": ltr,
+	} {
+		assert.Equal(t, common.EmailBody(`<div lang="`+lang+`"`+direction+`></div>`), emailBodyIn(lang, nil), lang)
+	}
+}
+
+// A code, a link or a host name stays whole and left to right inside a mail of
+// either direction: escaped, and with no added character to be copied with it.
+func TestEmailLTRKeepsLeftToRightTextWhole(t *testing.T) {
+	assert.Equal(t, `<span dir="ltr">https://example.org/user/reset?email=a@example.org&amp;token=3fa9</span>`,
+		EmailLTR("https://example.org/user/reset?email=a@example.org&token=3fa9"))
+	assert.Equal(t, `<span dir="ltr">&lt;b&gt;3fa9c1</span>`, EmailLTR("<b>3fa9c1"))
+}
+
 // Web console responses carry the English source text as message_key plus its
 // params, and the web console translates them. The backend sends the same body
 // whatever language the request asks for.
