@@ -75,6 +75,10 @@ func PrepareResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, req *d
 	if err != nil {
 		return nil, nil, nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
+	jsonData, err = relaycommon.SetUpstreamEndUserID(jsonData, info)
+	if err != nil {
+		return nil, nil, nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
 	jsonData, apiErr := requestplugin.Outbound(c, info, jsonData)
 	if apiErr != nil {
 		return nil, nil, nil, apiErr
