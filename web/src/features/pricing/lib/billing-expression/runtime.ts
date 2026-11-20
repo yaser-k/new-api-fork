@@ -456,6 +456,9 @@ class BillingRuntime {
         }
         return { value: this.headers.get(name) ?? '' }
       }
+      // The browser serves no channel; the backend also reads 0 when none is known.
+      case 'channel':
+        return { value: 0, integer: true }
       case 'u': {
         const name = this.string(args[0])
         if (!this.context.usage) {

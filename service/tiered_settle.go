@@ -272,6 +272,8 @@ func TryTieredSettle(relayInfo *relaycommon.RelayInfo, params billingexpr.TokenP
 	} else if snap.EstimatedImageCount != nil {
 		requestInput.ImageCount = snap.EstimatedImageCount
 	}
+	// The attempt that produced the answer, not the one that reserved.
+	requestInput.ChannelID = relayInfo.GetChannelID()
 
 	tr, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, requestInput)
 	if err != nil {
