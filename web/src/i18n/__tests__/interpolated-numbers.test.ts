@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { createInstance } from 'i18next'
 import { describe, expect, it } from 'vitest'
 
+import en from '../locales/en.json'
+import fa from '../locales/fa.json'
 import { localeNumberFormatter } from '../number-interpolation'
 
 const RESEND = 'Resend ({{seconds}}s)'
@@ -44,6 +46,21 @@ describe('numbers interpolated into translations', () => {
       expect(i18n.t('{{value}} left', { value: 0.0001 })).toBe('0.0001 left')
     }
   )
+
+  it('writes the resend countdowns in Persian digits in the Persian interface language', async () => {
+    const i18n = createInstance()
+    await i18n.use(localeNumberFormatter).init({
+      lng: 'fa',
+      fallbackLng: 'en',
+      nsSeparator: false,
+      resources: { en, fa },
+      interpolation: { escapeValue: false },
+    })
+    expect(i18n.t(RESEND, { seconds: 23 })).toBe('ارسال دوباره (۲۳ ثانیه)')
+    expect(i18n.t('Resend in {{seconds}}s', { seconds: 23 })).toBe(
+      'ارسال دوباره پس از ۲۳ ثانیه'
+    )
+  })
 
   it('falls back to the runtime digits for an invalid language code', async () => {
     const i18n = await translatorFor('not a language')
