@@ -5,7 +5,9 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -25,8 +27,8 @@ func GetPerfMetricsSummary(c *gin.Context) {
 		common.ApiErrorStatus(c, http.StatusBadRequest, common.NewMessage("Invalid parameters"))
 		return
 	}
-	activeGroups := append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto")
-	result, err := perfmetrics.QuerySummaryAll(hours, activeGroups, recentModels...)
+	usableGroups := getPerfMetricsUsableGroups(c)
+	result, err := perfmetrics.QuerySummaryAll(hours, lo.Keys(usableGroups), recentModels...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -62,7 +64,7 @@ func GetPerfMetrics(c *gin.Context) {
 		Model:         modelName,
 		Group:         c.Query("group"),
 		Hours:         hours,
-		AllowedGroups: append(lo.Keys(ratio_setting.GetGroupRatioCopy()), "auto"),
+		AllowedGroups: lo.Keys(getPerfMetricsUsableGroups(c)),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -76,4 +78,24 @@ func GetPerfMetrics(c *gin.Context) {
 		"success": true,
 		"data":    result,
 	})
+}
+
+// getPerfMetricsUsableGroups returns the groups whose traffic the viewer may
+// see: the groups the viewer can use, as on the pricing page, that still have
+// a ratio. Both queries filter by them, so hidden groups count nowhere.
+func getPerfMetricsUsableGroups(c *gin.Context) map[string]string {
+	var userGroup string
+	if userID, exists := c.Get("id"); exists {
+		if user, err := model.GetUserCache(userID.(int)); err == nil {
+			userGroup = user.Group
+		}
+	}
+	usableGroups := service.GetUserUsableGroups(userGroup)
+	activeRatios := ratio_setting.GetGroupRatioCopy()
+	for group := range usableGroups {
+		if _, ok := activeRatios[group]; !ok && group != "auto" {
+			delete(usableGroups, group)
+		}
+	}
+	return usableGroups
 }
