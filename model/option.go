@@ -84,6 +84,7 @@ func InitOptionMap() {
 	common.OptionMap["SMTPStartTLSEnabled"] = strconv.FormatBool(common.SMTPStartTLSEnabled)
 	common.OptionMap["SMTPInsecureSkipVerify"] = strconv.FormatBool(common.SMTPInsecureSkipVerify)
 	common.OptionMap["SMTPForceAuthLogin"] = strconv.FormatBool(common.SMTPForceAuthLogin)
+	common.OptionMap[common.EmailFrameOption] = ""
 	common.OptionMap["Notice"] = ""
 	common.OptionMap["About"] = ""
 	common.OptionMap["HomePageContent"] = ""
@@ -270,6 +271,10 @@ func validateOptionValue(key string, value string) error {
 		if settings["EmailProvider"] == "resend" {
 			return common.ValidateResendConfiguration(settings["ResendApiKey"], settings["ResendFrom"])
 		}
+	}
+	if key == common.EmailFrameOption {
+		_, err := common.ParseEmailFrames(value)
+		return err
 	}
 	if key == "ResendKeyConfigured" {
 		return common.NewMessage("Resend key configuration status is read-only")
