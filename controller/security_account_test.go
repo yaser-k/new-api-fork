@@ -11,9 +11,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"net/textproto"
 	"regexp"
 	"strings"
@@ -244,6 +247,8 @@ func TestSecurityAccountDeletionConcurrentRequestsHaveOneWinner(t *testing.T) {
 	assert.Zero(t, count)
 }
 
+// securityMailbox keeps each mail as a reader sees it: its parts decoded, the
+// plain text and then the HTML.
 type securityMailbox struct {
 	mutex sync.Mutex
 	mail  map[string][]string
@@ -303,12 +308,29 @@ func (mailbox *securityMailbox) receive(connection net.Conn) {
 			if client.PrintfLine("354 Send message") != nil {
 				return
 			}
-			message, err := io.ReadAll(client.DotReader())
+			data, err := io.ReadAll(client.DotReader())
 			if err != nil {
 				return
 			}
+			message, err := mail.ReadMessage(strings.NewReader(string(data)))
+			if err != nil {
+				return
+			}
+			_, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+			if err != nil {
+				return
+			}
+			var parts []string
+			reader := multipart.NewReader(message.Body, params["boundary"])
+			for part, err := reader.NextPart(); err == nil; part, err = reader.NextPart() {
+				content, err := io.ReadAll(part)
+				if err != nil {
+					return
+				}
+				parts = append(parts, string(content))
+			}
 			mailbox.mutex.Lock()
-			mailbox.mail[receiver] = append(mailbox.mail[receiver], string(message))
+			mailbox.mail[receiver] = append(mailbox.mail[receiver], strings.Join(parts, "\n"))
 			mailbox.mutex.Unlock()
 		case line == "QUIT":
 			_ = client.PrintfLine("221 Goodbye")
@@ -325,7 +347,8 @@ func (mailbox *securityMailbox) code(t *testing.T, receiver string) string {
 	mailbox.mutex.Lock()
 	defer mailbox.mutex.Unlock()
 	for index := len(mailbox.mail[receiver]) - 1; index >= 0; index-- {
-		match := regexp.MustCompile(`<strong><span dir="ltr">([0-9]{6})</span></strong>`).FindStringSubmatch(mailbox.mail[receiver][index])
+		// The plain-text part has the code on a line of its own.
+		match := regexp.MustCompile(`(?m)^([0-9]{6})\r?$`).FindStringSubmatch(mailbox.mail[receiver][index])
 		if len(match) == 2 {
 			return match[1]
 		}

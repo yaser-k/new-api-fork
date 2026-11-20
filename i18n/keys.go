@@ -65,6 +65,7 @@ const (
 	MsgEmailVerificationGreeting = "email.verification.greeting"
 	MsgEmailVerificationCode     = "email.verification.code"
 	MsgEmailVerificationValidity = "email.verification.validity"
+	MsgEmailVerificationSecurity = "email.verification.security"
 
 	MsgEmailPasswordResetSubject      = "email.password_reset.subject"
 	MsgEmailPasswordResetGreeting     = "email.password_reset.greeting"

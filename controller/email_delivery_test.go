@@ -76,7 +76,9 @@ func TestResendDeliversThroughSelectedProvider(t *testing.T) {
 // The verification code only registers an account. The mail's first line names
 // the site by the host of the server address, or by the system name when none
 // is set, in every backend language; the mail is wrapped in the language and
-// direction of the request, and the code stays whole.
+// direction of the request. The code stands whole on a line of its own, in the
+// HTML and in the plain text, and a line after its validity says that no one
+// will ask for it.
 func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -91,13 +93,14 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 		common.SystemName, common.DefaultLanguage, common.VerificationValidMinutes = previousName, previousLanguage, previousMinutes
 	})
 	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
-	sent := ""
+	sent, sentText := "", ""
 	http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
 		var body struct {
 			HTML string `json:"html"`
+			Text string `json:"text"`
 		}
 		require.NoError(t, common.DecodeJson(request.Body, &body))
-		sent = body.HTML
+		sent, sentText = body.HTML, body.Text
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"email-test-id"}`)), Header: make(http.Header)}, nil
 	})
 	send := func(acceptLanguage string) string {
@@ -112,19 +115,42 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 	}
 
 	const ltr = ` dir="ltr" style="direction:ltr;text-align:left"`
+	code := regexp.MustCompile(regexp.QuoteMeta(strings.TrimSuffix(i18n.EmailCode(""), "</div>")) + `([0-9a-f]{6})</div>`)
 	system_setting.ServerAddress = "https://example.org"
+	sentHTML := send("en-US")
 	assert.Regexp(t, "^"+regexp.QuoteMeta(`<div lang="en"`+ltr+`>`+
 		`<p`+ltr+`>Hello, you are verifying your email address to register at <span dir="ltr">example.org</span>.</p>`+
-		`<p`+ltr+`>Your verification code is: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
-		`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p></div>`)+"$",
-		send("en-US"))
-	// U+200C joins ثبت‌نام and کرده‌اید.
+		`<p`+ltr+`>Your verification code</p>`)+
+		code.String()+
+		regexp.QuoteMeta(`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p>`+
+			`<p`+ltr+`>No one from New &lt;API&gt; will ever ask you for this code. Do not share it with anyone.</p></div>`)+"$",
+		sentHTML)
+	match := code.FindStringSubmatch(sentHTML)
+	require.Len(t, match, 2)
+	assert.Equal(t, "Hello, you are verifying your email address to register at example.org.\n\n"+
+		"Your verification code\n\n"+
+		match[1]+"\n\n"+
+		"The verification code is valid for 10 minutes. If you did not request it, please ignore this email.\n\n"+
+		"No one from New <API> will ever ask you for this code. Do not share it with anyone.",
+		sentText)
+	// U+200C joins ثبت‌نام, کرده‌اید, هیچ‌کس and نمی‌خواهد.
 	const rtl = ` dir="rtl" style="direction:rtl;text-align:right"`
+	sentHTML = send("fa-IR")
 	assert.Regexp(t, "^"+regexp.QuoteMeta(`<div lang="fa"`+rtl+`>`+
 		`<p`+rtl+`>سلام، شما در حال تأیید نشانی ایمیل خود برای ثبت‌نام در <span dir="ltr">example.org</span> هستید.</p>`+
-		`<p`+rtl+`>کد تأیید شما: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
-		`<p`+rtl+`>این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.</p></div>`)+"$",
-		send("fa-IR"))
+		`<p`+rtl+`>کد تأیید شما</p>`)+
+		code.String()+
+		regexp.QuoteMeta(`<p`+rtl+`>این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.</p>`+
+			`<p`+rtl+`>هیچ‌کس از طرف New &lt;API&gt; این کد را از شما نمی‌خواهد؛ آن را به کسی ندهید.</p></div>`)+"$",
+		sentHTML)
+	match = code.FindStringSubmatch(sentHTML)
+	require.Len(t, match, 2)
+	assert.Equal(t, "سلام، شما در حال تأیید نشانی ایمیل خود برای ثبت‌نام در example.org هستید.\n\n"+
+		"کد تأیید شما\n\n"+
+		match[1]+"\n\n"+
+		"این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.\n\n"+
+		"هیچ‌کس از طرف New <API> این کد را از شما نمی‌خواهد؛ آن را به کسی ندهید.",
+		sentText)
 
 	for _, tc := range []struct{ address, site string }{
 		{"https://example.org", `<span dir="ltr">example.org</span>`},
@@ -135,6 +161,101 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 		for _, lang := range i18n.SupportedLanguages() {
 			assert.Contains(t, send(lang), tc.site, "server address %q, %s", tc.address, lang)
 		}
+	}
+}
+
+// An administrator, or a script, sets the mail frame through the option API and
+// reads it back. The next mail is placed in it, and an empty value sends the
+// body as it is again.
+func TestEmailFrameOptionIsSavedReadBackAndUsed(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	previousDB, previousRedis, previousName := model.DB, common.RedisEnabled, common.SystemName
+	model.DB, common.RedisEnabled, common.SystemName = db, false, "New API"
+	t.Cleanup(func() { model.DB, common.RedisEnabled, common.SystemName = previousDB, previousRedis, previousName })
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com", common.EmailFrameOption: ""})
+	sent := ""
+	http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
+		var body struct {
+			HTML string `json:"html"`
+		}
+		require.NoError(t, common.DecodeJson(request.Body, &body))
+		sent = body.HTML
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":"email-test-id"}`)), Header: make(http.Header)}, nil
+	})
+	save := func(value string) string {
+		body, err := common.Marshal(OptionUpdateRequest{Key: common.EmailFrameOption, Value: value})
+		require.NoError(t, err)
+		response := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(response)
+		context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
+		UpdateOption(context)
+		return response.Body.String()
+	}
+	const frame = `{"*":"<div style=\"text-align:{{align}}\">{{system_name}}</div>{{body}}","fa":"<div dir=\"rtl\">{{body}}</div>"}`
+	body := i18n.EmailBody("en", "Hello.")
+
+	assert.Contains(t, save(frame), `"success":true`)
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = httptest.NewRequest(http.MethodGet, "/api/option/", nil)
+	GetOptions(context)
+	var options struct {
+		Data []model.Option `json:"data"`
+	}
+	require.NoError(t, common.DecodeJson(response.Body, &options))
+	assert.Contains(t, options.Data, model.Option{Key: common.EmailFrameOption, Value: frame})
+	require.NoError(t, common.SendEmail("Hello", "one@example.com", body))
+	assert.Equal(t, `<div style="text-align:left">New API</div>`+string(body), sent)
+
+	assert.Contains(t, save(""), `"success":true`)
+	require.NoError(t, common.SendEmail("Hello", "one@example.com", body))
+	assert.Equal(t, string(body), sent)
+}
+
+// A mail frame that breaks a rule is refused when saved, with a message that
+// names the rule, and the saved frame stays as it was.
+func TestEmailFrameOptionRefusesEachBrokenRule(t *testing.T) {
+	const shape = "The mail frame must be a JSON object that maps language tags, or * for every other language, to HTML"
+	for _, tc := range []struct {
+		name, value, key, message string
+	}{
+		{"HTML that is not JSON", `<p>{{body}}</p>`, shape, shape},
+		{"a JSON array", `["{{body}}"]`, shape, shape},
+		{"null", `null`, shape, shape},
+		{"a frame that is not text", `{"*":1}`, shape, shape},
+		{"a key that is not a language tag", `{"default":"{{body}}"}`,
+			"The mail frame key {{key}} is not a language tag or *", "The mail frame key default is not a language tag or *"},
+		{"a language named twice", `{"fa":"{{body}}","FA":"{{body}}"}`,
+			"The mail frame names the language {{lang}} more than once", "The mail frame names the language fa more than once"},
+		{"no body placeholder", `{"*":"<p>{{system_name}}</p>"}`,
+			"The mail frame for {{key}} has no {{placeholder}} placeholder for the mail body", "The mail frame for * has no {{body}} placeholder for the mail body"},
+		{"the body placeholder twice", `{"fa":"{{body}}<hr>{{body}}"}`,
+			"The mail frame for {{key}} has the {{placeholder}} placeholder more than once", "The mail frame for fa has the {{body}} placeholder more than once"},
+		{"a value past the size bound", `{"*":"{{body}}` + strings.Repeat("x", common.EmailFrameMaxBytes) + `"}`,
+			"The mail frame must be at most {{max}} bytes", "The mail frame must be at most 32768 bytes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const saved = `{"*":"{{body}}"}`
+			configureEmailDelivery(t, map[string]string{common.EmailFrameOption: saved})
+			body, err := common.Marshal(OptionUpdateRequest{Key: common.EmailFrameOption, Value: tc.value})
+			require.NoError(t, err)
+			response := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(response)
+			context.Request = httptest.NewRequest(http.MethodPut, "/api/option/", strings.NewReader(string(body)))
+			require.NotPanics(t, func() { UpdateOption(context) }, "a refused frame must fail before accessing storage")
+			var result struct {
+				Success    bool   `json:"success"`
+				Message    string `json:"message"`
+				MessageKey string `json:"message_key"`
+			}
+			require.NoError(t, common.DecodeJson(response.Body, &result))
+			assert.False(t, result.Success)
+			assert.Equal(t, tc.key, result.MessageKey)
+			assert.Equal(t, tc.message, result.Message)
+			assert.Equal(t, saved, common.OptionMap[common.EmailFrameOption])
+		})
 	}
 }
 

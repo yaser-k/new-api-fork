@@ -37,7 +37,7 @@ func ValidateResendConfiguration(apiKey, from string) error {
 // OWASP Authentication / Session Management / Forgot Password cheat sheets:
 // do not expose credentials, verification codes or reset links in errors/logs.
 // This transport does not change token expiry, single-use or session rules.
-func sendResendEmail(apiKey, from, subject, receiver, content string) error {
+func sendResendEmail(apiKey, from, subject, receiver string, parts emailParts) error {
 	if err := ValidateResendConfiguration(apiKey, from); err != nil {
 		return err
 	}
@@ -59,7 +59,8 @@ func sendResendEmail(apiKey, from, subject, receiver, content string) error {
 		To      []string `json:"to"`
 		Subject string   `json:"subject"`
 		HTML    string   `json:"html"`
-	}{sender.String(), to, subject, content})
+		Text    string   `json:"text,omitempty"`
+	}{sender.String(), to, subject, parts.html, parts.text})
 	if err != nil {
 		return NewMessage("Resend request failed")
 	}
