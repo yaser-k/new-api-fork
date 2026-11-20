@@ -17,6 +17,10 @@ var Footer = ""
 var Logo = ""
 var TopUpLink = ""
 
+// TopUpDisabledMessage is plain text an administrator sets; the wallet shows it
+// instead of its default notice while online top-up is off. Empty keeps the default.
+var TopUpDisabledMessage = ""
+
 // var ChatLink = ""
 // var ChatLink2 = ""
 var QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
