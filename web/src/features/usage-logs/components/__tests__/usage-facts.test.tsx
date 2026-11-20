@@ -168,6 +168,44 @@ describe('usage facts billing details', () => {
     expect(screen.getAllByText(/\/image/).length).toBeGreaterThan(0)
     queryClient.clear()
   })
+
+  test('shows the charge, matched tier and image count of a row without its billing expression', () => {
+    // The server withholds expr_b64 and request_rules of an internal row from
+    // a caller who is not an administrator.
+    const queryClient = renderDetails({
+      billing_mode: 'tiered_expr',
+      billing_unit: 'request',
+      fixed_price: 0.04,
+      image_count: 2,
+      matched_tier: 'route_b',
+      group_ratio: 1,
+    })
+    expect(rowValue('Billing Mode')).toBe('Dynamic Pricing')
+    expect(rowValue('Matched Tier')).toBe('route_b')
+    expect(rowValue('Billable image count')).toBe('2')
+    expect(rowValue('Total Cost')).not.toBe('')
+    expect(screen.queryAllByText(/\/image/)).toHaveLength(0)
+    queryClient.clear()
+  })
+
+  test('shows the billing mode, image count and charge of a row without its expression or tier', () => {
+    // For an internal row the server also withholds matched_tier, whose
+    // label can name an internal condition.
+    const queryClient = renderDetails({
+      billing_mode: 'tiered_expr',
+      billing_unit: 'request',
+      fixed_price: 0.04,
+      image_count: 2,
+      group_ratio: 1,
+    })
+    expect(rowValue('Billing Mode')).toBe('Dynamic Pricing')
+    expect(screen.queryByText('Matched Tier')).toBeNull()
+    expect(screen.queryByText('No matching results')).toBeNull()
+    expect(rowValue('Billable image count')).toBe('2')
+    expect(rowValue('Total Cost')).not.toBe('')
+    expect(screen.queryAllByText(/\/image/)).toHaveLength(0)
+    queryClient.clear()
+  })
   const queryClients: QueryClient[] = []
 
   test('shows actual billable image and cache tokens while retaining the aggregate cache count', () => {

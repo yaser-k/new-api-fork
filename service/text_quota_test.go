@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"net/http/httptest"
@@ -1767,4 +1768,58 @@ func TestPostTextConsumeQuotaLogsMissingUsageAsStructuredContent(t *testing.T) {
 	assert.Equal(t, []any{
 		map[string]any{"key": "Upstream returned no usage, so nothing was charged (possibly an upstream timeout)"},
 	}, other["content_parts"])
+}
+
+func TestPostTextConsumeQuotaBillsPublicPriceModelsByTheirBillingExpression(t *testing.T) {
+	truncate(t)
+	const userID, channelID = 64, 64
+	seedUser(t, userID, 1_000_000)
+	seedChannel(t, channelID)
+	gin.SetMode(gin.TestMode)
+	usePublicPriceExpressions(t,
+		map[string]string{"routed-model": "tiered_expr", "plain-model": "tiered_expr"},
+		map[string]string{"routed-model": `tier("public", p * 6 + c * 30)`},
+	)
+	// A request rule doubles the price of requests on route b.
+	expression := `(tier("base", p * 3 + c * 15)) * (param("route") == "b" ? 2 : 1)`
+	usage := &dto.Usage{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500}
+	for _, tc := range []struct {
+		model    string
+		internal bool
+	}{{"routed-model", true}, {"plain-model", false}} {
+		t.Run(tc.model, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+			snapshot := makeSnapshot(expression, 1, 1000, 0)
+			snapshot.ModelName = tc.model
+			info := &relaycommon.RelayInfo{
+				UserId:                userID,
+				OriginModelName:       tc.model,
+				UsingGroup:            "default",
+				StartTime:             time.Now(),
+				RelayFormat:           types.RelayFormatOpenAI,
+				ChannelMeta:           &relaycommon.ChannelMeta{ChannelId: channelID},
+				PriceData:             hosttypes.PriceData{GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: 1}},
+				TieredBillingSnapshot: snapshot,
+				BillingRequestInput:   &billingexpr.RequestInput{Body: []byte(`{"route":"b"}`)},
+			}
+
+			PostTextConsumeQuota(ctx, info, usage, nil)
+
+			log := getLastLog(t)
+			require.NotNil(t, log)
+			// (1000 * $3 + 500 * $15) per 1M tokens, doubled on route b: $0.021.
+			assert.Equal(t, 10500, log.Quota)
+			var other map[string]any
+			require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+			assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(expression)), other["expr_b64"], "the stored expression is the billing expression")
+			assert.Equal(t, "base", other["matched_tier"])
+			assert.Equal(t, []any{map[string]any{"cond": `param("route") == "b"`, "multiplier": float64(2), "matched": true}}, other["request_rules"])
+			if tc.internal {
+				assert.Equal(t, true, other["expr_internal"])
+			} else {
+				assert.NotContains(t, other, "expr_internal")
+			}
+		})
+	}
 }
