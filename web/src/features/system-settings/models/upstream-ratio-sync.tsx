@@ -97,7 +97,9 @@ type SyncPreview = {
 export function UpstreamRatioSync() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
+  const currencyConfig = useSystemConfigStore(
+    (state) => state.config.siteCurrency
+  )
   const currency = useMemo(
     () => getSitePricingCurrency(currencyConfig),
     [currencyConfig]
