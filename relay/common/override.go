@@ -40,6 +40,7 @@ func getParamOverrideRegex(pattern string) (*regexp.Regexp, error) {
 const (
 	paramOverrideContextRequestHeaders = "request_headers"
 	paramOverrideContextHeaderOverride = "header_override"
+	paramOverrideContextRemovedHeaders = "removed_headers"
 	paramOverrideContextAuditRecorder  = "__param_override_audit_recorder"
 )
 
@@ -1233,10 +1234,20 @@ func setHeaderOverrideInContext(context map[string]any, headerName string, value
 		return err
 	}
 	if !hasValue {
-		delete(rawHeaders, headerName)
+		switch value.(type) {
+		case map[string]any, map[string]string:
+			// A mapping that leaves no token removes the header, including
+			// the value the client sent.
+			removeHeaderInContext(context, headerName)
+		default:
+			delete(rawHeaders, headerName)
+		}
 		return nil
 	}
 
+	if removedHeaders, ok := context[paramOverrideContextRemovedHeaders].(map[string]any); ok {
+		delete(removedHeaders, headerName)
+	}
 	rawHeaders[headerName] = headerValue
 	return nil
 }
@@ -1400,7 +1411,8 @@ func moveHeaderInContext(context map[string]any, fromHeader, toHeader string, ke
 	if strings.EqualFold(fromHeader, toHeader) {
 		return nil
 	}
-	return deleteHeaderOverrideInContext(context, fromHeader)
+	delete(ensureMapKeyInContext(context, paramOverrideContextHeaderOverride), fromHeader)
+	return nil
 }
 
 func deleteHeaderOverrideInContext(context map[string]any, headerName string) error {
@@ -1408,9 +1420,15 @@ func deleteHeaderOverrideInContext(context map[string]any, headerName string) er
 	if headerName == "" {
 		return fmt.Errorf("header name is required")
 	}
-	rawHeaders := ensureMapKeyInContext(context, paramOverrideContextHeaderOverride)
-	delete(rawHeaders, headerName)
+	removeHeaderInContext(context, headerName)
 	return nil
+}
+
+// removeHeaderInContext drops the header's override and records that the
+// upstream request must not carry the header, even when the client sent it.
+func removeHeaderInContext(context map[string]any, headerName string) {
+	delete(ensureMapKeyInContext(context, paramOverrideContextHeaderOverride), headerName)
+	ensureMapKeyInContext(context, paramOverrideContextRemovedHeaders)[headerName] = true
 }
 
 func parseHeaderPassThroughNames(value any) ([]string, error) {
@@ -1628,6 +1646,11 @@ func getHeaderValueFromContext(context map[string]any, headerName string) (strin
 	if headerName == "" {
 		return "", false
 	}
+	if removedHeaders, ok := context[paramOverrideContextRemovedHeaders].(map[string]any); ok {
+		if _, removed := removedHeaders[headerName]; removed {
+			return "", false
+		}
+	}
 	for _, key := range []string{paramOverrideContextHeaderOverride, paramOverrideContextRequestHeaders} {
 		source := ensureMapKeyInContext(context, key)
 		raw, ok := source[headerName]
@@ -1677,6 +1700,11 @@ func syncRuntimeHeaderOverrideFromContext(info *RelayInfo, context map[string]an
 		return
 	}
 	info.RuntimeHeadersOverride = sanitizeHeaderOverrideMap(rawMap)
+	info.RuntimeRemovedHeaders = nil
+	if removedHeaders, ok := context[paramOverrideContextRemovedHeaders].(map[string]any); ok {
+		info.RuntimeRemovedHeaders = lo.Keys(removedHeaders)
+		slices.Sort(info.RuntimeRemovedHeaders)
+	}
 	info.UseRuntimeHeadersOverride = true
 }
 
@@ -2212,6 +2240,13 @@ func BuildParamOverrideContext(info *RelayInfo) map[string]any {
 
 	headerOverrideSource := GetEffectiveHeaderOverride(info)
 	ctx[paramOverrideContextHeaderOverride] = sanitizeHeaderOverrideMap(headerOverrideSource)
+	removedHeaders := make(map[string]any)
+	if info.UseRuntimeHeadersOverride {
+		for _, headerName := range info.RuntimeRemovedHeaders {
+			removedHeaders[headerName] = true
+		}
+	}
+	ctx[paramOverrideContextRemovedHeaders] = removedHeaders
 
 	ctx["retry_index"] = info.RetryIndex
 	ctx["is_retry"] = info.RetryIndex > 0
