@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -92,7 +93,7 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 			common.SysLog(common.LogText("user %d has no email, skip sending email", userId))
 			return nil
 		}
-		return sendEmailNotify(emailToUse, data)
+		return sendEmailNotify(userSetting.Language, emailToUse, data)
 	case dto.NotifyTypeWebhook:
 		webhookURLStr := userSetting.WebhookUrl
 		if webhookURLStr == "" {
@@ -122,14 +123,16 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 	return nil
 }
 
-func sendEmailNotify(userEmail string, data dto.Notify) error {
+// sendEmailNotify mails a notice whose title and content were written for lang,
+// the recipient's saved language.
+func sendEmailNotify(lang string, userEmail string, data dto.Notify) error {
 	// make email content
 	content := data.Content
 	// 处理占位符
 	for _, value := range data.Values {
 		content = strings.Replace(content, dto.ContentValueParam, fmt.Sprintf("%v", value), 1)
 	}
-	return common.SendEmail(data.Title, userEmail, content)
+	return common.SendEmail(data.Title, userEmail, i18n.EmailBody(lang, content))
 }
 
 func sendBarkNotify(barkURL string, data dto.Notify) error {

@@ -75,7 +75,12 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 	return client, nil
 }
 
-func SendEmail(subject string, receiver string, content string) error {
+// EmailBody is the HTML body of a mail. i18n.EmailBody builds it with the
+// language the mail is written in and that language's direction. SendEmail
+// takes nothing else, so a caller cannot send a body without them by mistake.
+type EmailBody string
+
+func SendEmail(subject string, receiver string, content EmailBody) error {
 	OptionMapRWMutex.RLock()
 	provider := OptionMap["EmailProvider"]
 	resendKey := OptionMap["ResendApiKey"]
@@ -85,7 +90,7 @@ func SendEmail(subject string, receiver string, content string) error {
 	// a failed response does not prove that the first provider did not send.
 	switch provider {
 	case "resend":
-		return sendResendEmail(resendKey, resendFrom, subject, receiver, content)
+		return sendResendEmail(resendKey, resendFrom, subject, receiver, string(content))
 	case "", "smtp": // Preserve existing installations without a selector.
 	default:
 		return NewMessage("Email sending method must be SMTP or Resend")

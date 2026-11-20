@@ -791,24 +791,26 @@ func TestInvitationResendAndRevoke(t *testing.T) {
 }
 
 func TestInvitationMailLanguage(t *testing.T) {
-	type mailLines struct{ subject, greeting, link, fallback, validity string }
+	type mailLines struct{ block, subject, greeting, link, fallback, validity string }
 	cases := map[string]func(link string) mailLines{
 		"en": func(link string) mailLines {
 			return mailLines{
+				block:    ` dir="ltr" style="direction:ltr;text-align:left"`,
 				subject:  invitationTestSystemName + " — Invitation to create an account",
 				greeting: "Hello, you have been invited to create an account on " + invitationTestSystemName + ".",
 				link:     "Click <a href='" + link + "'>here</a> to create your account.",
-				fallback: "If the link does not open, copy the link below into your browser:<br> " + link,
+				fallback: `If the link does not open, copy the link below into your browser:<br> <span dir="ltr">` + link + `</span>`,
 				validity: "This invitation is valid for 72 hours and can be used once. If you were not expecting it, please ignore this email.",
 			}
 		},
 		// U+200C joins شده‌اید and می‌توان; U+2068 and U+2069 isolate the link.
 		"fa": func(link string) mailLines {
 			return mailLines{
+				block:    ` dir="rtl" style="direction:rtl;text-align:right"`,
 				subject:  "دعوت به ساخت حساب در " + invitationTestSystemName,
 				greeting: "سلام، شما برای ساخت حساب در " + invitationTestSystemName + " دعوت شده‌اید.",
 				link:     "برای ساخت حساب خود، <a href='" + link + "'>اینجا</a> کلیک کنید.",
-				fallback: "اگر پیوند باز نشد، پیوند زیر را در مرورگر خود کپی کنید:<br> ⁨" + link + "⁩",
+				fallback: "اگر پیوند باز نشد، پیوند زیر را در مرورگر خود کپی کنید:<br> ⁨<span dir=\"ltr\">" + link + "</span>⁩",
 				validity: "این دعوت تا 72 ساعت معتبر است و فقط یک بار می‌توان از آن استفاده کرد. اگر انتظار آن را نداشتید، این ایمیل را نادیده بگیرید.",
 			}
 		},
@@ -824,8 +826,9 @@ func TestInvitationMailLanguage(t *testing.T) {
 			require.Len(t, mails, 1)
 			lines := expected(invitationTestServer + "/sign-up?invite=" + token)
 			assert.Equal(t, lines.subject, mails[0].Subject)
+			assert.True(t, strings.HasPrefix(mails[0].HTML, `<div lang="`+language+`"`+lines.block+`>`), mails[0].HTML)
 			for _, line := range []string{lines.greeting, lines.link, lines.fallback, lines.validity} {
-				assert.Contains(t, mails[0].HTML, "<p>"+line, language)
+				assert.Contains(t, mails[0].HTML, "<p"+lines.block+">"+line+"</p>", language)
 			}
 		})
 	}
