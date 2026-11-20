@@ -21,6 +21,11 @@ export type HeaderNavAccessConfig = {
   requireAuth: boolean
 }
 
+export type HeaderNavContactConfig = {
+  enabled: boolean
+  link: string
+}
+
 export type HeaderNavModulesConfig = {
   home: boolean
   console: boolean
@@ -28,7 +33,8 @@ export type HeaderNavModulesConfig = {
   rankings: HeaderNavAccessConfig
   docs: boolean
   about: boolean
-  [key: string]: boolean | HeaderNavAccessConfig
+  contact: HeaderNavContactConfig
+  [key: string]: boolean | HeaderNavAccessConfig | HeaderNavContactConfig
 }
 
 export type SidebarSectionConfig = {
@@ -51,6 +57,10 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
   },
   docs: true,
   about: true,
+  contact: {
+    enabled: false,
+    link: '',
+  },
 }
 
 export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
@@ -100,6 +110,7 @@ const cloneHeaderNavDefault = (): HeaderNavModulesConfig => ({
   ...HEADER_NAV_DEFAULT,
   pricing: { ...HEADER_NAV_DEFAULT.pricing },
   rankings: { ...HEADER_NAV_DEFAULT.rankings },
+  contact: { ...HEADER_NAV_DEFAULT.contact },
 })
 
 const parseAccessModule = (
@@ -148,6 +159,7 @@ export function parseHeaderNavModules(
       ...base,
       pricing: { ...base.pricing },
       rankings: { ...base.rankings },
+      contact: { ...base.contact },
     }
 
     Object.entries(parsed).forEach(([key, raw]) => {
@@ -157,6 +169,16 @@ export function parseHeaderNavModules(
       }
       if (key === 'rankings') {
         result.rankings = parseAccessModule(raw, base.rankings)
+        return
+      }
+      if (key === 'contact') {
+        if (raw && typeof raw === 'object') {
+          const record = raw as Record<string, unknown>
+          result.contact = {
+            enabled: toBoolean(record.enabled, false),
+            link: typeof record.link === 'string' ? record.link : '',
+          }
+        }
         return
       }
 
