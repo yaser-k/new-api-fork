@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import { formatQuota } from '@/lib/format'
 
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
@@ -56,6 +57,7 @@ const quotaSchema = z.object({
   QuotaForInviter: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
   TopUpLink: z.string(),
+  TopUpDisabledMessage: z.string(),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
     trust_quota_usd: z.preprocess(
@@ -319,6 +321,25 @@ export function QuotaSettingsSection({
                   </FormControl>
                   <FormDescription>
                     {t('External link for users to purchase quota')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='TopUpDisabledMessage'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Top-Up Disabled Message')}</FormLabel>
+                  <FormControl>
+                    <Textarea rows={3} {...field} />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Plain text shown in the wallet while online top-up is off, in place of the default notice. Leave empty to keep the default.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
