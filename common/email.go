@@ -1,10 +1,15 @@
 package common
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net/smtp"
+	"net/textproto"
 	"slices"
 	"strings"
 	"time"
@@ -80,17 +85,21 @@ func newSMTPClient(addr string) (*smtp.Client, error) {
 // takes nothing else, so a caller cannot send a body without them by mistake.
 type EmailBody string
 
+// SendEmail sends a mail made from content in two parts, a plain-text part and
+// then the HTML, through the selected provider. Every mail leaves through here,
+// so none can leave without either part.
 func SendEmail(subject string, receiver string, content EmailBody) error {
 	OptionMapRWMutex.RLock()
 	provider := OptionMap["EmailProvider"]
 	resendKey := OptionMap["ResendApiKey"]
 	resendFrom := OptionMap["ResendFrom"]
 	OptionMapRWMutex.RUnlock()
+	parts := renderEmail(content)
 	// One selector controls delivery. Never fall back to a second provider:
 	// a failed response does not prove that the first provider did not send.
 	switch provider {
 	case "resend":
-		return sendResendEmail(resendKey, resendFrom, subject, receiver, string(content))
+		return sendResendEmail(resendKey, resendFrom, subject, receiver, parts)
 	case "", "smtp": // Preserve existing installations without a selector.
 	default:
 		return NewMessage("Email sending method must be SMTP or Resend")
@@ -106,13 +115,15 @@ func SendEmail(subject string, receiver string, content EmailBody) error {
 		return NewMessage("SMTP server is not configured")
 	}
 	encodedSubject := fmt.Sprintf("=?UTF-8?B?%s?=", base64.StdEncoding.EncodeToString([]byte(subject)))
-	mail := []byte(fmt.Sprintf("To: %s\r\n"+
+	mail, err2 := emailMessage(fmt.Sprintf("To: %s\r\n"+
 		"From: %s <%s>\r\n"+
 		"Subject: %s\r\n"+
 		"Date: %s\r\n"+
-		"Message-ID: %s\r\n"+ // 添加 Message-ID 头
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n",
-		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id, content))
+		"Message-ID: %s\r\n", // 添加 Message-ID 头
+		receiver, SystemName, SMTPFrom, encodedSubject, time.Now().Format(time.RFC1123Z), id), parts)
+	if err2 != nil {
+		return err2
+	}
 	auth := getSMTPAuth()
 	addr := fmt.Sprintf("%s:%d", SMTPServer, SMTPPort)
 	to := strings.Split(receiver, ";")
@@ -152,4 +163,41 @@ func SendEmail(subject string, receiver string, content EmailBody) error {
 		SysError(LogText("failed to send email to %s: %v", receiver, err))
 	}
 	return err
+}
+
+// emailMessage is the SMTP message of a mail: the headers given, then its parts
+// as multipart/alternative, the plain text first. Both parts are UTF-8 and
+// quoted-printable, which keeps every line within 76 characters however long
+// the HTML is, and never writes "=_", which starts the boundary. The boundary
+// is short enough to keep its header line within 78 characters.
+func emailMessage(headers string, parts emailParts) ([]byte, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.SetBoundary("=_" + writer.Boundary()[:28]); err != nil {
+		return nil, err
+	}
+	for _, part := range []struct{ mediaType, content string }{
+		{"text/plain; charset=UTF-8", parts.text},
+		{"text/html; charset=UTF-8", parts.html},
+	} {
+		partWriter, err := writer.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {part.mediaType},
+			"Content-Transfer-Encoding": {"quoted-printable"},
+		})
+		if err != nil {
+			return nil, err
+		}
+		encoder := quotedprintable.NewWriter(partWriter)
+		if _, err := encoder.Write([]byte(part.content)); err != nil {
+			return nil, err
+		}
+		if err := encoder.Close(); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	contentType := mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": writer.Boundary()})
+	return append([]byte(headers+"MIME-Version: 1.0\r\nContent-Type: "+contentType+"\r\n\r\n"), body.Bytes()...), nil
 }

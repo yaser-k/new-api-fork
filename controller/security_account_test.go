@@ -11,9 +11,12 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"net/textproto"
 	"regexp"
 	"strings"
@@ -244,6 +247,8 @@ func TestSecurityAccountDeletionConcurrentRequestsHaveOneWinner(t *testing.T) {
 	assert.Zero(t, count)
 }
 
+// securityMailbox keeps each mail as a reader sees it: its parts decoded, the
+// plain text and then the HTML.
 type securityMailbox struct {
 	mutex sync.Mutex
 	mail  map[string][]string
@@ -303,12 +308,29 @@ func (mailbox *securityMailbox) receive(connection net.Conn) {
 			if client.PrintfLine("354 Send message") != nil {
 				return
 			}
-			message, err := io.ReadAll(client.DotReader())
+			data, err := io.ReadAll(client.DotReader())
 			if err != nil {
 				return
 			}
+			message, err := mail.ReadMessage(strings.NewReader(string(data)))
+			if err != nil {
+				return
+			}
+			_, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+			if err != nil {
+				return
+			}
+			var parts []string
+			reader := multipart.NewReader(message.Body, params["boundary"])
+			for part, err := reader.NextPart(); err == nil; part, err = reader.NextPart() {
+				content, err := io.ReadAll(part)
+				if err != nil {
+					return
+				}
+				parts = append(parts, string(content))
+			}
 			mailbox.mutex.Lock()
-			mailbox.mail[receiver] = append(mailbox.mail[receiver], string(message))
+			mailbox.mail[receiver] = append(mailbox.mail[receiver], strings.Join(parts, "\n"))
 			mailbox.mutex.Unlock()
 		case line == "QUIT":
 			_ = client.PrintfLine("221 Goodbye")
