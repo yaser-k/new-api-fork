@@ -245,7 +245,8 @@ func SendEmailVerification(c *gin.Context) {
 		i18n.Translate(lang, i18n.MsgEmailVerificationGreeting, map[string]any{"Site": site}),
 		i18n.Translate(lang, i18n.MsgEmailVerificationCode),
 		i18n.EmailCode(code),
-		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}))
+		i18n.Translate(lang, i18n.MsgEmailVerificationValidity, map[string]any{"Minutes": common.VerificationValidMinutes}),
+		i18n.Translate(lang, i18n.MsgEmailVerificationSecurity, map[string]any{"SystemName": html.EscapeString(common.SystemName)}))
 	err = common.SendEmail(subject, email, content)
 	if err != nil {
 		common.ApiError(c, err)

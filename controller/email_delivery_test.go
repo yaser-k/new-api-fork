@@ -77,7 +77,8 @@ func TestResendDeliversThroughSelectedProvider(t *testing.T) {
 // the site by the host of the server address, or by the system name when none
 // is set, in every backend language; the mail is wrapped in the language and
 // direction of the request. The code stands whole on a line of its own, in the
-// HTML and in the plain text.
+// HTML and in the plain text, and a line after its validity says that no one
+// will ask for it.
 func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -121,14 +122,16 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 		`<p`+ltr+`>Hello, you are verifying your email address to register at <span dir="ltr">example.org</span>.</p>`+
 		`<p`+ltr+`>Your verification code</p>`)+
 		code.String()+
-		regexp.QuoteMeta(`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p></div>`)+"$",
+		regexp.QuoteMeta(`<p`+ltr+`>The verification code is valid for 10 minutes. If you did not request it, please ignore this email.</p>`+
+			`<p`+ltr+`>No one from New &lt;API&gt; will ever ask you for this code. Do not share it with anyone.</p></div>`)+"$",
 		sentHTML)
 	match := code.FindStringSubmatch(sentHTML)
 	require.Len(t, match, 2)
 	assert.Equal(t, "Hello, you are verifying your email address to register at example.org.\n\n"+
 		"Your verification code\n\n"+
 		match[1]+"\n\n"+
-		"The verification code is valid for 10 minutes. If you did not request it, please ignore this email.",
+		"The verification code is valid for 10 minutes. If you did not request it, please ignore this email.\n\n"+
+		"No one from New <API> will ever ask you for this code. Do not share it with anyone.",
 		sentText)
 
 	for _, tc := range []struct{ address, site string }{
