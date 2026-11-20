@@ -88,6 +88,9 @@ func GetUserLogs(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if c.GetInt("role") < common.RoleAdminUser {
+		model.WithholdInternalBillingExprs(logs)
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(logs)
 	common.ApiSuccess(c, pageInfo)
@@ -140,7 +143,11 @@ func exportLogs(c *gin.Context, all bool) {
 	c.Status(http.StatusOK)
 
 	count := 0
+	withholdBillingExprs := c.GetInt("role") < common.RoleAdminUser
 	writeLog := func(log *model.Log) error {
+		if withholdBillingExprs {
+			model.WithholdInternalBillingExprs([]*model.Log{log})
+		}
 		line, err := common.Marshal(log)
 		if err != nil {
 			return err
@@ -192,6 +199,11 @@ func GetLogByKey(c *gin.Context) {
 			"message": err.Error(),
 		})
 		return
+	}
+	// API key authentication sets no role, so every reader of this list is
+	// treated as a caller who is not an administrator.
+	if c.GetInt("role") < common.RoleAdminUser {
+		model.WithholdInternalBillingExprs(logs)
 	}
 	c.JSON(200, gin.H{
 		"success": true,

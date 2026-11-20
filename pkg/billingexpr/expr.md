@@ -534,10 +534,35 @@ request can be charged.
   its `billing_expr` map. A model without a public expression is returned
   exactly as before, to everyone, and the pricing page renders a public
   expression as it renders any expression.
-- **Billing ignores it.** Pre-consume, settlement, the billing snapshot and the
-  consume log (`expr_b64`, `matched_tier`, `request_rules`) use the billing
-  expression only, so a user's own consume logs still show the billing
-  expression of the requests that user made.
+- **Billing ignores it.** Pre-consume, settlement and the billing snapshot use
+  the billing expression only, and the consume log stores it (`expr_b64`,
+  `matched_tier`, `request_rules`) as it does for any other model.
+- **Consume logs.** A consume or task row of a model with a public expression
+  is internal. It is written with `expr_internal: true` beside `expr_b64`, so it
+  stays internal after the public expression is removed, and a row is also
+  internal while its model has a public expression, which covers rows written
+  before the mark. A task of a model without expression billing of its own
+  counts the public expression of the model it maps to. A caller who is not an
+  administrator receives an internal row without `expr_b64`, `request_rules`
+  and `matched_tier` (a tier's label is chosen with the expression and can name
+  an internal condition) from their own log list (`GET /api/log/self`), their
+  log export (`GET /api/log/self/export`) and the log list read with an API key
+  (`GET /api/log/token`), which sets no role; the quota and every other field
+  stay, the stored row keeps all three, and the console shows the billing mode,
+  the charge and the billed image count, without a tier and without the formula
+  breakdown. The public expression is never put in a log row: it did not
+  produce the charge.
+  Administrators receive every row as before, and rows of models without a
+  public expression are returned byte for byte, to everyone.
+- **Evaluation errors.** An expression that fails before the request is sent
+  upstream (when a request's reservation is first priced, when an image
+  request reserves again for its final image count, or when a task is
+  submitted) is reported to the client as `model_price_error`, and the
+  engine's message quotes the expression. For a model with a public expression,
+  and for a task whose model has no expression billing of its own and maps to
+  such a model, the client receives `model <name> tiered expr run failed`; the
+  full message goes to the server log. A failure at settlement keeps the
+  reservation and never reaches the client.
 - **Validation at save.** A public expression must compile and pass the checks
   the model's billing expression would (smoke tests, task usage keys), must not
   call a request probe (the functions listed under Request Rule Tracing), and
