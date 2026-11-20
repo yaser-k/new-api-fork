@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -9,9 +10,13 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 func setupUserUpdateTestState(t *testing.T) {
@@ -360,6 +365,95 @@ func TestValidateAndFillRejectsPasswordlessUser(t *testing.T) {
 	var stored User
 	require.NoError(t, DB.Where("username = ?", "passwordless-user").First(&stored).Error)
 	assert.Empty(t, stored.Password)
+}
+
+// Sign-in finds an account by its email in any case (phone keyboards
+// capitalize the field) on every supported database. A username matches as
+// before, an account the text names exactly wins over one whose email differs
+// only in case, and text that names several accounts only case-insensitively
+// fails like a wrong password.
+func TestValidateAndFillMatchesEmailInAnyCase(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			var driver gorm.Dialector
+			switch dialect {
+			case "sqlite":
+				driver = sqlite.Open(":memory:")
+			case "mysql":
+				dsn := os.Getenv("TEST_MYSQL_DSN")
+				if dsn == "" {
+					t.Skip("TEST_MYSQL_DSN not configured")
+				}
+				driver = mysql.Open(dsn)
+			case "postgres":
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN not configured")
+				}
+				driver = postgres.Open(dsn)
+			}
+			db, err := gorm.Open(driver, &gorm.Config{NamingStrategy: schema.NamingStrategy{TablePrefix: "login_case_test_"}})
+			require.NoError(t, err)
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			sqlDB.SetMaxOpenConns(1)
+			previousDB, previousType := DB, common.MainDatabaseType()
+			DB = db
+			common.SetMainDatabaseType(common.DatabaseType(dialect))
+			t.Cleanup(func() {
+				require.NoError(t, db.Migrator().DropTable(&User{}))
+				DB = previousDB
+				common.SetMainDatabaseType(previousType)
+				require.NoError(t, sqlDB.Close())
+			})
+			require.NoError(t, db.Migrator().DropTable(&User{}))
+			require.NoError(t, db.AutoMigrate(&User{}))
+
+			for _, account := range []struct{ username, email, password string }{
+				{"Alice", "Alice@Example.com", "alice-password"},
+				{"legacy-lower", "legacy@example.com", "lower-password"},
+				{"legacy-upper", "LEGACY@example.com", "upper-password"},
+				{"deleted", "Deleted@Example.com", "deleted-password"},
+			} {
+				hash, err := common.Password2Hash(account.password)
+				require.NoError(t, err)
+				require.NoError(t, db.Create(&User{
+					Username: account.username, Email: account.email, Password: hash,
+					AffCode: account.username, Status: common.UserStatusEnabled,
+				}).Error)
+			}
+			require.NoError(t, db.Where("username = ?", "deleted").Delete(&User{}).Error)
+
+			for _, tc := range []struct {
+				name, typed, password string
+				want                  string // the account signed in to; empty when refused
+				collationDecides      bool   // MySQL's collation decides, as before this change
+			}{
+				{name: "email in another case", typed: "alice@EXAMPLE.com", password: "alice-password", want: "Alice"},
+				{name: "email in another case with a wrong password", typed: "alice@EXAMPLE.com", password: "upper-password"},
+				{name: "username as stored", typed: "Alice", password: "alice-password", want: "Alice"},
+				{name: "username in another case", typed: "alice", password: "alice-password", collationDecides: true},
+				{name: "exact email wins over its lower-case twin", typed: "LEGACY@example.com", password: "upper-password", want: "legacy-upper"},
+				{name: "exact lower-case email wins", typed: "legacy@example.com", password: "lower-password", want: "legacy-lower"},
+				{name: "email naming two accounts only case-insensitively", typed: "Legacy@Example.com", password: "lower-password"},
+				{name: "deleted account", typed: "deleted@example.com", password: "deleted-password"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					if tc.collationDecides && dialect == "mysql" {
+						t.Skip("MySQL's collation decides how a username compares, as before this change")
+					}
+					user := User{Username: tc.typed, Password: tc.password}
+					err := user.ValidateAndFill()
+					if tc.want == "" {
+						require.ErrorIs(t, err, ErrInvalidCredentials)
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, tc.want, user.Username)
+				})
+			}
+		})
+	}
 }
 
 func TestResetUserPasswordByEmailRequiresSingleActiveMatch(t *testing.T) {
