@@ -30,7 +30,7 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getChannelTypeLabel } from '@/features/channels/lib'
-import { toIntlLocale } from '@/i18n/languages'
+import { formatValueChange, toIntlLocale } from '@/i18n/languages'
 import { formatNumber } from '@/lib/format'
 import { resolveLocalizedText } from '@/lib/localized-text'
 
@@ -61,6 +61,7 @@ type MarketplacePluginCardProps = {
 
 export function MarketplacePluginCard(props: MarketplacePluginCardProps) {
   const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const plugin = props.plugin
   const description = resolveLocalizedText(plugin.description, i18n.language)
   const channelTypes = plugin.channelTypes ?? []
@@ -139,7 +140,9 @@ export function MarketplacePluginCard(props: MarketplacePluginCardProps) {
         {props.kind !== 'transform' && (
           <div className='min-w-0'>
             <div className={labelClass}>{t('Models')}</div>
-            <div className='truncate text-xs'>{plugin.models?.length ?? 0}</div>
+            <div className='truncate text-xs'>
+              {formatNumber(plugin.models?.length ?? 0, locale)}
+            </div>
           </div>
         )}
       </div>
@@ -242,7 +245,7 @@ export function MarketplaceAuthorLine(props: { plugin: MarketplacePlugin }) {
 }
 
 function InstallStateBadge({ state }: { state: InstallState }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   if (state.status === 'not_installed') {
     return <Badge variant='outline'>{t('Not installed')}</Badge>
   }
@@ -264,7 +267,11 @@ function InstallStateBadge({ state }: { state: InstallState }) {
       >
         <ArrowUpCircle aria-hidden='true' />
         <span className='font-mono'>
-          v{state.installedVersion} → v{state.latestVersion}
+          {formatValueChange(
+            `v${state.installedVersion}`,
+            `v${state.latestVersion}`,
+            i18n.resolvedLanguage || i18n.language
+          )}
         </span>
       </Badge>
     )
