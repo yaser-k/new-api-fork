@@ -133,13 +133,24 @@ func TestEmailVerificationNamesTheSiteToRegisterAt(t *testing.T) {
 		"The verification code is valid for 10 minutes. If you did not request it, please ignore this email.\n\n"+
 		"No one from New <API> will ever ask you for this code. Do not share it with anyone.",
 		sentText)
-	// U+200C joins ثبت‌نام and کرده‌اید.
+	// U+200C joins ثبت‌نام, کرده‌اید, هیچ‌کس and نمی‌خواهد.
 	const rtl = ` dir="rtl" style="direction:rtl;text-align:right"`
+	sentHTML = send("fa-IR")
 	assert.Regexp(t, "^"+regexp.QuoteMeta(`<div lang="fa"`+rtl+`>`+
 		`<p`+rtl+`>سلام، شما در حال تأیید نشانی ایمیل خود برای ثبت‌نام در <span dir="ltr">example.org</span> هستید.</p>`+
-		`<p`+rtl+`>کد تأیید شما: <strong><span dir="ltr">`)+`[0-9a-f]{6}`+regexp.QuoteMeta(`</span></strong></p>`+
-		`<p`+rtl+`>این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.</p></div>`)+"$",
-		send("fa-IR"))
+		`<p`+rtl+`>کد تأیید شما</p>`)+
+		code.String()+
+		regexp.QuoteMeta(`<p`+rtl+`>این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.</p>`+
+			`<p`+rtl+`>هیچ‌کس از طرف New &lt;API&gt; این کد را از شما نمی‌خواهد؛ آن را به کسی ندهید.</p></div>`)+"$",
+		sentHTML)
+	match = code.FindStringSubmatch(sentHTML)
+	require.Len(t, match, 2)
+	assert.Equal(t, "سلام، شما در حال تأیید نشانی ایمیل خود برای ثبت‌نام در example.org هستید.\n\n"+
+		"کد تأیید شما\n\n"+
+		match[1]+"\n\n"+
+		"این کد تأیید تا 10 دقیقه معتبر است. اگر آن را درخواست نکرده‌اید، این ایمیل را نادیده بگیرید.\n\n"+
+		"هیچ‌کس از طرف New <API> این کد را از شما نمی‌خواهد؛ آن را به کسی ندهید.",
+		sentText)
 
 	for _, tc := range []struct{ address, site string }{
 		{"https://example.org", `<span dir="ltr">example.org</span>`},
