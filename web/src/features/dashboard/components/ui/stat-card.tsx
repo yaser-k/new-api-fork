@@ -273,7 +273,7 @@ export function StatCard(props: StatCardProps) {
   } else {
     valueContent = (
       <div className='flex flex-col gap-1'>
-        <div className='text-foreground font-mono text-base font-semibold tracking-tight break-all tabular-nums sm:text-2xl'>
+        <div className='text-foreground font-mono text-base font-semibold tracking-tight break-normal tabular-nums sm:text-2xl'>
           {props.value}
         </div>
         <p
