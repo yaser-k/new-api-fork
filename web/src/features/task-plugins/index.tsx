@@ -207,7 +207,7 @@ export function TaskPlugins() {
                 'Plugin tasks and channels stop at once. Unfinished tasks end when they time out. Request processing keeps running.'
               )}
             </p>
-            <ul className='list-disc pl-5'>
+            <ul className='list-disc ps-5'>
               {(pluginsQuery.data ?? [])
                 .filter((plugin) => plugin.source === 'override')
                 .map((plugin) => (
