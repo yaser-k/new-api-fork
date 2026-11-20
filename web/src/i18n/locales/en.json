@@ -3111,6 +3111,7 @@
     "Grok": "Grok",
     "Grok Settings": "Grok Settings",
     "Group": "Group",
+    "Group {{group}} is unavailable or unauthorized": "Group {{group}} is unavailable or unauthorized",
     "Group {{path}}": "Group {{path}}",
     "Group & Quota": "Group & Quota",
     "Group #{{index}} category name cannot exceed 50 characters": "Group #{{index}} category name cannot exceed 50 characters",
