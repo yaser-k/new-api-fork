@@ -496,14 +496,14 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   if (cacheWrite30m > 0) {
     rows.push({
       label: t('Cache Write (30m)'),
-      value: cacheWrite30m.toLocaleString(),
+      value: formatNumber(cacheWrite30m, locale),
     })
   }
 
   if (cacheWrite12h > 0) {
     rows.push({
       label: t('Cache Write (12h)'),
-      value: cacheWrite12h.toLocaleString(),
+      value: formatNumber(cacheWrite12h, locale),
     })
   }
 

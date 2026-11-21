@@ -56,7 +56,7 @@ const log: UsageLog = {
   upstream_request_id: '',
 }
 
-function renderDetails(): void {
+function renderDetails(overrides: Partial<UsageLog> = {}): void {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -70,7 +70,7 @@ function renderDetails(): void {
   render(
     <QueryClientProvider client={client}>
       <DetailsDialog
-        log={log}
+        log={{ ...log, ...overrides }}
         isAdmin={false}
         isRoot={false}
         open
@@ -104,5 +104,27 @@ describe('log details billing breakdown', () => {
     expect(rowValue('Group Ratio')).toBe('۱٫۵۰۰۰x')
     expect(rowValue('Web Search')).toBe('۳x')
     expect(rowValue('File Search')).toBe('۲x')
+  })
+
+  it('in Persian, writes the 30-minute and 12-hour cache write counts with Persian digits', async () => {
+    await i18next.changeLanguage('fa')
+    renderDetails({
+      prompt_tokens: 4000,
+      other: JSON.stringify({
+        model_ratio: 5,
+        completion_ratio: 4,
+        group_ratio: 1,
+        cache_creation_tokens: 1500,
+        cache_creation_ratio: 1.25,
+        cache_creation_tokens_12h: 1000,
+        cache_creation_ratio_12h: 2.5,
+      }),
+    })
+    expect(screen.getByText('۵۰۰').previousElementSibling).toHaveTextContent(
+      'Cache Write (30m)'
+    )
+    expect(screen.getByText('۱٬۰۰۰').previousElementSibling).toHaveTextContent(
+      'Cache Write (12h)'
+    )
   })
 })
