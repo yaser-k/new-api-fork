@@ -19,12 +19,13 @@ func TestValidateModelRetirementsJSONRefusesInvalidEntries(t *testing.T) {
 		{"missing date", `{"old-model": {"successor": "new-model"}}`, `Retired model "old-model": retired_at must be a date written YYYY-MM-DD`},
 		{"bad date", `{"old-model": {"retired_at": "2026-9-30", "successor": "new-model"}}`, `Retired model "old-model": retired_at must be a date written YYYY-MM-DD`},
 		{"impossible date", `{"old-model": {"retired_at": "2026-02-30", "successor": "new-model"}}`, `Retired model "old-model": retired_at must be a date written YYYY-MM-DD`},
-		{"missing successor", `{"old-model": {"retired_at": "2026-09-30"}}`, `Retired model "old-model": successor must name a model`},
-		{"blank successor", `{"old-model": {"retired_at": "2026-09-30", "successor": "  "}}`, `Retired model "old-model": successor must name a model`},
 		{"successor is itself", `{"old-model": {"retired_at": "2026-09-30", "successor": "old-model"}}`, `Retired model "old-model": the successor must be a different model`},
 		{"chained successor", `{"old-model": {"retired_at": "2026-09-30", "successor": "mid-model"}, "mid-model": {"retired_at": "2026-10-01", "successor": "new-model"}}`, `Retired model "old-model": the successor "mid-model" is itself retired`},
 		{"http notice", `{"old-model": {"retired_at": "2026-09-30", "successor": "new-model", "notice_url": "http://example.com/notice"}}`, `Retired model "old-model": notice_url must be an https:// URL`},
 		{"relative notice", `{"old-model": {"retired_at": "2026-09-30", "successor": "new-model", "notice_url": "/notice"}}`, `Retired model "old-model": notice_url must be an https:// URL`},
+		{"no successor, bad date", `{"old-model": {"retired_at": "2026-9-30"}}`, `Retired model "old-model": retired_at must be a date written YYYY-MM-DD`},
+		{"no successor, http notice", `{"old-model": {"retired_at": "2026-09-30", "successor": "", "notice_url": "http://example.com/notice"}}`, `Retired model "old-model": notice_url must be an https:// URL`},
+		{"successor retired with no successor", `{"old-model": {"retired_at": "2026-09-30", "successor": "mid-model"}, "mid-model": {"retired_at": "2026-10-01"}}`, `Retired model "old-model": the successor "mid-model" is itself retired`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -41,6 +42,28 @@ func TestValidateModelRetirementsJSONAcceptsValidList(t *testing.T) {
 		"older-model": {"retired_at": "2026-01-15", "successor": "new-model"}
 	}`} {
 		assert.NoError(t, ValidateModelRetirementsJSON(value), value)
+	}
+}
+
+// A model may be retired with no successor: the field left out, empty or
+// blank all mean none.
+func TestModelRetirementWithoutSuccessorIsAccepted(t *testing.T) {
+	t.Cleanup(func() { LoadModelRetirementsFromJSONString("{}") })
+	for name, entry := range map[string]string{
+		"absent":       `{"retired_at": "2026-09-30", "notice_url": "https://example.com/notice"}`,
+		"empty string": `{"retired_at": "2026-09-30", "successor": "", "notice_url": "https://example.com/notice"}`,
+		"blank":        `{"retired_at": "2026-09-30", "successor": "  ", "notice_url": "https://example.com/notice"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := `{"old-model": ` + entry + `, "other-model": {"retired_at": "2026-01-15", "successor": "new-model"}}`
+			require.NoError(t, ValidateModelRetirementsJSON(value))
+
+			LoadModelRetirementsFromJSONString(value)
+			retirement, ok := GetModelRetirement("old-model")
+			require.True(t, ok)
+			assert.Equal(t, ModelRetirement{RetiredAt: "2026-09-30", NoticeURL: "https://example.com/notice"}, retirement)
+			assert.Len(t, GetModelRetirementsCopy(), 2)
+		})
 	}
 }
 

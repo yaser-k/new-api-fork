@@ -22,6 +22,8 @@ import (
 //	{"example-model-v1": {"retired_at": "2026-09-30", "successor": "example-model-v2",
 //	  "notice_url": "https://example.com/retirements", "note": "Moved to v2"}}
 //
+// successor is optional: left out or empty, the model was retired with none.
+//
 // Empty (the default) changes nothing. A listed name is answered by the
 // distributor with HTTP 410 model_retired, is left out of the model lists and
 // is shown as retired on the pricing page.
@@ -33,6 +35,7 @@ const modelRetirementDateLayout = "2006-01-02"
 
 type ModelRetirement struct {
 	RetiredAt string `json:"retired_at"`
+	// Successor is empty when the model was retired with none.
 	Successor string `json:"successor"`
 	NoticeURL string `json:"notice_url,omitempty"`
 	Note      string `json:"note,omitempty"`
@@ -68,15 +71,14 @@ func validateModelRetirement(name string, retirement ModelRetirement, models map
 	if _, err := time.Parse(modelRetirementDateLayout, retirement.RetiredAt); err != nil {
 		return common.NewMessage(`Retired model "{{name}}": retired_at must be a date written YYYY-MM-DD`, map[string]any{"name": name})
 	}
-	successor := strings.TrimSpace(retirement.Successor)
-	if successor == "" {
-		return common.NewMessage(`Retired model "{{name}}": successor must name a model`, map[string]any{"name": name})
-	}
-	if successor == name {
-		return common.NewMessage(`Retired model "{{name}}": the successor must be a different model`, map[string]any{"name": name})
-	}
-	if _, retired := models[successor]; retired {
-		return common.NewMessage(`Retired model "{{name}}": the successor "{{successor}}" is itself retired`, map[string]any{"name": name, "successor": successor})
+	// An empty successor means the model was retired with none.
+	if successor := strings.TrimSpace(retirement.Successor); successor != "" {
+		if successor == name {
+			return common.NewMessage(`Retired model "{{name}}": the successor must be a different model`, map[string]any{"name": name})
+		}
+		if _, retired := models[successor]; retired {
+			return common.NewMessage(`Retired model "{{name}}": the successor "{{successor}}" is itself retired`, map[string]any{"name": name, "successor": successor})
+		}
 	}
 	if retirement.NoticeURL != "" {
 		parsed, err := url.Parse(retirement.NoticeURL)
