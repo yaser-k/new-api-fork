@@ -3524,6 +3524,7 @@
     "Inviter ID: {{id}}": "ID du parrain : {{id}}",
     "Inviter Reward": "Récompense de l'inviteur",
     "Invites": "Invitations",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "Inviter des utilisateurs ne rapporte aucune récompense pour le moment. Vos récompenses de parrainage précédentes restent ici.",
     "Invoke developer-defined functions with structured arguments": "Appeler des fonctions définies par le développeur avec des arguments structurés",
     "InvokeModel (legacy)": "InvokeModel (ancienne API)",
     "io.net API Key": "Clé API io.net",

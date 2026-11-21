@@ -3069,6 +3069,7 @@
     "Inviter ID: {{id}}": "شناسۀ دعوت‌کننده: ⁨{{id}}⁩",
     "Inviter Reward": "پاداش دعوت‌کننده",
     "Invites": "دعوت‌ها",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "دعوت از کاربران در حال حاضر پاداشی ندارد. پاداش‌های دعوت قبلی شما اینجا می‌ماند.",
     "InvokeModel (legacy)": "InvokeModel (قدیمی)",
     "io.net API Key": "کلید API در io.net",
     "io.net Deployments": "استقرارهای io.net",

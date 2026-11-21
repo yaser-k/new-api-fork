@@ -3524,6 +3524,7 @@
     "Inviter ID: {{id}}": "邀请人 ID：{{id}}",
     "Inviter Reward": "邀请者奖励",
     "Invites": "邀请",
+    "Inviting users earns no reward at the moment. Your earlier referral rewards stay here.": "目前邀请用户不会获得奖励。您之前的推荐奖励仍保留在这里。",
     "Invoke developer-defined functions with structured arguments": "使用结构化参数调用开发者定义的函数",
     "InvokeModel (legacy)": "InvokeModel（旧接口）",
     "io.net API Key": "io.net API 密钥",

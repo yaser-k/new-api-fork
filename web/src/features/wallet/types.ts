@@ -154,6 +154,8 @@ export interface TopupInfo {
   waffo_pancake_min_topup?: number
   /** Whether redemption code usage is enabled */
   enable_redemption?: boolean
+  /** Whether inviting a user earns the inviter a reward (never the amount) */
+  inviter_reward_enabled?: boolean
   /** Whether compliance confirmation has been completed */
   payment_compliance_confirmed?: boolean
   /** Current compliance terms version */
