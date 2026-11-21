@@ -36,6 +36,11 @@ import {
   type ParsedTier,
 } from './billing-expr'
 import { compileBillingExpression } from './billing-expression/parser'
+import {
+  getCachePriceLabels,
+  getTierCachePricingMode,
+  type CachePricingMode,
+} from './cache-pricing'
 import { getDisplayGroupRatio } from './model-helpers'
 import { withPluginPricing } from './plugin-pricing'
 import {
@@ -46,6 +51,8 @@ import {
 import { getTaskPricingDisplayTiers } from './task-matrix-display'
 
 export type DynamicPriceOptions = {
+  modelName?: string
+  cachePricingMode?: CachePricingMode
   tokenUnit: TokenUnit
   showCurrencySymbol?: boolean
   showRechargePrice?: boolean
@@ -78,6 +85,7 @@ export type DynamicPriceEntry = {
 
 export type CardExamplePrice = {
   label: string
+  total: number
   formatted: string
 }
 
@@ -338,6 +346,9 @@ export function getDynamicPriceEntries(
     return usageEntries
   }
 
+  const cacheMode =
+    options.cachePricingMode ??
+    getTierCachePricingMode([tier as ParsedTier], options.modelName)
   return BILLING_PRICING_VARS.flatMap((variable) => {
     if (!variable.field) return []
     const value = Number((tier as ParsedTier)[variable.field])
@@ -353,20 +364,13 @@ export function getDynamicPriceEntries(
       return []
     }
 
+    const { label, shortLabel } = getCachePriceLabels(variable, cacheMode)
     return [
       {
         key: variable.key,
         field: variable.field,
-        label:
-          variable.key === 'cc' &&
-          typeof (tier as ParsedTier).cacheCreate1hPrice === 'number'
-            ? 'Cache Creation (5m)'
-            : variable.label,
-        shortLabel:
-          variable.key === 'cc' &&
-          typeof (tier as ParsedTier).cacheCreate1hPrice === 'number'
-            ? 'Cache Write (5m)'
-            : variable.shortLabel,
+        label,
+        shortLabel,
         labelKind: 'i18n' as const,
         value,
         formatted: formatDynamicUnitPrice(value, options),
@@ -506,10 +510,18 @@ export function getDynamicPricingSummary(
   const tier = isTaskUsage
     ? (summaryTiers.at(-1) ?? null)
     : (summaryTiers[0] ?? null)
-  let entries = getDynamicPriceEntries(tier, {
+  const priceOptions = {
     ...options,
+    modelName: model.model_name,
+    cachePricingMode: getTierCachePricingMode(
+      summaryTiers.filter(
+        (item): item is ParsedTier => !isTaskPricingTier(item)
+      ),
+      model.model_name
+    ),
     usageSchema: model.billing_usage_schema,
-  })
+  }
+  let entries = getDynamicPriceEntries(tier, priceOptions)
   let isMixedBilling = false
   if (!isTaskUsage) {
     const tokenTier = summaryTiers.find(
@@ -521,8 +533,8 @@ export function getDynamicPricingSummary(
     if (tokenTier && requestTier) {
       isMixedBilling = true
       entries = [
-        ...getDynamicPriceEntries(tokenTier, options),
-        ...getDynamicPriceEntries(requestTier, options),
+        ...getDynamicPriceEntries(tokenTier, priceOptions),
+        ...getDynamicPriceEntries(requestTier, priceOptions),
       ]
     }
   }
@@ -620,6 +632,7 @@ export function getCardExamplePrice(
 
   return {
     label: firstExample.label,
+    total: result.total,
     formatted: formatTaskUsageUnitPrice(result.total, options),
   }
 }

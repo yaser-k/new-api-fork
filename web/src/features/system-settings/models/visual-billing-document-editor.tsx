@@ -45,11 +45,19 @@ import {
   type VisualPricingNode,
   type VisualCondition,
 } from '@/features/pricing/lib/billing-expression/visual'
+import {
+  CACHE_PRICING_MODES,
+  getCachePriceLabels,
+  getCachePricingMode,
+  type CachePricingMode,
+} from '@/features/pricing/lib/cache-pricing'
 
 import { TierPriceFields } from './tier-price-fields'
 import { VisualConditionTree } from './visual-condition-tree'
 
 type PricingNodeProps = {
+  modelName?: string
+  imageCount?: boolean
   node: VisualPricingNode
   source: string
   currency: PricingCurrency
@@ -60,6 +68,8 @@ type PricingNodeProps = {
 function PricingTierFields(
   props: PricingNodeProps & {
     node: Extract<VisualPricingNode, { kind: 'tier' }>
+    cacheMode: CachePricingMode
+    onCacheModeChange: (mode: CachePricingMode) => void
   }
 ) {
   const { t } = useTranslation()
@@ -107,6 +117,9 @@ function PricingTierFields(
         </Button>
       </div>
       <TierPriceFields
+        cacheMode={props.cacheMode}
+        onCacheModeChange={props.onCacheModeChange}
+        imageCount={props.imageCount}
         currency={props.currency}
         billingUnit={node.billingUnit}
         fixedPrice={node.fixedPrice}
@@ -173,6 +186,12 @@ function PricingRuleCard(
   const node = props.node
   const [open, setOpen] = useState(props.first)
   const tier = node.kind === 'tier' ? node : node.yes
+  const [cacheMode, setCacheMode] = useState(() =>
+    getCachePricingMode(
+      tier.kind === 'tier' ? tier.prices.map((price) => price.variable) : [],
+      props.modelName
+    )
+  )
   const name =
     tier.kind === 'tier'
       ? tier.label
@@ -250,25 +269,34 @@ function PricingRuleCard(
               <span className='flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums'>
                 {tier.billingUnit === 'request' ? (
                   <span>
-                    {t('Price per request')}:{' '}
+                    {props.imageCount
+                      ? t('Price per image')
+                      : t('Price per request')}
+                    :{' '}
                     {formatPricingAmount(tier.fixedPrice, props.currency) ||
                       '—'}
-                    /{t('request')}
+                    /{props.imageCount ? t('image') : t('request')}
                   </span>
                 ) : (
                   <>
-                    {tier.prices.map((price) => (
-                      <span key={price.variable}>
-                        {t(
-                          BILLING_VARS.find(
-                            (variable) => variable.key === price.variable
-                          )?.shortLabel ?? price.variable
-                        )}
-                        :{' '}
-                        {formatPricingAmount(price.value, props.currency) ||
-                          '—'}
-                      </span>
-                    ))}
+                    {tier.prices.map((price) => {
+                      const variable = BILLING_VARS.find(
+                        (variable) => variable.key === price.variable
+                      )
+                      return (
+                        <span key={price.variable}>
+                          {t(
+                            variable
+                              ? getCachePriceLabels(variable, cacheMode)
+                                  .shortLabel
+                              : price.variable
+                          )}
+                          :{' '}
+                          {formatPricingAmount(price.value, props.currency) ||
+                            '—'}
+                        </span>
+                      )
+                    })}
                     <span className='text-muted-foreground'>
                       /{t('1M token')}
                     </span>
@@ -312,6 +340,22 @@ function PricingRuleCard(
             <PricingTierFields
               {...props}
               node={tier}
+              cacheMode={cacheMode}
+              onCacheModeChange={(mode) => {
+                setCacheMode(mode)
+                const prices = tier.prices.filter(
+                  (price) =>
+                    !CACHE_PRICING_MODES.custom.variables.includes(
+                      price.variable
+                    ) ||
+                    CACHE_PRICING_MODES[mode].variables.includes(price.variable)
+                )
+                if (prices.length === tier.prices.length) return
+                const next = { ...tier, prices }
+                props.onChange(
+                  node.kind === 'tier' ? next : { ...node, yes: next }
+                )
+              }}
               onChange={(next) =>
                 props.onChange(
                   node.kind === 'tier' ? next : { ...node, yes: next }
@@ -374,6 +418,7 @@ function PricingRuleList(props: PricingNodeProps & { prefix: string }) {
 }
 
 export function VisualBillingDocumentEditor(props: {
+  modelName?: string
   document: VisualBillingDocument
   currency: PricingCurrency
   issues: VisualBillingIssue[]
@@ -390,6 +435,8 @@ export function VisualBillingDocumentEditor(props: {
         </p>
       )}
       <PricingRuleList
+        modelName={props.modelName}
+        imageCount={props.document.imageCount}
         node={props.document.root}
         prefix=''
         source={props.document.source}

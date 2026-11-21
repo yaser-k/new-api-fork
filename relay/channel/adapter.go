@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"context"
 	"io"
 	"net/http"
 
@@ -31,6 +32,12 @@ type Adaptor interface {
 	GetChannelName() string
 	ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error)
 	ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error)
+}
+
+// ResponsesRequestFinalizer applies provider-specific rules to the effective
+// JSON request after channel parameter overrides. Passthrough bypasses this hook.
+type ResponsesRequestFinalizer interface {
+	FinalizeResponsesRequest(info *relaycommon.RelayInfo, body []byte) ([]byte, error)
 }
 
 type TaskAdaptor interface {
@@ -111,10 +118,15 @@ type TaskContentRequest struct {
 	Headers        map[string]string
 	Body           []byte
 	Credentialless bool
+	// ContentPath, when set, locates the artifact's bytes as a base64 string
+	// in the JSON reply instead of the reply being the artifact; MimeType is
+	// then its media type.
+	ContentPath []any
+	MimeType    string
 }
 
 type TaskContentRequestProvider interface {
-	BuildContentRequest(task *model.Task, artifactKey string, clientRequest TaskArtifactClientRequest) (*TaskContentRequest, error)
+	BuildContentRequest(ctx context.Context, task *model.Task, artifactKey string, clientRequest TaskArtifactClientRequest) (*TaskContentRequest, error)
 }
 
 type TaskUsageFactsProvider interface {

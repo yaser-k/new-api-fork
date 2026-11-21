@@ -188,10 +188,10 @@ it('previews legacy conversion in the selected currency and applies only after c
   expect(within(after).queryByText('Image input price')).not.toBeInTheDocument()
   expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument()
   expect(
-    within(before).queryByText('Cache write price')
+    within(before).queryByText('Standard cache write price')
   ).not.toBeInTheDocument()
   expect(
-    within(after).queryByText('Cache create price')
+    within(after).queryByText('Standard cache write price')
   ).not.toBeInTheDocument()
   expect(
     within(dialog).queryByText('Cache create (1h) price')
@@ -260,6 +260,12 @@ it.each([
     mode: 'claude_ttl',
     expression: 'tier("base", p * 2 + c * 4 + cr * 1 + cc * 3 + cc1h * 4.8)',
   },
+  {
+    name: 'custom-gpt',
+    ratio: 1.5,
+    mode: 'openai_ttl',
+    expression: 'tier("base", p * 2 + c * 4 + cr * 1 + cc * 3 + cc12h * 6)',
+  },
 ])(
   'keeps configured cache prices visible on both sides for $name',
   async (fixture) => {
@@ -294,11 +300,9 @@ it.each([
     })
     for (const side of ['Before conversion', 'After conversion']) {
       const panel = within(dialog).getByRole('region', { name: side })
-      let label =
-        side === 'Before conversion'
-          ? 'Cache write price'
-          : 'Cache create price'
-      if (fixture.mode === 'claude_ttl') label = 'Cache Creation (5m)'
+      let label = 'Standard cache write price'
+      if (fixture.mode === 'claude_ttl') label = 'Cache create (5m) price'
+      if (fixture.mode === 'openai_ttl') label = 'Cache create (30m) price'
       expect(
         within(panel).getByText(label).nextElementSibling
       ).toHaveTextContent(`$${fixture.ratio * 2} / 1M token`)
@@ -309,6 +313,15 @@ it.each([
       } else {
         expect(
           within(panel).queryByText('Cache create (1h) price')
+        ).not.toBeInTheDocument()
+      }
+      if (fixture.mode === 'openai_ttl') {
+        expect(
+          within(panel).getByText('Cache create (12h) price').nextElementSibling
+        ).toHaveTextContent('$6 / 1M token')
+      } else {
+        expect(
+          within(panel).queryByText('Cache create (12h) price')
         ).not.toBeInTheDocument()
       }
     }
