@@ -425,7 +425,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               <Save data-icon='inline-start' />
               {isSaving ? t('Saving...') : t('Save model prices')}
               {changeRows.length > 0 && (
-                <span className='bg-primary-foreground/20 ml-0.5 rounded-full px-1.5 text-xs tabular-nums'>
+                <span className='bg-primary-foreground/20 ms-0.5 rounded-full px-1.5 text-xs tabular-nums'>
                   {changeRows.length}
                 </span>
               )}

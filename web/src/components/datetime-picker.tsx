@@ -21,15 +21,18 @@ import * as React from 'react'
 import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'
 import { useTranslation } from 'react-i18next'
 
+import { TimeOfDayInput } from '@/components/time-of-day-input'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
-import { Input } from '@/components/ui/input'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { toIntlLocale } from '@/i18n/languages'
 import dayjs from '@/lib/dayjs'
+import { formatDisplayDate } from '@/lib/format'
+import { parseTimeOfDay } from '@/lib/time-of-day'
 import { cn } from '@/lib/utils'
 
 const calendarLocales = {
@@ -57,25 +60,35 @@ export function DateTimePicker({
 }: DateTimePickerProps) {
   const { t, i18n } = useTranslation()
   const placeholderText = placeholder ?? t('Select date')
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const calendarLocale =
-    calendarLocales[i18n.language as keyof typeof calendarLocales] ?? enUS
+    calendarLocales[
+      (i18n.resolvedLanguage || i18n.language) as keyof typeof calendarLocales
+    ] ?? enUS
   const currentYear = new Date().getFullYear()
   const [open, setOpen] = React.useState(false)
   const [date, setDate] = React.useState<Date | undefined>(value)
   const [month, setMonth] = React.useState<Date | undefined>(value)
-  const [time, setTime] = React.useState<string>('00:00:00')
+  // The time is the text of a 24-hour field in the interface's digits.
+  const [time, setTime] = React.useState<string>(() =>
+    formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm:ss', locale)
+  )
 
   React.useEffect(() => {
     setDate(value)
     setMonth(value)
     if (value) {
-      setTime(dayjs(value).format('HH:mm:ss'))
+      setTime(formatDisplayDate(value, 'HH:mm:ss', locale))
     }
-  }, [value])
+  }, [value, locale])
 
   const handleDateSelect = (selectedDate: Date | undefined) => {
     if (selectedDate) {
-      const [hours, minutes, seconds = 0] = time.split(':').map(Number)
+      const {
+        hours,
+        minutes,
+        seconds = 0,
+      } = parseTimeOfDay(time) ?? { hours: 0, minutes: 0 }
       const newDate = new Date(selectedDate)
       newDate.setHours(hours, minutes, seconds, 0)
       setDate(newDate)
@@ -89,27 +102,30 @@ export function DateTimePicker({
     }
   }
 
-  const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newTime = e.target.value
-    // The browser reports an emptied or half-cleared field as ''. Keep the
-    // current time: the field shows it again and no invalid date goes out.
-    if (!newTime) return
+  const handleTimeChange = (newTime: string) => {
     setTime(newTime)
 
-    if (date) {
-      // A browser may omit :00 seconds from the value.
-      const [hours, minutes, seconds = 0] = newTime.split(':').map(Number)
-      const newDate = new Date(date)
-      newDate.setHours(hours, minutes, seconds, 0)
-      setDate(newDate)
-      onChange?.(newDate)
+    const parsed = parseTimeOfDay(newTime)
+    if (!date || !parsed) return
+    if (
+      date.getHours() === parsed.hours &&
+      date.getMinutes() === parsed.minutes &&
+      date.getSeconds() === (parsed.seconds ?? 0)
+    ) {
+      return
     }
+    const newDate = new Date(date)
+    newDate.setHours(parsed.hours, parsed.minutes, parsed.seconds ?? 0, 0)
+    setDate(newDate)
+    onChange?.(newDate)
   }
 
   const handleClear = () => {
     setDate(undefined)
     setMonth(undefined)
-    setTime('00:00:00')
+    setTime(
+      formatDisplayDate(dayjs().startOf('day').toDate(), 'HH:mm:ss', locale)
+    )
     onChange?.(undefined)
   }
 
@@ -127,7 +143,9 @@ export function DateTimePicker({
             />
           }
         >
-          {date ? dayjs(date).format('YYYY-MM-DD') : placeholderText}
+          {date
+            ? formatDisplayDate(date, 'YYYY-MM-DD', locale)
+            : placeholderText}
           <ChevronDownIcon className='h-4 w-4 opacity-50' />
         </PopoverTrigger>
         <PopoverContent className='w-auto overflow-hidden p-0' align='start'>
@@ -144,13 +162,17 @@ export function DateTimePicker({
           />
         </PopoverContent>
       </Popover>
-      <Input
-        type='time'
-        step={1}
+      <TimeOfDayInput
         value={time}
+        onValueChange={handleTimeChange}
+        onBlur={() => {
+          // A field left empty or invalid shows the current time again.
+          if (date && !parseTimeOfDay(time)) {
+            setTime(formatDisplayDate(date, 'HH:mm:ss', locale))
+          }
+        }}
         aria-label={t('Time')}
-        onChange={handleTimeChange}
-        className='w-32 appearance-none [&::-webkit-calendar-picker-indicator]:hidden [&::-webkit-calendar-picker-indicator]:appearance-none'
+        className='w-24'
         disabled={!date}
       />
       {date && (

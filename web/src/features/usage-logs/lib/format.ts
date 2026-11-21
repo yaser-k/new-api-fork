@@ -28,6 +28,10 @@ import {
   getCachePriceLabels,
   getTierCachePricingMode,
 } from '@/features/pricing/lib/cache-pricing'
+import { loginMethodLabel } from '@/features/security/components/login-session-utils'
+import { userActionName } from '@/features/users/lib/user-actions'
+import { isPersianIntlLocale } from '@/i18n/languages'
+import { ROLE, getRoleLabelKey } from '@/lib/roles'
 import { translateServerText } from '@/lib/server-error-message'
 
 import type { UsageLog } from '../data/schema'
@@ -604,11 +608,15 @@ export function logTokenName(
 /**
  * Render the localized content of an operation log from its structured
  * `other.op` descriptor. Returns null when the log has no recognized action,
- * letting callers fall back to the raw `content` field.
+ * letting callers fall back to the raw `content` field. When `locale` (the
+ * interface locale from `toIntlLocale`) is Persian, role and sign-in method
+ * values are shown as their translated labels and quota amounts follow the
+ * locale; other languages show the recorded values.
  */
 export function renderAuditContent(
   other: LogOtherData | null | undefined,
-  t: (key: string, opts?: Record<string, unknown>) => string
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  locale?: string
 ): string | null {
   const op = other?.op
   if (!op?.action) return null
@@ -636,11 +644,26 @@ export function renderAuditContent(
     op.action,
     op.params ?? {},
     other?.audit_info?.success !== false,
-    t
+    t,
+    locale
   )
   if (quotaOperation) {
     return `${quotaOperation.summary} · ${quotaOperation.description}`
   }
   const params = { ...op.params }
+  if (!isPersianIntlLocale(locale)) return t(template, params)
+  if (
+    typeof params.role === 'number' &&
+    Object.values<number>(ROLE).includes(params.role)
+  ) {
+    params.role = t(getRoleLabelKey(params.role))
+  }
+  if (op.action === 'user.manage' && typeof params.action === 'string') {
+    params.action = userActionName(params.action, t, locale)
+  }
+  // `generic` interpolates the HTTP method, which stays as recorded.
+  if (op.action !== 'generic' && typeof params.method === 'string') {
+    params.method = loginMethodLabel(params.method, t)
+  }
   return t(template, params)
 }

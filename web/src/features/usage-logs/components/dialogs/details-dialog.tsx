@@ -68,12 +68,20 @@ import {
 import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
 import { PolicyDecisionRecord } from '@/features/system-settings/request-policies/decision-record'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { formatValueChain, toIntlLocale } from '@/i18n/languages'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import {
+  formatFixed,
+  formatLogQuota,
+  formatNumber,
+  formatTokens,
+  formatUseTime,
+} from '@/lib/format'
 import { translateServerText } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
+import { auditIdentity } from '../../audit/lib/audit-details'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -124,9 +132,12 @@ function timingTextColorClass(
   return 'text-rose-600'
 }
 
-function formatRatio(ratio: number | undefined): string {
+function formatRatio(
+  ratio: number | undefined,
+  locale: string | undefined
+): string {
   if (ratio == null) return '-'
-  return ratio.toFixed(4)
+  return formatFixed(ratio, 4, locale)
 }
 
 function getUsageBillingPathLabel(
@@ -180,7 +191,8 @@ function BillingBreakdown(props: {
   other: LogOtherData
   isAdmin: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const { log, other, isAdmin } = props
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
@@ -190,7 +202,12 @@ function BillingBreakdown(props: {
   const tieredSummary = getTieredBillingSummary(other, log.model_name)
 
   const rows: Array<{ label: string; value: string }> = []
-  const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
+  const priceOpts = {
+    digitsLarge: 4,
+    digitsSmall: 6,
+    abbreviate: false,
+    locale,
+  }
   const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
@@ -248,7 +265,7 @@ function BillingBreakdown(props: {
   if (effectiveGR != null && Number.isFinite(effectiveGR)) {
     rows.push({
       label: isUserGR ? t('User Exclusive Ratio') : t('Group Ratio'),
-      value: `${formatRatio(effectiveGR)}x`,
+      value: `${formatRatio(effectiveGR, locale)}x`,
     })
   }
 
@@ -330,14 +347,14 @@ function BillingBreakdown(props: {
   if (other.web_search && other.web_search_call_count) {
     rows.push({
       label: t('Web Search'),
-      value: `${other.web_search_call_count}x${other.web_search_price ? ` (${fmtPrice(other.web_search_price)})` : ''}`,
+      value: `${formatFixed(other.web_search_call_count, 0, locale)}x${other.web_search_price ? ` (${fmtPrice(other.web_search_price)})` : ''}`,
     })
   }
 
   if (other.file_search && other.file_search_call_count) {
     rows.push({
       label: t('File Search'),
-      value: `${other.file_search_call_count}x${other.file_search_price ? ` (${fmtPrice(other.file_search_price)})` : ''}`,
+      value: `${formatFixed(other.file_search_call_count, 0, locale)}x${other.file_search_price ? ` (${fmtPrice(other.file_search_price)})` : ''}`,
     })
   }
 
@@ -391,7 +408,7 @@ function BillingBreakdown(props: {
       )}
       <DetailRow
         label={t('Total Cost')}
-        value={formatLogQuota(log.quota)}
+        value={formatLogQuota(log.quota, locale)}
         mono
       />
     </DetailSection>
@@ -399,7 +416,8 @@ function BillingBreakdown(props: {
 }
 
 function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const { log, other } = props
 
   const promptTokens = log.prompt_tokens || 0
@@ -426,23 +444,26 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 
   const rows: Array<{ label: string; value: string }> = []
 
-  rows.push({ label: t('Input Tokens'), value: promptTokens.toLocaleString() })
+  rows.push({
+    label: t('Input Tokens'),
+    value: formatNumber(promptTokens, locale),
+  })
   rows.push({
     label: t('Output Tokens'),
-    value: completionTokens.toLocaleString(),
+    value: formatNumber(completionTokens, locale),
   })
 
   if (cacheRead > 0) {
     rows.push({
       label: t('Cache Read'),
-      value: cacheRead.toLocaleString(),
+      value: formatNumber(cacheRead, locale),
     })
   }
 
   if (other.image_cache_tokens !== undefined) {
     rows.push({
       label: t('Image Cache'),
-      value: other.image_cache_tokens.toLocaleString(),
+      value: formatNumber(other.image_cache_tokens, locale),
     })
   }
 
@@ -454,21 +475,21 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   ) {
     rows.push({
       label: t('Cache Write'),
-      value: cacheWrite.toLocaleString(),
+      value: formatNumber(cacheWrite, locale),
     })
   }
 
   if (cacheWrite5m > 0) {
     rows.push({
       label: t('Cache Write (5m)'),
-      value: cacheWrite5m.toLocaleString(),
+      value: formatNumber(cacheWrite5m, locale),
     })
   }
 
   if (cacheWrite1h > 0) {
     rows.push({
       label: t('Cache Write (1h)'),
-      value: cacheWrite1h.toLocaleString(),
+      value: formatNumber(cacheWrite1h, locale),
     })
   }
 
@@ -489,7 +510,7 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   if (other.image && other.image_output) {
     rows.push({
       label: t('Image Tokens'),
-      value: other.image_output.toLocaleString(),
+      value: formatNumber(other.image_output, locale),
     })
   }
 
@@ -514,7 +535,7 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
               <DetailRow
                 key={variable.key}
                 label={t(getCachePriceLabels(variable, cacheMode).shortLabel)}
-                value={count.toLocaleString()}
+                value={formatNumber(count, locale)}
                 mono
               />
             )
@@ -534,7 +555,8 @@ interface DetailsDialogProps {
 }
 
 export function DetailsDialog(props: DetailsDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const other = parseLogOther(props.log.other)
   const typeConfig = getLogTypeConfig(props.log.type)
@@ -603,9 +625,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
     const hasUsername = username != null && String(username).trim() !== ''
     const hasId = id != null && String(id).trim() !== ''
     if (!hasUsername && !hasId) return null
-    if (hasUsername && hasId) return `${username} (ID: ${id})`
-    if (hasUsername) return String(username)
-    return `ID: ${id}`
+    if (hasUsername && !hasId) return String(username)
+    return auditIdentity(
+      hasUsername ? String(username) : '',
+      String(id),
+      t,
+      locale
+    )
   })()
   const authMethodLabel = (() => {
     if (!isManage || !props.isAdmin || !adminInfo?.auth_method) return ''
@@ -620,10 +646,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
         other?.op?.action ?? '',
         other?.op?.params ?? {},
         true,
-        t
+        t,
+        locale
       )
     : null
-  const operationText = renderAuditContent(other, t)
+  const operationText = renderAuditContent(other, t, locale)
   const details =
     (isTopup ? operationText : null) ??
     renderLogContent(other, t) ??
@@ -678,7 +705,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
   const useChannel = other?.admin_info?.use_channel
   const channelChain =
-    useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+    useChannel && useChannel.length > 0
+      ? formatValueChain(useChannel.map(String), locale)
+      : undefined
   const reasoningEffortVariant = getReasoningEffortVariant(
     other?.reasoning_effort
   )
@@ -708,7 +737,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
       titleClassName='flex items-center gap-2 text-base'
       descriptionClassName='sr-only'
       contentHeight='min(72dvh, 720px)'
-      bodyClassName='pr-2 sm:pr-4'
+      bodyClassName='pe-2 sm:pe-4'
     >
       <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3'>
         {/* Overview section - key identifiers */}
@@ -823,7 +852,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
               <Button
                 variant='ghost'
                 size='sm'
-                className='absolute top-0 right-0 h-5 w-5 p-0'
+                className='absolute end-0 top-0 h-5 w-5 p-0'
                 onClick={() => copyToClipboard(conversionLabel)}
                 title={t('Copy to clipboard')}
                 aria-label={t('Copy to clipboard')}
@@ -834,7 +863,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   <Copy className='size-3' />
                 )}
               </Button>
-              <div className='min-w-0 space-y-1 pr-6'>
+              <div className='min-w-0 space-y-1 pe-6'>
                 {other?.request_path && (
                   <DetailRow
                     label={t('Path')}
@@ -932,7 +961,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             )}
             <DetailRow
               label={t('Fee Amount')}
-              value={formatLogQuota(other.fee_quota ?? props.log.quota)}
+              value={formatLogQuota(other.fee_quota ?? props.log.quota, locale)}
               mono
             />
           </DetailSection>
@@ -1321,7 +1350,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
             )}
             {Array.isArray(other.stream_status.errors) &&
               other.stream_status.errors.length > 0 && (
-                <pre className='bg-background/60 mt-1 max-h-32 overflow-y-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'>
+                <pre
+                  dir='ltr'
+                  className='bg-background/60 mt-1 max-h-32 overflow-y-auto rounded border p-2 font-mono text-[11px] leading-relaxed wrap-break-word whitespace-pre-wrap'
+                >
                   {other.stream_status.errors.join('\n')}
                 </pre>
               )}
@@ -1347,7 +1379,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             {other.subscription_pre_consumed != null && (
               <DetailRow
                 label={t('Pre-consumed')}
-                value={formatLogQuota(other.subscription_pre_consumed)}
+                value={formatLogQuota(other.subscription_pre_consumed, locale)}
                 mono
               />
             )}
@@ -1355,21 +1387,21 @@ export function DetailsDialog(props: DetailsDialogProps) {
               other.subscription_post_delta !== 0 && (
                 <DetailRow
                   label={t('Post Delta')}
-                  value={formatLogQuota(other.subscription_post_delta)}
+                  value={formatLogQuota(other.subscription_post_delta, locale)}
                   mono
                 />
               )}
             {other.subscription_consumed != null && (
               <DetailRow
                 label={t('Final Consumed')}
-                value={formatLogQuota(other.subscription_consumed)}
+                value={formatLogQuota(other.subscription_consumed, locale)}
                 mono
               />
             )}
             {other.subscription_remain != null && (
               <DetailRow
                 label={t('Remaining')}
-                value={`${formatLogQuota(other.subscription_remain)}${other.subscription_total != null ? ` / ${formatLogQuota(other.subscription_total)}` : ''}`}
+                value={`${formatLogQuota(other.subscription_remain, locale)}${other.subscription_total != null ? ` / ${formatLogQuota(other.subscription_total, locale)}` : ''}`}
                 mono
               />
             )}
@@ -1427,7 +1459,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
               <Button
                 variant='ghost'
                 size='sm'
-                className='absolute top-1.5 right-1.5 h-5 w-5 p-0'
+                className='absolute end-1.5 top-1.5 h-5 w-5 p-0'
                 onClick={() => copyToClipboard(details)}
                 title={t('Copy to clipboard')}
                 aria-label={t('Copy to clipboard')}
@@ -1438,7 +1470,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   <Copy className='size-3' />
                 )}
               </Button>
-              <p className='min-w-0 pr-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
+              <p className='min-w-0 pe-6 text-xs leading-relaxed break-all whitespace-pre-wrap sm:wrap-break-word'>
                 {details}
               </p>
             </div>

@@ -28,7 +28,7 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 
 ### Backend (`i18n/`)
 - Library: `nicksnyder/go-i18n/v2`
-- Languages: en, zh-CN, zh-TW
+- Languages: en, zh-CN, zh-TW, fa
 - Scope: text with no web console in between (errors returned to AI clients, emails, notifications), translated with `i18n.T` / `i18n.Translate`
 - Web console API messages are English source text built with `common.NewMessage` / `common.ApiErrorT` / `common.ApiSuccessT`; the frontend translates them, so add each key to all seven frontend locale files
 - Stored log content is `[]*common.Message`; a fail reason written by the gateway is a fixed English sentence that is also a key in the frontend locale files
@@ -36,10 +36,11 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 
 ### Frontend (`web/src/i18n/`)
 - Library: `i18next` + `react-i18next` + `i18next-browser-languagedetector`
-- Languages: en (base), zh (fallback), zh-TW, fr, ru, ja, vi
+- Languages: en (base), zh (fallback), zh-TW, fr, ru, ja, vi, and fa (partial, right-to-left; missing keys fall back to English per key)
 - Translation files: `web/src/i18n/locales/{lang}.json` — flat JSON, keys are English source strings
 - Usage: `useTranslation()` hook, call `t('English key')` in components
-- CLI tools: `bun run i18n:sync` (from `web/`)
+- CLI tools: `bun run i18n:sync`, `bun run i18n:check-fa` (from `web/`)
+- Persian: follow the glossary and typography rules in `.agents/skills/i18n-translate/fa.md`
 
 ## Rules
 
