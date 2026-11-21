@@ -78,7 +78,9 @@ func TestGetPricingListsRetiredModelsNewestFirst(t *testing.T) {
 	withRetiredModels(t, `{
 		"zz-old-model": {"retired_at": "2026-03-01", "successor": "zz-live-model"},
 		"zz-priced-retired-model": {"retired_at": "2026-09-30", "successor": "zz-live-model", "notice_url": "https://example.com/notice", "note": "Replaced"},
-		"zz-another-model": {"retired_at": "2026-09-30", "successor": "zz-live-model"}
+		"zz-another-model": {"retired_at": "2026-09-30", "successor": "zz-live-model"},
+		"zz-last-model": {"retired_at": "2026-06-01", "notice_url": "https://example.com/last"},
+		"zz-final-model": {"retired_at": "2026-06-01", "successor": ""}
 	}`)
 
 	var logs bytes.Buffer
@@ -93,8 +95,9 @@ func TestGetPricingListsRetiredModelsNewestFirst(t *testing.T) {
 	})
 
 	for range 2 {
+		body := servePricing(t).Body.Bytes()
 		var payload pricingRetirementResponse
-		require.NoError(t, common.Unmarshal(servePricing(t).Body.Bytes(), &payload))
+		require.NoError(t, common.Unmarshal(body, &payload))
 
 		names := make([]string, 0, len(payload.Data))
 		for _, item := range payload.Data {
@@ -105,8 +108,25 @@ func TestGetPricingListsRetiredModelsNewestFirst(t *testing.T) {
 		assert.Equal(t, []pricingRetiredModel{
 			{ModelName: "zz-another-model", RetiredAt: "2026-09-30", Successor: "zz-live-model"},
 			{ModelName: "zz-priced-retired-model", RetiredAt: "2026-09-30", Successor: "zz-live-model", NoticeURL: "https://example.com/notice", Note: "Replaced"},
+			{ModelName: "zz-final-model", RetiredAt: "2026-06-01"},
+			{ModelName: "zz-last-model", RetiredAt: "2026-06-01", NoticeURL: "https://example.com/last"},
 			{ModelName: "zz-old-model", RetiredAt: "2026-03-01", Successor: "zz-live-model"},
 		}, payload.RetiredModels)
+
+		// A model with no successor keeps the field, as an empty string, so
+		// clients read the same type for every entry.
+		var raw struct {
+			RetiredModels []map[string]any `json:"retired_models"`
+		}
+		require.NoError(t, common.Unmarshal(body, &raw))
+		require.Len(t, raw.RetiredModels, 5)
+		for _, entry := range raw.RetiredModels {
+			successor, ok := entry["successor"]
+			require.True(t, ok, entry)
+			assert.IsType(t, "", successor, entry)
+		}
+		assert.Equal(t, "", raw.RetiredModels[2]["successor"])
+		assert.Equal(t, "", raw.RetiredModels[3]["successor"])
 	}
 	assert.Equal(t, 1, bytes.Count(logs.Bytes(), []byte(`retired model "zz-priced-retired-model" still has live pricing`)), logs.String())
 }
