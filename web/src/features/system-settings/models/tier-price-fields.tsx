@@ -37,7 +37,11 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { PricingCurrency } from '@/features/model-pricing/currency'
 import { PricingAmountInput } from '@/features/model-pricing/pricing-amount-input'
-import { BILLING_EXTRA_VARS } from '@/features/pricing/lib/billing-expr'
+import {
+  BILLING_EXTRA_VARS,
+  billingVarCoefficient,
+  billingVarUnitPrice,
+} from '@/features/pricing/lib/billing-expr'
 import type { VisualPrice } from '@/features/pricing/lib/billing-expression/visual'
 import {
   CACHE_PRICING_MODES,
@@ -46,6 +50,8 @@ import {
 } from '@/features/pricing/lib/cache-pricing'
 import { cn } from '@/lib/utils'
 
+import { formatPricingNumber } from './pricing-format'
+
 const PRICE_VARS = BILLING_EXTRA_VARS.map((variable) => ({
   ...variable,
   key: variable.key as VisualPrice['variable'],
@@ -53,7 +59,7 @@ const PRICE_VARS = BILLING_EXTRA_VARS.map((variable) => ({
 const CACHE_PRICE_VARS = PRICE_VARS.filter(
   (variable) => variable.group === 'cache' && variable.key !== 'img_cr'
 )
-const MEDIA_PRICE_ORDER = ['img', 'img_cr', 'img_o', 'ai', 'ao']
+const MEDIA_PRICE_ORDER = ['img', 'img_cr', 'img_o', 'ai', 'ao', 'vid_sec']
 const MEDIA_PRICE_VARS = PRICE_VARS.filter(
   (variable) => variable.group === 'media' || variable.key === 'img_cr'
 ).sort(
@@ -149,9 +155,12 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
   useEffect(() => {
     if (hasMediaPricing) setMediaOpen(true)
   }, [hasMediaPricing])
+  // The expression keeps a coefficient per 1M units; a second-unit price
+  // (vid_sec) is shown and entered per second.
   const renderPriceVariable = (variable: {
     key: VisualPrice['variable']
     label: string
+    unit?: 'second'
   }) => {
     const label = t(
       getCachePriceLabels(
@@ -164,8 +173,31 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
         key={variable.key}
         currency={props.currency}
         label={label}
-        value={props.prices[variable.key] ?? 0}
-        onChange={(value) => props.onChange(variable.key, value)}
+        hint={
+          variable.unit === 'second'
+            ? `${props.currency.symbol}/${t('second')}`
+            : undefined
+        }
+        value={
+          variable.unit === 'second' && props.prices[variable.key] !== ''
+            ? formatPricingNumber(
+                billingVarUnitPrice(
+                  variable.key,
+                  Number(props.prices[variable.key] ?? 0)
+                )
+              )
+            : (props.prices[variable.key] ?? 0)
+        }
+        onChange={(value) =>
+          props.onChange(
+            variable.key,
+            variable.unit === 'second' && value !== ''
+              ? formatPricingNumber(
+                  billingVarCoefficient(variable.key, Number(value))
+                )
+              : value
+          )
+        }
         included={
           props.onInclude ? props.prices[variable.key] !== undefined : undefined
         }

@@ -327,7 +327,7 @@ export interface TieredBillingSummary {
     field: string
     shortLabel: string
     price: number
-    unit?: 'request' | 'image'
+    unit?: 'request' | 'image' | 'second'
   }>
 }
 
@@ -424,6 +424,7 @@ export function getTieredBillingSummary(
         field: v.field,
         shortLabel: getCachePriceLabels(v, cacheMode).shortLabel,
         price,
+        ...(v.unit ? { unit: v.unit } : {}),
       })
     }
   }

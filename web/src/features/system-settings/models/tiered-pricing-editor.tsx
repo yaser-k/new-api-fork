@@ -98,6 +98,7 @@ import {
   createDefaultVisualConfig,
   evalExprLocally,
   buildEstimatorTokens,
+  estimatorStateKey,
   generateExprFromVisualConfig,
 } from '@/features/pricing/lib/tier-expr'
 import { cn } from '@/lib/utils'
@@ -322,7 +323,8 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
             {t('Variables')}: <code>len</code>, <code>p</code>, <code>c</code>,{' '}
             <code>cr</code>, <code>cc</code>, <code>cc1h</code>,{' '}
             <code>cc12h</code>, <code>img</code>, <code>img_cr</code>,{' '}
-            <code>img_o</code>, <code>ai</code>, <code>ao</code>
+            <code>img_o</code>, <code>ai</code>, <code>ao</code>,{' '}
+            <code>vid_sec</code>
           </div>
           <div>
             {t('Functions')}: <code>tier(name, value)</code>,{' '}
@@ -334,6 +336,11 @@ function RawExprEditor({ exprString, onChange }: RawExprEditorProps) {
           <div>
             {t(
               'Use tier(name, fixed(amount)) for a USD price per request. Group and request multipliers still apply.'
+            )}
+          </div>
+          <div>
+            {t(
+              'vid_sec counts input video seconds, not tokens: write its price per second times 1,000,000 (USD 0.00049 a second is vid_sec * 490).'
             )}
           </div>
         </AlertDescription>
@@ -751,6 +758,7 @@ function CostEstimator({
     imageOutputTokens: 0,
     audioInputTokens: 0,
     audioOutputTokens: 0,
+    videoSeconds: 0,
   })
 
   const compiled = useMemo(
@@ -766,15 +774,14 @@ function CostEstimator({
   const activeExtras = useMemo(() => {
     const values = { ...extras }
     for (const variable of BILLING_EXTRA_VARS) {
+      const stateKey = estimatorStateKey(variable.key)
       if (
-        variable.field &&
+        stateKey &&
         (!usesExtras ||
           (CACHE_PRICING_MODES.custom.variables.includes(variable.key) &&
             !CACHE_PRICING_MODES[cacheMode].variables.includes(variable.key)))
       ) {
-        values[
-          variable.field.replace('Price', 'Tokens') as keyof ExtraTokenValues
-        ] = 0
+        values[stateKey] = 0
       }
     }
     return values
@@ -885,20 +892,14 @@ function CostEstimator({
       {usesExtras && (
         <div className='grid grid-cols-2 gap-3'>
           {BILLING_EXTRA_VARS.map((variable) => {
-            // BILLING_EXTRA_VARS only contains pricing variables; they are
-            // guaranteed to have a non-null `field` (the `len` condition-only
-            // variable is filtered out). Narrow the type here for safety.
-            if (!variable.field) return null
+            const stateKey = estimatorStateKey(variable.key)
+            if (!stateKey) return null
             if (
               CACHE_PRICING_MODES.custom.variables.includes(variable.key) &&
               !CACHE_PRICING_MODES[cacheMode].variables.includes(variable.key)
             ) {
               return null
             }
-            const stateKey = variable.field.replace(
-              'Price',
-              'Tokens'
-            ) as keyof ExtraTokenValues
             return (
               <div key={variable.key} className='space-y-1'>
                 <Label
@@ -988,6 +989,9 @@ Output side:
 - img_cr — image cache input tokens; deducted from img and cr only when the upstream reports a valid image cache breakdown
 - ao — audio output token count
 
+Not a token count:
+- vid_sec — input video seconds the upstream reports. Never deducted from p or c and never part of len. Like every coefficient it is a price per 1M units, so $0.00049 per second is vid_sec * 490. Use ceil(vid_sec) to bill whole seconds
+
 ### p/c Auto-exclusion
 
 p and c are fallback variables representing all tokens not separately priced in the expression. If the expression uses a sub-category variable (e.g., cr), those tokens are deducted from p to avoid double-billing. Unused sub-category tokens remain in p/c at base price.
@@ -1007,7 +1011,7 @@ Important: len is NOT affected by auto-exclusion. Tier conditions should use len
 
 ### Price Coefficients
 
-Numbers in the expression are $/1M tokens prices. For example, p * 2.5 means input $2.50/1M tokens.
+Numbers in the expression are $/1M tokens prices. For example, p * 2.5 means input $2.50/1M tokens. vid_sec is the exception in unit only: its coefficient is $ per 1M seconds, i.e. the per-second price times 1,000,000.
 
 ## Expression Examples
 

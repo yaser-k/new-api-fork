@@ -32,6 +32,10 @@ type TokenParams struct {
 	ImgO  float64 // image output tokens
 	AI    float64 // audio input tokens
 	AO    float64 // audio output tokens
+	// VidSec is the input video seconds the upstream reported. It is a second
+	// count, not tokens: never part of P, C or Len, and like every variable its
+	// coefficient is a price per 1M units (USD 0.00049 a second is vid_sec * 490).
+	VidSec float64
 }
 
 // RequestRuleTrace describes one request-dependent multiplier detected at compile time.
@@ -86,8 +90,8 @@ type BillingSnapshot struct {
 // TieredResult holds everything needed after running tiered settlement.
 type TieredResult struct {
 	// BillingTokens records the actual normalized inputs for successful token
-	// billing that explicitly references img_cr. Logs serialize these through
-	// the shared injection path, not as additional snapshot state.
+	// billing that explicitly references img_cr or vid_sec. Logs serialize
+	// these through the shared injection path, not as additional snapshot state.
 	BillingTokens          *TokenParams       `json:"-"`
 	ImageCount             *int               `json:"image_count,omitempty"`
 	BillingUnit            BillingUnit        `json:"billing_unit"`

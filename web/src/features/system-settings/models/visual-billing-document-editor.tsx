@@ -34,7 +34,10 @@ import {
   formatPricingAmount,
   type PricingCurrency,
 } from '@/features/model-pricing/currency'
-import { BILLING_VARS } from '@/features/pricing/lib/billing-expr'
+import {
+  BILLING_VARS,
+  billingVarUnitPrice,
+} from '@/features/pricing/lib/billing-expr'
 import { formatBillingCondition } from '@/features/pricing/lib/billing-expression/condition-display'
 import {
   visualConditionExpression,
@@ -281,8 +284,17 @@ function PricingRuleCard(
                   <>
                     {tier.prices.map((price) => {
                       const variable = BILLING_VARS.find(
-                        (variable) => variable.key === price.variable
+                        (entry) => entry.key === price.variable
                       )
+                      // A second-unit coefficient is shown as its per-second price.
+                      const perSecond = variable?.unit === 'second'
+                      const amount =
+                        perSecond && price.value !== ''
+                          ? billingVarUnitPrice(
+                              price.variable,
+                              Number(price.value)
+                            )
+                          : price.value
                       return (
                         <span key={price.variable}>
                           {t(
@@ -291,9 +303,8 @@ function PricingRuleCard(
                                   .shortLabel
                               : price.variable
                           )}
-                          :{' '}
-                          {formatPricingAmount(price.value, props.currency) ||
-                            '—'}
+                          : {formatPricingAmount(amount, props.currency) || '—'}
+                          {perSecond && `/${t('second')}`}
                         </span>
                       )
                     })}
