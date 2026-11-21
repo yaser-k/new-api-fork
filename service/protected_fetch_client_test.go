@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -314,4 +317,38 @@ func TestProtectedFetchRoundTripperReusesTransportPerProxy(t *testing.T) {
 	require.NotSame(t, direct, proxied)
 	require.True(t, direct.ForceAttemptHTTP2)
 	require.False(t, direct.DisableKeepAlives)
+}
+
+// A download from a user-supplied URL whose host accepts the connection and then never answers gives up with a timeout
+// instead of holding the request until the process restarts.
+func TestDoDownloadRequestGivesUpOnASilentHost(t *testing.T) {
+	configureSSRFTestFetchSetting(t)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+
+	fetchSetting := system_setting.GetFetchSetting()
+	fetchSetting.AllowPrivateIp = true
+	fetchSetting.AllowedPorts = []string{mustParseURL(t, server.URL).Port()}
+	originalClient, originalTimeout := ssrfProtectedHTTPClient, constant.FileDownloadTimeoutSeconds
+	t.Cleanup(func() {
+		ssrfProtectedHTTPClient, constant.FileDownloadTimeoutSeconds = originalClient, originalTimeout
+	})
+	ssrfProtectedHTTPClient = newProtectedFetchHTTPClient()
+	constant.FileDownloadTimeoutSeconds = 1
+
+	resp, err := DoDownloadRequest(server.URL+"/image.png", "test")
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	var netErr net.Error
+	require.ErrorAs(t, err, &netErr)
+	assert.True(t, netErr.Timeout())
 }
