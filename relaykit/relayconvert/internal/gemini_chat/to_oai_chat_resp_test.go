@@ -324,3 +324,27 @@ func TestGeminiToChatStreamGroundingArrivingLaterMatchesVerbatimText(t *testing.
 		{start: 5, end: 6, text: "晴"},
 	}, citations)
 }
+
+// The streaming converter reports every text-like part of an event that
+// carries a thought as reasoning. Gemini splits thought text across parts at
+// arbitrary points, as it does answer text, so those parts join verbatim.
+func TestGeminiChat2OpenAIJoinsThoughtPartsVerbatim(t *testing.T) {
+	response := &dto.GeminiChatResponse{
+		Candidates: []dto.GeminiChatCandidate{{Content: dto.GeminiChatContent{Role: "model", Parts: []dto.GeminiPart{
+			{Text: "Thinking.", Thought: true},
+			{Text: "Answer "},
+			{Text: "here."},
+		}}}},
+	}
+
+	converted := ResponseGeminiChat2OpenAI("chatcmpl-test", 1, response)
+	require.Len(t, converted.Choices, 1)
+	assert.Equal(t, "Answer here.", converted.Choices[0].Message.StringContent())
+	assert.Equal(t, "Thinking.", converted.Choices[0].Message.GetReasoningContent())
+
+	streamed, _ := StreamResponseGeminiChat2OpenAI(response)
+	require.NotNil(t, streamed)
+	require.Len(t, streamed.Choices, 1)
+	assert.Empty(t, streamed.Choices[0].Delta.GetContentString())
+	assert.Equal(t, "Thinking.Answer here.", streamed.Choices[0].Delta.GetReasoningContent())
+}

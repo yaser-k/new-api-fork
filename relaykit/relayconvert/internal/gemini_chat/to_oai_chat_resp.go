@@ -261,7 +261,9 @@ func streamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 				}
 			} else if part.Thought {
 				isThought = true
-				writeSep(false)
+				// Thought text is split across parts like answer text, so it
+				// joins its neighbouring text verbatim too.
+				writeSep(true)
 				content.WriteString(part.Text)
 			} else {
 				if part.ExecutableCode != nil {
