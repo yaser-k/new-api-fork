@@ -38,6 +38,7 @@ function renderUpgradeBadge(): void {
         latest: '1.3.0',
         versions: [{ version: '1.3.0', path: 'plugin.js' }],
       }}
+      kind='task'
       installState={{
         status: 'upgradable',
         installedVersion: '1.2.3',
