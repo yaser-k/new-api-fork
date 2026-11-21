@@ -76,6 +76,11 @@ func serveDistribute(t *testing.T, method, path, body string, setup func(c *gin.
 func TestDistributeAnswersRetiredModelWithGone(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	withModelRetirements(t, testRetirementList)
+	// A request that wrongly reaches channel selection fails the assertions
+	// below instead of reading a database the test does not open.
+	previousCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousCacheEnabled })
 
 	// The bodies are compared byte for byte, as the encoder writes them.
 	openAI := func(message string) string {
@@ -135,6 +140,9 @@ func TestDistributeAnswersRetiredModelWithGone(t *testing.T) {
 func TestDistributeAnswersModelWithoutSuccessorInTheReadersLanguage(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	withModelRetirements(t, testRetirementList)
+	previousCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() { common.MemoryCacheEnabled = previousCacheEnabled })
 
 	for _, tc := range []struct {
 		acceptLanguage, message string
