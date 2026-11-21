@@ -201,6 +201,12 @@ function buildTypeDetailSegments(
   }
   const isTieredExpr = other.billing_mode === 'tiered_expr'
   const tieredSummary = getTieredBillingSummary(other, log.model_name)
+  // The server withholds the expression and the tier of an internal row from
+  // a reader who is not an administrator; such a row names its billing mode.
+  const tieredFallbackText =
+    !other.matched_tier && !other.expr_b64
+      ? t('Dynamic Pricing')
+      : `${t('Dynamic Pricing')} · ${other.matched_tier || t('Special billing expression')}`
   if (isTieredExpr && other.is_task) {
     const tiers = parseTaskTiersFromExpr(
       decodeBillingExprB64(other.expr_b64),
@@ -230,7 +236,7 @@ function buildTypeDetailSegments(
       })
     } else {
       segments.push({
-        text: `${t('Dynamic Pricing')} · ${other.matched_tier || t('Special billing expression')}`,
+        text: tieredFallbackText,
         muted: true,
       })
     }
@@ -290,7 +296,7 @@ function buildTypeDetailSegments(
       }
     } else {
       segments.push({
-        text: `${t('Dynamic Pricing')} · ${other.matched_tier || t('Special billing expression')}`,
+        text: tieredFallbackText,
         muted: true,
       })
     }
