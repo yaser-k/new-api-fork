@@ -20,19 +20,19 @@ func TestPricingVisibleGroups(t *testing.T) {
 		name       string
 		showAll    bool
 		wantGroups map[string]string
-		wantModels []string
+		wantModels map[string][]string
 	}{
 		{
 			name:       "usable groups only by default",
 			showAll:    false,
 			wantGroups: map[string]string{"default": "Default"},
-			wantModels: []string{"shared"},
+			wantModels: map[string][]string{"shared": {"default"}},
 		},
 		{
 			name:       "every group with a ratio when enabled",
 			showAll:    true,
 			wantGroups: map[string]string{"default": "Default", "premium": "premium"},
-			wantModels: []string{"shared", "premium-only"},
+			wantModels: map[string][]string{"shared": {"default", "premium"}, "premium-only": {"premium"}},
 		},
 	}
 
@@ -41,9 +41,9 @@ func TestPricingVisibleGroups(t *testing.T) {
 			groups := pricingVisibleGroups(usable, ratios, tt.showAll)
 			assert.Equal(t, tt.wantGroups, groups)
 
-			var models []string
+			models := map[string][]string{}
 			for _, item := range filterPricingByUsableGroups(pricing, groups) {
-				models = append(models, item.ModelName)
+				models[item.ModelName] = item.EnableGroup
 			}
 			assert.Equal(t, tt.wantModels, models)
 			assert.Equal(t, map[string]string{"default": "Default"}, usable, "the viewer's usable groups must not change")
