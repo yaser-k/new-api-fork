@@ -494,6 +494,76 @@ func TestGeminiChatHandlerMissingUsageMetadataBuildsEstimatedBillingUsage(t *tes
 	require.True(t, common.GetContextKeyBool(c, constant.ContextKeyLocalCountTokens))
 }
 
+// TestGeminiChatAnswersLeaveOutBillingUsage relays one Gemini answer, buffered
+// and streamed, to a Chat Completions client: its usage never carries
+// billing_usage, while the usage handed to settlement keeps it.
+func TestGeminiChatAnswersLeaveOutBillingUsage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldStreamingTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 300
+	t.Cleanup(func() { constant.StreamingTimeout = oldStreamingTimeout })
+
+	answer := `{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":300,"totalTokenCount":1500,"cachedContentTokenCount":200}}`
+
+	for _, tc := range []struct {
+		name   string
+		stream bool
+	}{{name: "buffered"}, {name: "streamed", stream: true}} {
+		stream := tc.stream
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{
+				RelayFormat:        types.RelayFormatOpenAI,
+				IsStream:           stream,
+				ShouldIncludeUsage: true,
+				ChannelMeta:        &relaycommon.ChannelMeta{UpstreamModelName: "gemini-3-flash-preview"},
+			}
+
+			var usage *dto.Usage
+			var newAPIError *types.NewAPIError
+			if stream {
+				usage, newAPIError = GeminiChatStreamHandler(c, info, &http.Response{Body: io.NopCloser(strings.NewReader("data: " + answer + "\n\ndata: [DONE]\n"))})
+			} else {
+				usage, newAPIError = GeminiChatHandler(c, info, &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(answer))})
+			}
+			require.Nil(t, newAPIError)
+
+			usageSeen := false
+			for data := range strings.SplitSeq(recorder.Body.String(), "\n") {
+				if stream {
+					var ok bool
+					if data, ok = strings.CutPrefix(data, "data: "); !ok || data == "[DONE]" {
+						continue
+					}
+				} else if strings.TrimSpace(data) == "" {
+					continue
+				}
+				var clientAnswer struct {
+					Usage map[string]any `json:"usage"`
+				}
+				require.NoError(t, common.UnmarshalJsonStr(data, &clientAnswer), data)
+				if clientAnswer.Usage == nil {
+					continue
+				}
+				usageSeen = true
+				assert.NotContains(t, clientAnswer.Usage, "billing_usage")
+				assert.Equal(t, clientAnswer.Usage["completion_tokens"], clientAnswer.Usage["output_tokens"])
+			}
+			require.True(t, usageSeen, "the client answer must report usage")
+
+			require.NotNil(t, usage)
+			require.NotNil(t, usage.BillingUsage, "settlement keeps the upstream's own usage")
+			settled, ok := usage.BillingUsage.CanonicalUsage()
+			require.True(t, ok)
+			assert.Equal(t, 1200, settled.PromptTokens)
+			assert.Equal(t, 300, settled.CompletionTokens)
+			assert.Equal(t, 200, settled.PromptTokensDetails.CachedTokens)
+		})
+	}
+}
+
 func TestGeminiStreamHandlerPromptOnlyUsageMetadataEstimatesCompletionTokens(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

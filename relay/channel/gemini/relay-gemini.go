@@ -188,6 +188,11 @@ func streamResponseGeminiChat2OpenAI(geminiResponse *dto.GeminiChatResponse) (*d
 }
 
 func handleStream(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.ChatCompletionsStreamResponse) error {
+	// A Chat client gets this chunk as written; other formats convert it from
+	// the full usage.
+	if info.RelayFormat == types.RelayFormatOpenAI {
+		resp = resp.ForClient()
+	}
 	streamData, err := common.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("failed to marshal stream response: %w", err)
@@ -480,7 +485,7 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		responseBody, err = common.Marshal(fullTextResponse)
+		responseBody, err = common.Marshal(fullTextResponse.ForClient())
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
@@ -543,7 +548,7 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	} else {
 		usage = service.ResponseText2Usage(c, "", info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}
-	openAIResponse.Usage = *usage
+	openAIResponse.Usage = *usage.ClientUsage()
 
 	jsonResponse, jsonErr := common.Marshal(openAIResponse)
 	if jsonErr != nil {

@@ -53,6 +53,17 @@ func (o *OpenAITextResponse) GetOpenAIError() *types.OpenAIError {
 	return GetOpenAIError(o.Error)
 }
 
+// ForClient returns the answer as the client receives it, with its usage from
+// ClientChatUsage. The answer itself is not changed.
+func (o *OpenAITextResponse) ForClient() *OpenAITextResponse {
+	if o == nil {
+		return nil
+	}
+	client := *o
+	client.Usage = *o.Usage.ClientChatUsage()
+	return &client
+}
+
 type OpenAIEmbeddingResponseItem struct {
 	Object    string    `json:"object"`
 	Index     int       `json:"index"`
@@ -154,6 +165,17 @@ type ChatCompletionsStreamResponse struct {
 	Usage             *Usage                                `json:"usage"`
 }
 
+// ForClient returns the chunk as the client receives it, with its usage from
+// ClientChatUsage. The chunk itself is not changed.
+func (c *ChatCompletionsStreamResponse) ForClient() *ChatCompletionsStreamResponse {
+	if c == nil || c.Usage == nil {
+		return c
+	}
+	client := *c
+	client.Usage = c.Usage.ClientChatUsage()
+	return &client
+}
+
 func (c *ChatCompletionsStreamResponse) IsFinished() bool {
 	if len(c.Choices) == 0 {
 		return false
@@ -253,6 +275,35 @@ type Usage struct {
 	// in memory only, and priced by a billing expression that names vid_sec:
 	// the seconds as reported, at a coefficient per 1M seconds.
 	InputVideoSeconds float64 `json:"-"`
+}
+
+// ClientUsage returns a copy of the usage as an answer to the client reports
+// it. usage_semantic, usage_source and billing_usage are the server's own
+// accounting: settlement reads them from the original, and the copy leaves
+// them out.
+func (u *Usage) ClientUsage() *Usage {
+	if u == nil {
+		return nil
+	}
+	client := *u
+	client.UsageSemantic = ""
+	client.UsageSource = ""
+	client.BillingUsage = nil
+	return &client
+}
+
+// ClientChatUsage is ClientUsage for a Chat Completions answer, which counts
+// prompt_tokens and completion_tokens. The input_tokens and output_tokens this
+// struct also writes repeat those two counts, instead of the server's own input
+// total next to an output count it never sets.
+func (u *Usage) ClientChatUsage() *Usage {
+	client := u.ClientUsage()
+	if client == nil {
+		return nil
+	}
+	client.InputTokens = client.PromptTokens
+	client.OutputTokens = client.CompletionTokens
+	return client
 }
 
 type OpenAIVideoResponse struct {
@@ -393,6 +444,17 @@ type OpenAIResponsesResponse struct {
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构
 func (o *OpenAIResponsesResponse) GetOpenAIError() *types.OpenAIError {
 	return GetOpenAIError(o.Error)
+}
+
+// ForClient returns the response as the client receives it, with its usage
+// from ClientUsage. The response itself is not changed.
+func (o *OpenAIResponsesResponse) ForClient() *OpenAIResponsesResponse {
+	if o == nil || o.Usage == nil {
+		return o
+	}
+	client := *o
+	client.Usage = o.Usage.ClientUsage()
+	return &client
 }
 
 type IncompleteDetails struct {
@@ -636,6 +698,13 @@ type ResponsesStreamResponse struct {
 	SummaryIndex *int                           `json:"summary_index,omitempty"`
 	ItemID       string                         `json:"item_id,omitempty"`
 	Part         *ResponsesReasoningSummaryPart `json:"part,omitempty"`
+}
+
+// ForClient returns the event as the client receives it, with the usage of its
+// response from ClientUsage. The event itself is not changed.
+func (r ResponsesStreamResponse) ForClient() ResponsesStreamResponse {
+	r.Response = r.Response.ForClient()
+	return r
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构

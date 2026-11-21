@@ -177,3 +177,37 @@ func TestBillingUsageJSONUsesProtocolNamedFields(t *testing.T) {
 	assert.Nil(t, clone.ClaudeUsage.BillingUsage)
 	assert.Nil(t, clone.GeminiUsageMetadata.BillingUsage)
 }
+
+func TestClientUsageLeavesOutServerAccountingAndKeepsTheOriginal(t *testing.T) {
+	original := &Usage{
+		PromptTokens:     47,
+		CompletionTokens: 5,
+		TotalTokens:      52,
+		InputTokens:      47,
+		UsageSemantic:    BillingUsageSemanticOpenAI,
+		UsageSource:      BillingUsageSemanticAnthropic,
+		BillingUsage:     NewClaudeMessagesBillingUsage(&ClaudeUsage{InputTokens: 10, OutputTokens: 5}),
+	}
+	billingUsage := original.BillingUsage
+
+	for name, client := range map[string]*Usage{
+		"responses": original.ClientUsage(),
+		"chat":      original.ClientChatUsage(),
+	} {
+		encoded, err := kitutil.Marshal(client)
+		require.NoError(t, err, name)
+		for _, internal := range []string{"usage_semantic", "usage_source", "billing_usage"} {
+			assert.NotContains(t, string(encoded), `"`+internal+`"`, name)
+		}
+	}
+	chat := original.ClientChatUsage()
+	assert.Equal(t, 47, chat.InputTokens)
+	assert.Equal(t, 5, chat.OutputTokens)
+	assert.Equal(t, 0, original.ClientUsage().OutputTokens, "a Responses usage keeps its own input and output counts")
+
+	assert.Equal(t, BillingUsageSemanticOpenAI, original.UsageSemantic)
+	assert.Equal(t, BillingUsageSemanticAnthropic, original.UsageSource)
+	assert.Same(t, billingUsage, original.BillingUsage)
+	assert.Equal(t, 0, original.OutputTokens)
+	assert.Nil(t, (*Usage)(nil).ClientChatUsage())
+}
