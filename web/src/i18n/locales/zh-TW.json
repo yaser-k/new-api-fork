@@ -6778,6 +6778,7 @@
     "This model has both fixed price and ratio billing conflicts": "此模型同時存在固定價格和比例收費衝突",
     "This model has both fixed-price and ratio settings. Saving the current mode will rewrite the conflicting fields.": "該模型同時存在固定價格和比例設定。儲存目前模式會重寫衝突欄位。",
     "This model has both fixed-price and token-price settings. Saving the current mode will rewrite the conflicting fields.": "該模型同時存在固定價格和按 token 價格設定。儲存目前模式會重寫衝突欄位。",
+    "This model has no replacement.": "此模型沒有替代模型。",
     "This model has provider-specific billing and must be converted manually.": "此模型使用供應商專用計費邏輯，需手動轉換。",
     "This model is already set": "此模型已設定",
     "This model is billed by usage, but the administrator has not configured its pricing yet.": "此模型按用量計費，但管理員尚未設定價格。",

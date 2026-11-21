@@ -52,6 +52,15 @@ export function getSortLabels(t: TFunction): Record<SortOption, string> {
 /** Filter values */
 export const FILTER_ALL = 'all'
 
+/**
+ * Model tag values for a model's status, offered beside the models' own tags
+ * when some models are retired. The prefix keeps them apart from model tags.
+ */
+export const MODEL_STATUS_TAGS = {
+  ACTIVE: 'status:active',
+  RETIRED: 'status:retired',
+} as const
+
 /** Quota type options */
 export const QUOTA_TYPES = {
   ALL: 'all',
