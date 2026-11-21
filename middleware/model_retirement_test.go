@@ -20,10 +20,14 @@ import (
 
 const testRetirementList = `{
 	"old-model": {"retired_at": "2026-09-30", "successor": "new-model", "notice_url": "https://example.com/retirements/old-model"},
-	"plain-old-model": {"retired_at": "2026-08-01", "successor": "new-model"}
+	"plain-old-model": {"retired_at": "2026-08-01", "successor": "new-model"},
+	"last-model": {"retired_at": "2026-07-15", "notice_url": "https://example.com/retirements/last-model"},
+	"plain-last-model": {"retired_at": "2026-06-01", "successor": ""}
 }`
 
 const testRetiredMessage = "The model 'old-model' was retired on 2026-09-30. Use 'new-model' instead. See https://example.com/retirements/old-model."
+
+const testNoSuccessorMessage = "The model 'last-model' was retired on 2026-07-15 and has no successor. See https://example.com/retirements/last-model."
 
 func withModelRetirements(t *testing.T, value string) {
 	t.Helper()
@@ -73,11 +77,12 @@ func TestDistributeAnswersRetiredModelWithGone(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	withModelRetirements(t, testRetirementList)
 
+	// The bodies are compared byte for byte, as the encoder writes them.
 	openAI := func(message string) string {
-		return fmt.Sprintf(`{"error":{"message":%q,"type":"new_api_error","code":"model_retired"}}`, message)
+		return fmt.Sprintf(`{"error":{"code":"model_retired","message":%q,"type":"new_api_error"}}`, message)
 	}
 	anthropic := func(message string) string {
-		return fmt.Sprintf(`{"type":"error","error":{"type":"model_retired","message":%q}}`, message)
+		return fmt.Sprintf(`{"error":{"message":%q,"type":"model_retired"},"type":"error"}`, message)
 	}
 	google := func(message string) string {
 		return fmt.Sprintf(`{"error":{"code":410,"message":%q,"status":"NOT_FOUND"}}`, message)
@@ -100,6 +105,15 @@ func TestDistributeAnswersRetiredModelWithGone(t *testing.T) {
 		{"gemini generate", "/v1beta/models/old-model:generateContent", `{"contents":[]}`, google, testRetiredMessage},
 		{"gemini stream", "/v1beta/models/old-model:streamGenerateContent", `{"contents":[]}`, google, testRetiredMessage},
 		{"gemini on v1", "/v1/models/old-model:generateContent", `{"contents":[]}`, google, testRetiredMessage},
+		{"no successor", "/v1/chat/completions", `{"model":"last-model","messages":[]}`, openAI, testNoSuccessorMessage},
+		{"no successor, streaming", "/v1/chat/completions", `{"model":"last-model","stream":true,"messages":[]}`, openAI, testNoSuccessorMessage},
+		{"no successor, responses", "/v1/responses", `{"model":"last-model","input":"hi","stream":true}`, openAI, testNoSuccessorMessage},
+		{"no successor, without notice url", "/v1/chat/completions", `{"model":"plain-last-model"}`, openAI, "The model 'plain-last-model' was retired on 2026-06-01 and has no successor."},
+		{"no successor, modifier variant", "/v1/chat/completions", `{"model":"last-model@thinking:on"}`, openAI, testNoSuccessorMessage},
+		{"no successor, anthropic messages", "/v1/messages", `{"model":"last-model","max_tokens":1,"messages":[]}`, anthropic, testNoSuccessorMessage},
+		{"no successor, streaming anthropic messages", "/v1/messages", `{"model":"last-model","stream":true,"max_tokens":1,"messages":[]}`, anthropic, testNoSuccessorMessage},
+		{"no successor, gemini generate", "/v1beta/models/last-model:generateContent", `{"contents":[]}`, google, testNoSuccessorMessage},
+		{"no successor, gemini stream", "/v1beta/models/last-model:streamGenerateContent", `{"contents":[]}`, google, testNoSuccessorMessage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			selections := countChannelSelections(t)
@@ -111,7 +125,38 @@ func TestDistributeAnswersRetiredModelWithGone(t *testing.T) {
 			assert.True(t, strings.HasPrefix(recorder.Header().Get("Content-Type"), "application/json"))
 			requestID := recorder.Header().Get(common.RequestIdKey)
 			require.NotEmpty(t, requestID)
-			assert.JSONEq(t, tc.shape(tc.message+" (request id: "+requestID+")"), recorder.Body.String())
+			assert.Equal(t, tc.shape(tc.message+" (request id: "+requestID+")"), recorder.Body.String())
+		})
+	}
+}
+
+// The answer for a model retired with no successor is written in the reader's
+// language, the notice sentence after it as with a successor.
+func TestDistributeAnswersModelWithoutSuccessorInTheReadersLanguage(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	withModelRetirements(t, testRetirementList)
+
+	for _, tc := range []struct {
+		acceptLanguage, message string
+	}{
+		{"fa-IR,fa;q=0.9", "مدل «⁨last-model⁩» در ⁨2026-07-15⁩ کنار گذاشته شده است و مدل جایگزینی ندارد. به ⁨https://example.com/retirements/last-model⁩ مراجعه کنید."},
+		{"zh-CN", "模型 'last-model' 已于 2026-07-15 下线，没有替代模型。 详见 https://example.com/retirements/last-model。"},
+		{"zh-TW", "模型 'last-model' 已於 2026-07-15 下線，沒有替代模型。 詳見 https://example.com/retirements/last-model。"},
+	} {
+		t.Run(tc.acceptLanguage, func(t *testing.T) {
+			recorder, relayed := serveDistribute(t, http.MethodPost, "/v1/chat/completions", `{"model":"last-model"}`, func(c *gin.Context) {
+				c.Request.Header.Set("Accept-Language", tc.acceptLanguage)
+			})
+
+			require.Equal(t, http.StatusGone, recorder.Code)
+			assert.False(t, relayed)
+			var body struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+			assert.Equal(t, tc.message+" (request id: "+recorder.Header().Get(common.RequestIdKey)+")", body.Error.Message)
 		})
 	}
 }

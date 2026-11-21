@@ -35,6 +35,7 @@ const (
 	MsgDistributorNoAvailableChannelTaskPlugin = "distributor.no_available_channel_task_plugin"
 	MsgDistributorInvalidParseModel            = "distributor.invalid_request_parse_model"
 	MsgDistributorModelRetired                 = "distributor.model_retired"
+	MsgDistributorModelRetiredNoSuccessor      = "distributor.model_retired_no_successor"
 	MsgDistributorModelRetiredNotice           = "distributor.model_retired_notice"
 
 	MsgQuotaUserInsufficient             = "quota.user_insufficient"

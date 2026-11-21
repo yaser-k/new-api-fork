@@ -27,6 +27,7 @@ distributor.no_available_channel: "برای مدل ⁨{{.Model}}⁩ در گرو�
 distributor.no_available_channel_task_plugin: "برای مدل ⁨{{.Model}}⁩ در گروه ⁨{{.Group}}⁩ هیچ کانالی در دسترس نیست: این مدل در اختیار یک افزونۀ وظیفه است که هیچ کانال فعالی برای آن ندارد (distributor)"
 distributor.invalid_request_parse_model: "درخواست نامعتبر است؛ تشخیص مدل ممکن نیست"
 distributor.model_retired: "مدل «⁨{{.Model}}⁩» در ⁨{{.RetiredAt}}⁩ کنار گذاشته شده است. به‌جای آن از «⁨{{.Successor}}⁩» استفاده کنید."
+distributor.model_retired_no_successor: "مدل «⁨{{.Model}}⁩» در ⁨{{.RetiredAt}}⁩ کنار گذاشته شده است و مدل جایگزینی ندارد."
 distributor.model_retired_notice: "به ⁨{{.NoticeURL}}⁩ مراجعه کنید."
 quota.user_insufficient: "سهمیۀ کاربر کافی نیست؛ سهمیۀ باقی‌مانده: ⁨{{.Remaining}}⁩"
 quota.pre_consume_insufficient: "سهمیه برای پیش‌کسر این درخواست کافی نیست: ⁨{{.Remaining}}⁩ باقی مانده و ⁨{{.Required}}⁩ لازم است"

@@ -31,11 +31,19 @@ func lookupModelRetirement(modelName string) (string, operation_setting.ModelRet
 }
 
 func modelRetiredMessage(c *gin.Context, modelName string, retirement operation_setting.ModelRetirement) string {
-	message := i18n.T(c, i18n.MsgDistributorModelRetired, map[string]any{
-		"Model":     modelName,
-		"RetiredAt": retirement.RetiredAt,
-		"Successor": retirement.Successor,
-	})
+	var message string
+	if retirement.Successor == "" {
+		message = i18n.T(c, i18n.MsgDistributorModelRetiredNoSuccessor, map[string]any{
+			"Model":     modelName,
+			"RetiredAt": retirement.RetiredAt,
+		})
+	} else {
+		message = i18n.T(c, i18n.MsgDistributorModelRetired, map[string]any{
+			"Model":     modelName,
+			"RetiredAt": retirement.RetiredAt,
+			"Successor": retirement.Successor,
+		})
+	}
 	if retirement.NoticeURL != "" {
 		message += " " + i18n.T(c, i18n.MsgDistributorModelRetiredNotice, map[string]any{"NoticeURL": retirement.NoticeURL})
 	}
