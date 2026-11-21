@@ -47,12 +47,16 @@ function RetirementNoticeLink(props: { url: string }) {
   )
 }
 
-/** The successor of a retired model, as a link to its page. */
+/**
+ * The successor of a retired model, as a link to its page; nothing for a
+ * model retired with no successor.
+ */
 export function RetiredModelSuccessor(props: {
   model: RetiredModel
   className?: string
 }) {
   const { t } = useTranslation()
+  if (!props.model.successor) return null
   return (
     <span className={props.className}>
       {t('Use instead')}:{' '}
@@ -137,13 +141,17 @@ export function RetiredModelNotice(props: { model: RetiredModel }) {
             { date: props.model.retired_at }
           )}
         </p>
-        <p className='text-sm'>
-          {t('Use instead')}:{' '}
-          <ModelLink
-            modelName={props.model.successor}
-            className='font-mono font-semibold'
-          />
-        </p>
+        {props.model.successor ? (
+          <p className='text-sm'>
+            {t('Use instead')}:{' '}
+            <ModelLink
+              modelName={props.model.successor}
+              className='font-mono font-semibold'
+            />
+          </p>
+        ) : (
+          <p className='text-sm'>{t('This model has no replacement.')}</p>
+        )}
         {props.model.note && (
           <p className='text-muted-foreground text-sm'>{props.model.note}</p>
         )}

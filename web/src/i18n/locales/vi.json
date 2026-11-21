@@ -6741,6 +6741,7 @@
     "This model has both fixed price and ratio billing conflicts": "Mô hình này có cả mâu thuẫn về thanh toán theo giá cố định và theo tỷ lệ.",
     "This model has both fixed-price and ratio settings. Saving the current mode will rewrite the conflicting fields.": "Mô hình này có cả giá cố định và cài đặt tỷ lệ. Lưu chế độ hiện tại sẽ ghi lại các trường xung đột.",
     "This model has both fixed-price and token-price settings. Saving the current mode will rewrite the conflicting fields.": "Mô hình này có cả giá cố định và cài đặt giá theo token. Lưu chế độ hiện tại sẽ ghi lại các trường xung đột.",
+    "This model has no replacement.": "Mô hình này không có mô hình thay thế.",
     "This model has provider-specific billing and must be converted manually.": "Mô hình này có cách tính phí riêng của nhà cung cấp và cần được chuyển đổi thủ công.",
     "This model is already set": "Mô hình này đã được đặt",
     "This model is billed by usage, but the administrator has not configured its pricing yet.": "Mô hình này được tính phí theo mức sử dụng, nhưng quản trị viên chưa cấu hình giá.",

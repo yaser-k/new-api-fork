@@ -6741,6 +6741,7 @@
     "This model has both fixed price and ratio billing conflicts": "Ce modèle présente des conflits de facturation à la fois en prix fixe et au ratio",
     "This model has both fixed-price and ratio settings. Saving the current mode will rewrite the conflicting fields.": "Ce modèle possède à la fois un prix fixe et des paramètres de ratio. L’enregistrement du mode actuel réécrira les champs en conflit.",
     "This model has both fixed-price and token-price settings. Saving the current mode will rewrite the conflicting fields.": "Ce modèle possède à la fois un prix fixe et des prix par token. L’enregistrement du mode actuel réécrira les champs en conflit.",
+    "This model has no replacement.": "Ce modèle n'a pas de modèle de remplacement.",
     "This model has provider-specific billing and must be converted manually.": "Ce modèle utilise une facturation propre au fournisseur et doit être converti manuellement.",
     "This model is already set": "Ce modèle est déjà défini",
     "This model is billed by usage, but the administrator has not configured its pricing yet.": "Ce modèle est facturé selon l’utilisation, mais l’administrateur n’a pas encore configuré sa tarification.",

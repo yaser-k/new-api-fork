@@ -5853,6 +5853,7 @@
     "This may take a few moments while we validate the request and update your session.": "بررسی درخواست و به‌روزرسانی نشست شما ممکن است چند لحظه طول بکشد.",
     "This model already uses an expression.": "این مدل هم‌اکنون از عبارت استفاده می‌کند.",
     "This model has both fixed-price and token-price settings. Saving the current mode will rewrite the conflicting fields.": "این مدل هم تنظیمات قیمت ثابت دارد و هم تنظیمات قیمت توکنی. با ذخیرۀ حالت فعلی، فیلدهای متعارض بازنویسی می‌شوند.",
+    "This model has no replacement.": "این مدل جایگزینی ندارد.",
     "This model has provider-specific billing and must be converted manually.": "محاسبۀ هزینۀ این مدل مخصوص ارائه‌دهنده است و باید دستی تبدیل شود.",
     "This model is already set": "این مدل پیش از این تنظیم شده است",
     "This model is billed by usage, but the administrator has not configured its pricing yet.": "هزینۀ این مدل بر اساس مصرف محاسبه می‌شود، اما مدیر هنوز قیمت آن را تنظیم نکرده است.",

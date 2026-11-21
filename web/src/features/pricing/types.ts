@@ -130,6 +130,7 @@ export type RetiredModel = {
   model_name: string
   /** Retirement date, YYYY-MM-DD */
   retired_at: string
+  /** Empty when the model was retired with no successor */
   successor: string
   notice_url?: string
   note?: string

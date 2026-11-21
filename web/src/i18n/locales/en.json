@@ -6753,6 +6753,7 @@
     "This model has both fixed price and ratio billing conflicts": "This model has both fixed price and ratio billing conflicts",
     "This model has both fixed-price and ratio settings. Saving the current mode will rewrite the conflicting fields.": "This model has both fixed-price and ratio settings. Saving the current mode will rewrite the conflicting fields.",
     "This model has both fixed-price and token-price settings. Saving the current mode will rewrite the conflicting fields.": "This model has both fixed-price and token-price settings. Saving the current mode will rewrite the conflicting fields.",
+    "This model has no replacement.": "This model has no replacement.",
     "This model has provider-specific billing and must be converted manually.": "This model has provider-specific billing and must be converted manually.",
     "This model is already set": "This model is already set",
     "This model is billed by usage, but the administrator has not configured its pricing yet.": "This model is billed by usage, but the administrator has not configured its pricing yet.",

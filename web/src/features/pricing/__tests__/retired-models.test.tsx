@@ -110,6 +110,13 @@ const retiredModels: RetiredModel[] = [
   },
 ]
 
+const noSuccessorModel: RetiredModel = {
+  model_name: 'example-model-final',
+  retired_at: '2026-07-15',
+  successor: '',
+  notice_url: 'https://example.com/retirements/example-model-final',
+}
+
 let queryClient: QueryClient
 beforeEach(() => {
   queryClient = new QueryClient({
@@ -265,6 +272,44 @@ describe('pricing page model tags', () => {
     expect(row).not.toHaveTextContent('$')
   })
 
+  it('shows no successor line for a retired model with no successor in the list', async () => {
+    pricing.retiredModels = [noSuccessorModel, ...retiredModels]
+    renderAt('/pricing?tag=status:retired')
+
+    await screen.findByRole('link', { name: 'example-model-final' })
+    const card = retiredCard('example-model-final')
+    expect(within(card).getByText('Retired on 2026-07-15')).toBeVisible()
+    expect(within(card).queryByText(/Use instead/)).not.toBeInTheDocument()
+    expect(
+      within(card)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href'))
+    ).toEqual([
+      '/pricing/example-model-final',
+      'https://example.com/retirements/example-model-final',
+      '/pricing/example-model-final',
+    ])
+    expect(
+      within(retiredCard('example-model-v1')).getByRole('link', {
+        name: 'example-model-v2',
+      })
+    ).toHaveAttribute('href', '/pricing/example-model-v2')
+  })
+
+  it('shows no successor in the table for a retired model with no successor', async () => {
+    pricing.retiredModels = [noSuccessorModel, ...retiredModels]
+    renderAt('/pricing?view=table&tag=status:retired')
+
+    const name = await screen.findByRole('link', {
+      name: 'example-model-final',
+    })
+    const row = name.closest('tr')
+    if (!row) throw new Error('no row')
+    expect(within(row).getByText('Retired on 2026-07-15')).toBeVisible()
+    expect(row).not.toHaveTextContent('Use instead')
+    expect(within(row).getAllByRole('link')).toEqual([name])
+  })
+
   it('keeps upstream behaviour when no model is retired', async () => {
     pricing.retiredModels = []
     renderAt('/pricing')
@@ -323,5 +368,26 @@ describe('retired model page', () => {
       'https://example.com/retirements/example-model-v1'
     )
     expect(screen.queryByText('Base Price')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('This model has no replacement.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('says the model has no replacement instead of a successor line when it has none', async () => {
+    renderAt('/pricing', <RetiredModelNotice model={noSuccessorModel} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'example-model-final' })
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        'This model was retired on 2026-07-15 and can no longer be called.'
+      )
+    ).toBeVisible()
+    expect(screen.getByText('This model has no replacement.')).toBeVisible()
+    expect(screen.queryByText(/Use instead/)).not.toBeInTheDocument()
+    expect(
+      screen.getAllByRole('link').map((link) => link.getAttribute('href'))
+    ).toEqual(['https://example.com/retirements/example-model-final'])
   })
 })
