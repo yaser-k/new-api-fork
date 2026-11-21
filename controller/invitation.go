@@ -173,15 +173,11 @@ func sendInvitation(c *gin.Context, action string, invitation *model.Invitation,
 		lang = i18n.StatedLang(c)
 	}
 	systemName := map[string]any{"SystemName": common.SystemName}
-	linkParams := map[string]any{"Link": link}
 	subject := i18n.Translate(lang, i18n.MsgEmailInvitationSubject, systemName)
-	content := fmt.Sprintf("<p>%s</p>"+
-		"<p>%s</p>"+
-		"<p>%s </p>"+
-		"<p>%s</p>",
+	content := i18n.EmailBody(lang,
 		i18n.Translate(lang, i18n.MsgEmailInvitationGreeting, systemName),
-		i18n.Translate(lang, i18n.MsgEmailInvitationLink, linkParams),
-		i18n.Translate(lang, i18n.MsgEmailInvitationLinkFallback, linkParams),
+		i18n.Translate(lang, i18n.MsgEmailInvitationLink, map[string]any{"Link": link}),
+		i18n.Translate(lang, i18n.MsgEmailInvitationLinkFallback, map[string]any{"Link": i18n.EmailLTR(link)}),
 		i18n.Translate(lang, i18n.MsgEmailInvitationValidity, map[string]any{"Hours": hours}))
 	err := common.SendEmail(subject, invitation.Email, content)
 	// No account exists for the invited address, so the entry has no target user.

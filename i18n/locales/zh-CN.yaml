@@ -51,7 +51,7 @@ relay.response_rejected: "回复被策略中止"
 # Emails and the name of the token created at registration
 user.default_token_name: "{{.Username}}的初始令牌"
 email.verification.subject: "{{.SystemName}}邮箱验证邮件"
-email.verification.greeting: "您好，你正在进行{{.SystemName}}邮箱验证。"
+email.verification.greeting: "您好，你正在验证用于在{{.Site}}注册的邮箱地址。"
 email.verification.code: "您的验证码为: <strong>{{.Code}}</strong>"
 email.verification.validity: "验证码 {{.Minutes}} 分钟内有效，如果不是本人操作，请忽略。"
 email.password_reset.subject: "{{.SystemName}}密码重置"
