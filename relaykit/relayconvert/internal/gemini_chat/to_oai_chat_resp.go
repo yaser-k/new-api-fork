@@ -22,18 +22,42 @@ func UsageFromGeminiMetadata(metadata *dto.GeminiUsageMetadata, fallbackPromptTo
 	}
 
 	promptTokens := metadata.PromptTokenCount + metadata.ToolUsePromptTokenCount
+	billingMetadata := metadata
+	estimatedPrompt := false
+	outputTokens := metadata.CandidatesTokenCount + metadata.ThoughtsTokenCount
+	if metadata.PromptTokenCount <= 0 && outputTokens > 0 {
+		// Gemini can answer promptTokenCount 0 for a prompt it did count, for example one with
+		// a fileData part, while totalTokenCount still holds it. The prompt is then what the
+		// total leaves after the other counts, or the local estimate when that is larger, and
+		// settlement bills it from the carried snapshot, never below the upstream's own total.
+		remainder := metadata.TotalTokenCount - metadata.ToolUsePromptTokenCount - outputTokens
+		promptCount := max(remainder, 0)
+		if promptCount > 0 || metadata.ToolUsePromptTokenCount <= 0 {
+			promptCount = max(promptCount, fallbackPromptTokens)
+		}
+		if promptCount > 0 {
+			derived := *metadata
+			derived.PromptTokenCount = promptCount
+			billingMetadata = &derived
+			promptTokens = promptCount + metadata.ToolUsePromptTokenCount
+			estimatedPrompt = promptCount > remainder
+		}
+	}
 	if promptTokens <= 0 && fallbackPromptTokens > 0 {
 		promptTokens = fallbackPromptTokens
 	}
 
 	usage := &dto.Usage{
 		PromptTokens:     promptTokens,
-		CompletionTokens: metadata.CandidatesTokenCount + metadata.ThoughtsTokenCount,
+		CompletionTokens: outputTokens,
 		TotalTokens:      metadata.TotalTokenCount,
 		BillingUsage:     dto.CloneBillingUsage(metadata.BillingUsage),
 	}
 	if usage.BillingUsage == nil {
-		usage.BillingUsage = dto.NewGeminiChatBillingUsage(metadata)
+		usage.BillingUsage = dto.NewGeminiChatBillingUsage(billingMetadata)
+		if usage.BillingUsage != nil && estimatedPrompt {
+			usage.BillingUsage.Estimated = true
+		}
 	}
 	usage.CompletionTokenDetails.ReasoningTokens = metadata.ThoughtsTokenCount
 	usage.PromptTokensDetails.CachedTokens = metadata.CachedContentTokenCount
