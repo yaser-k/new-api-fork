@@ -44,9 +44,11 @@ const status = {
   invitation_register_enabled: true,
 }
 
-function mockApi(checkSucceeds = true) {
+function mockApi(checkSucceeds = true, extraStatus = {}) {
   const get = vi.spyOn(api, 'get').mockImplementation(async (url) => {
-    if (url === '/api/status') return { data: { success: true, data: status } }
+    if (url === '/api/status') {
+      return { data: { success: true, data: { ...status, ...extraStatus } } }
+    }
     if (url === '/api/invitation/check') {
       return {
         data: checkSucceeds
@@ -188,4 +190,28 @@ it('an invalid invitation token shows one message and a way to sign in, without 
 
   await user.click(screen.getByRole('button', { name: 'Sign in' }))
   await waitFor(() => expect(router.state.location.pathname).toBe('/sign-in'))
+})
+
+it('with the phone number required, the invited sign-up asks for it and posts it with the token', async () => {
+  const user = userEvent.setup()
+  const { post } = mockApi(true, { register_phone_required: true })
+  await renderSignUp(`/sign-up?invite=${token}`)
+
+  expect(await screen.findByLabelText('Email')).toHaveValue(
+    'invitee@example.com'
+  )
+  await fillAccount(user)
+  await user.click(screen.getByRole('button', { name: 'Create account' }))
+  const phone = screen.getByLabelText('Phone number')
+  await waitFor(() => expect(phone).toHaveAttribute('aria-invalid', 'true'))
+  expect(post).not.toHaveBeenCalled()
+
+  await user.type(phone, '+44 7911 123456')
+  await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+  expect(post.mock.calls[0][1]).toMatchObject({
+    invite_token: token,
+    phone: '+44 7911 123456',
+  })
 })

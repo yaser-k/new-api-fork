@@ -63,6 +63,24 @@ const basicAuthSchema = z.object({
   EmailDomainRestrictionEnabled: z.boolean(),
   EmailAliasRestrictionEnabled: z.boolean(),
   EmailDomainWhitelist: z.string(),
+  // The server checks these too; it alone can check the pattern.
+  RegisterPhoneRequiredEnabled: z.boolean(),
+  PhoneCountryCode: z
+    .string()
+    .trim()
+    .regex(
+      /^([1-9]\d{0,2})?$/,
+      'The country calling code must be one to three digits that do not start with 0'
+    ),
+  PhoneTrunkPrefix: z
+    .string()
+    .trim()
+    .regex(/^(\d{1,3})?$/, 'The trunk prefix must be one to three digits'),
+  PhoneNationalNumberPattern: z.string().trim(),
+  RegisterPhoneHint: z
+    .string()
+    .trim()
+    .max(200, 'The phone number hint must be at most 200 characters'),
 })
 
 type BasicAuthFormValues = z.infer<typeof basicAuthSchema>
@@ -252,6 +270,107 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
                   />
                 </FormControl>
               </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='RegisterPhoneRequiredEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Require a phone number at registration')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Sign-up asks for a phone number that no other account holds. While this is on, third-party sign-ins cannot create an account; accounts already linked still sign in with them. Existing accounts without a number keep working. No message is sent to the number.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='PhoneCountryCode'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Country calling code')}</FormLabel>
+                <FormControl>
+                  <Input dir='ltr' inputMode='numeric' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Digits without the plus sign. Leave empty to accept any number written with + and its country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='PhoneTrunkPrefix'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Trunk prefix')}</FormLabel>
+                <FormControl>
+                  <Input dir='ltr' inputMode='numeric' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Written before a national number when it is dialed without the country code. Used only with a country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='PhoneNationalNumberPattern'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('National number pattern')}</FormLabel>
+                <FormControl>
+                  <Input dir='ltr' className='font-mono' {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'A regular expression the whole national number must match, without the country code or the trunk prefix. Used only with a country code.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='RegisterPhoneHint'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Phone number hint')}</FormLabel>
+                <FormControl>
+                  <Input maxLength={200} {...field} />
+                </FormControl>
+                <FormDescription>
+                  {t(
+                    'Shown under the phone field on the sign-up page, as plain text. Leave empty to show none.'
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
             )}
           />
 

@@ -91,6 +91,25 @@ var EmailDomainWhitelist = []string{
 	"yahoo.com",
 	"foxmail.com",
 }
+
+// RegisterPhoneRequiredEnabled asks every sign-up through the registration
+// endpoint for a phone number no other account holds. The other three options
+// describe the accepted numbers (model.PhoneNumberFormat): the country calling
+// code in digits without +, the national trunk prefix, and a regular
+// expression the whole national number matches. Without a country code any
+// number written in international form is accepted.
+var RegisterPhoneRequiredEnabled = false
+var PhoneCountryCode = ""
+var PhoneTrunkPrefix = ""
+var PhoneNationalNumberPattern = ""
+
+// RegisterPhoneHint is a line the administrator writes under the sign-up
+// phone field, shown as plain text; the format options themselves stay off
+// the public status answer.
+var RegisterPhoneHint = ""
+
+const RegisterPhoneHintMaxLength = 200 // characters
+
 var EmailLoginAuthServerList = []string{
 	"smtp.sendcloud.net",
 	"smtp.azurecomm.net",
