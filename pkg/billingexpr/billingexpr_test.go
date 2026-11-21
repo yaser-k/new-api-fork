@@ -384,6 +384,101 @@ func TestRequestProbeNonUnitFallbackIsNotTraced(t *testing.T) {
 	assert.Empty(t, trace.RequestRules)
 }
 
+func TestChannelProbeSelectsTheServingChannelBranch(t *testing.T) {
+	const branches = `channel() == 3 ? tier("route_b", p * 0.72 + c * 2.64) : tier("base", p * 0.6 + c * 2.2)`
+	snap := &billingexpr.BillingSnapshot{
+		BillingMode:   "tiered_expr",
+		ExprString:    branches,
+		ExprHash:      billingexpr.ExprHashString(branches),
+		GroupRatio:    1,
+		EstimatedTier: "base",
+		QuotaPerUnit:  500_000,
+	}
+	params := billingexpr.TokenParams{P: 1000, C: 500, Len: 1000}
+	for _, tc := range []struct {
+		name    string
+		request billingexpr.RequestInput
+		quota   int
+		tier    string
+	}{
+		// route_b: 1000*0.72 + 500*2.64 = 2040; base: 1000*0.6 + 500*2.2 = 1700.
+		{"serving channel matches", billingexpr.RequestInput{ChannelID: 3}, 1020, "route_b"},
+		{"another channel", billingexpr.RequestInput{ChannelID: 5}, 850, "base"},
+		{"no channel known reads 0", billingexpr.RequestInput{}, 850, "base"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, params, tc.request)
+			require.NoError(t, err)
+			assert.Equal(t, tc.quota, result.ActualQuotaAfterGroup)
+			assert.Equal(t, tc.tier, result.MatchedTier)
+			assert.Equal(t, tc.tier != "base", result.CrossedTier)
+		})
+	}
+
+	cost, trace, err := billingexpr.RunExpr(`tier("base", p) * (channel() == 0 ? 2 : 1)`, billingexpr.TokenParams{P: 10})
+	require.NoError(t, err)
+	assert.InDelta(t, 20, cost, 1e-9)
+	assert.Equal(t, []billingexpr.RequestRuleTrace{{Cond: `channel() == 0`, Multiplier: 2, Matched: true}}, trace.RequestRules)
+}
+
+func TestChannelProbeRequestRuleIsTraced(t *testing.T) {
+	const rule = `(tier("base", p * 0.6 + c * 2.2)) * (channel() == 3 ? 1.2 : 1)`
+	for _, tc := range []struct {
+		name    string
+		channel int
+		cost    float64
+		matched bool
+	}{
+		{"matched", 3, 1700 * 1.2, true},
+		{"unmatched", 5, 1700, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cost, trace, err := billingexpr.RunExprWithRequest(rule, billingexpr.TokenParams{P: 1000, C: 500}, billingexpr.RequestInput{ChannelID: tc.channel})
+			require.NoError(t, err)
+			assert.InDelta(t, tc.cost, cost, 1e-6)
+			assert.Equal(t, "base", trace.MatchedTier)
+			assert.Equal(t, []billingexpr.RequestRuleTrace{{Cond: `channel() == 3`, Multiplier: 1.2, Matched: tc.matched}}, trace.RequestRules)
+		})
+	}
+}
+
+// An expression that does not read channel() prices every leaf kind exactly as
+// before, whichever channel serves the request. The quotas are those the
+// expressions produced before channel() existed.
+func TestExpressionsWithoutChannelIgnoreTheServingChannel(t *testing.T) {
+	two := 2
+	for _, tc := range []struct {
+		name    string
+		expr    string
+		params  billingexpr.TokenParams
+		request billingexpr.RequestInput
+		quota   int
+	}{
+		{"token", `tier("base", p * 2.5 + c * 15)`, billingexpr.TokenParams{P: 1234, C: 567, Len: 1234}, billingexpr.RequestInput{}, 8693},
+		{"cached", `len <= 200000 ? tier("standard", p * 3 + c * 15 + cr * 0.3 + cc * 3.75 + cc1h * 6) : tier("long", p * 6 + c * 22.5)`, billingexpr.TokenParams{P: 1001, C: 333, Len: 3000, CR: 777, CC: 555, CC1h: 111}, billingexpr.RequestInput{}, 8234},
+		{"image tokens", `tier("base", p * 2 + c * 8 + img * 2.5 + img_cr * 0.5)`, billingexpr.TokenParams{P: 301, C: 99, Len: 1000, Img: 401, ImgCR: 199}, billingexpr.RequestInput{}, 1872},
+		{"image count", `tier("image", fixed(0.04)) * image_count`, billingexpr.TokenParams{}, billingexpr.RequestInput{ImageCount: &two}, 60000},
+		{"request priced with rule", `(len <= 32000 ? tier("short", fixed(0.01)) : tier("long", p * 2 + c * 8)) * (param("fast") == true ? 2 : 1)`, billingexpr.TokenParams{P: 100, Len: 100}, billingexpr.RequestInput{Body: []byte(`{"fast":true}`)}, 15000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := &billingexpr.BillingSnapshot{
+				BillingMode:  "tiered_expr",
+				ExprString:   tc.expr,
+				ExprHash:     billingexpr.ExprHashString(tc.expr),
+				GroupRatio:   1.5,
+				QuotaPerUnit: 500_000,
+			}
+			for _, channel := range []int{0, 3, 5} {
+				request := tc.request
+				request.ChannelID = channel
+				result, err := billingexpr.ComputeTieredQuotaWithRequest(snap, tc.params, request)
+				require.NoError(t, err)
+				assert.Equal(t, tc.quota, result.ActualQuotaAfterGroup, "channel %d", channel)
+			}
+		})
+	}
+}
+
 func TestRequestProbeInternalTraceFunctionIsReserved(t *testing.T) {
 	_, err := billingexpr.CompileFromCache(`_trace(0, true, 5.0)`)
 
