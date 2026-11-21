@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"maps"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -35,9 +38,29 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 	return filtered
 }
 
+// pricingVisibleGroups returns the groups whose models and ratios the pricing
+// page lists. By default these are the groups the viewer may use. With
+// showAll, every group that has a group ratio is added, named by itself.
+// It only widens what is displayed: which groups a user may use is still
+// decided by service.GetUserUsableGroups.
+func pricingVisibleGroups(usableGroup map[string]string, groupRatio map[string]float64, showAll bool) map[string]string {
+	visible := make(map[string]string, len(usableGroup)+len(groupRatio))
+	maps.Copy(visible, usableGroup)
+	if !showAll {
+		return visible
+	}
+	for group := range groupRatio {
+		if _, ok := visible[group]; !ok {
+			visible[group] = group
+		}
+	}
+	return visible
+}
+
 func GetPricing(c *gin.Context) {
 	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-	usableGroup := service.GetUserUsableGroups(userGroup)
+	usableGroup := pricingVisibleGroups(service.GetUserUsableGroups(userGroup), ratio_setting.GetGroupRatioCopy(),
+		operation_setting.IsPricingShowAllGroups())
 	pricing := filterPricingByUsableGroups(model.GetPricing(), usableGroup)
 	groupRatio := ratio_setting.GetGroupRatioCopy()
 	for group := range groupRatio {
