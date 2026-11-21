@@ -29,6 +29,7 @@ import ru from './locales/ru.json'
 import vi from './locales/vi.json'
 import zhTW from './locales/zh-TW.json'
 import zhCN from './locales/zh.json'
+import { localeNumberFormatter } from './number-interpolation'
 
 export const resources = {
   en,
@@ -44,6 +45,7 @@ export const resources = {
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
+  .use(localeNumberFormatter)
   .init({
     resources,
     // Partial locales (see PARTIAL_INTERFACE_LANGUAGES) rely on this per-key
