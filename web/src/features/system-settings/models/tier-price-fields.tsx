@@ -275,7 +275,7 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
                     key={mode}
                     value={mode}
                     aria-label={t(option.label)}
-                    className='aria-pressed:border-primary aria-pressed:bg-accent h-auto min-h-14 min-w-0 flex-col items-start gap-1 px-3 py-2 text-left whitespace-normal'
+                    className='aria-pressed:border-primary aria-pressed:bg-accent h-auto min-h-14 min-w-0 flex-col items-start gap-1 px-3 py-2 text-start whitespace-normal'
                   >
                     <span className='text-xs font-medium'>
                       {t(option.label)}
@@ -322,7 +322,7 @@ export function TierPriceFields(props: TierPriceFieldsProps) {
         >
           <ChevronDown
             className={cn(
-              'mr-1 h-3 w-3 transition-transform',
+              'me-1 h-3 w-3 transition-transform',
               mediaOpen && 'rotate-180'
             )}
           />

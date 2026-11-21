@@ -177,7 +177,7 @@ function UnconfiguredTaskPricingNotice(props: { model: PricingModel }) {
               <dt className='text-sm'>
                 <code>{field}</code>
               </dt>
-              <dd className='text-muted-foreground text-right text-xs'>
+              <dd className='text-muted-foreground text-end text-xs'>
                 {(definition.enum ?? []).join(', ')}
               </dd>
             </div>
@@ -786,7 +786,7 @@ function PriceSection(props: {
                   </div>
                   <div className='text-foreground mt-1 font-mono text-base font-semibold tabular-nums'>
                     {entry.formattedRange ?? entry.formatted}
-                    <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                    <span className='text-muted-foreground/40 ms-1 text-xs font-normal'>
                       / {unitLabel}
                     </span>
                   </div>
@@ -821,7 +821,7 @@ function PriceSection(props: {
                     </span>
                     <span className='text-muted-foreground font-mono text-sm tabular-nums'>
                       {entry.formattedRange ?? entry.formatted}
-                      <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+                      <span className='text-muted-foreground/40 ms-1 text-xs font-normal'>
                         / {unitLabel}
                       </span>
                     </span>
@@ -880,7 +880,7 @@ function PriceSection(props: {
         props.usdExchangeRate,
         baseGroupRatioMap
       )}
-      <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
+      <span className='text-muted-foreground/40 ms-1 text-xs font-normal'>
         / {tokenUnitLabel}
       </span>
     </>
@@ -1312,8 +1312,8 @@ function ProviderGroupPricingSection(
                         ) : (
                           fieldLabel
                         ),
-                        className: `${thClass} text-right`,
-                        cellClassName: 'py-2.5 text-right font-mono',
+                        className: `${thClass} text-end`,
+                        cellClassName: 'py-2.5 text-end font-mono',
                         cell: (tier: (typeof dynamicTiers)[number]) =>
                           formattedPricesByTier
                             .get(tier)
@@ -1344,8 +1344,8 @@ function ProviderGroupPricingSection(
                         {
                           id: 'price',
                           header: t('Example price'),
-                          className: `${thClass} text-right`,
-                          cellClassName: 'py-2.5 text-right font-mono',
+                          className: `${thClass} text-end`,
+                          cellClassName: 'py-2.5 text-end font-mono',
                           cell: (row) =>
                             `≈ ${formatTaskUsageUnitPrice(row.total, {
                               tokenUnit: props.tokenUnit,
@@ -1440,22 +1440,22 @@ function ProviderGroupPricingSection(
                 {
                   id: 'input',
                   header: t('Input'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: (group: string) => renderGroupPrice(group, 'input'),
                 },
                 {
                   id: 'output',
                   header: t('Output'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: (group: string) => renderGroupPrice(group, 'output'),
                 },
                 ...extraPriceTypes.map((ep) => ({
                   id: ep.type,
                   header: ep.label,
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: (group: string) => renderGroupPrice(group, ep.type),
                 })),
               ]
@@ -1463,8 +1463,8 @@ function ProviderGroupPricingSection(
                 {
                   id: 'price',
                   header: t('Price'),
-                  className: `${thClass} text-right`,
-                  cellClassName: 'py-2.5 text-right font-mono',
+                  className: `${thClass} text-end`,
+                  cellClassName: 'py-2.5 text-end font-mono',
                   cell: renderFixedGroupPrice,
                 },
               ]),
