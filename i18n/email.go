@@ -20,7 +20,8 @@ var rightToLeftScripts = []string{"Adlm", "Arab", "Aran", "Hebr", "Mand", "Mend"
 // (the language given to Translate). The wrapper names the language the text
 // is written in, and the wrapper and every paragraph carry its direction as a
 // dir attribute and inline direction and text-align styles, which desktop mail
-// clients honour where they ignore inherited styles.
+// clients honour where they ignore inherited styles. A code from EmailCode is
+// a block of its own and is placed as it is.
 func EmailBody(lang string, paragraphs ...string) common.EmailBody {
 	return emailBodyIn(messageLang(lang), paragraphs)
 }
@@ -35,6 +36,10 @@ func emailBodyIn(lang string, paragraphs []string) common.EmailBody {
 	var body strings.Builder
 	body.WriteString(`<div lang="` + html.EscapeString(lang) + `"` + block + `>`)
 	for _, paragraph := range paragraphs {
+		if strings.HasPrefix(paragraph, emailCodeOpen) {
+			body.WriteString(paragraph)
+			continue
+		}
 		body.WriteString(`<p` + block + `>` + paragraph + `</p>`)
 	}
 	body.WriteString(`</div>`)
@@ -48,4 +53,20 @@ func emailBodyIn(lang string, paragraphs []string) common.EmailBody {
 // a code or a link copies nothing else.
 func EmailLTR(text string) string {
 	return `<span dir="ltr">` + html.EscapeString(text) + `</span>`
+}
+
+// emailCodeOpen begins the block EmailCode writes: centred and left to right,
+// large and bold in a monospace stack, its characters spaced by letter-spacing.
+// The background colour is set only with a text colour, so a client's dark
+// mode that changes one changes both.
+const emailCodeOpen = `<div dir="ltr" style="direction:ltr;text-align:center;margin:16px 0;padding:12px 16px;` +
+	`background-color:#f3f4f6;color:#111827;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono','Courier New',monospace;` +
+	`font-size:28px;font-weight:bold;line-height:1.4;letter-spacing:6px">`
+
+// EmailCode writes a code the reader types or pastes as a block of its own in
+// a mail of either direction; the label goes in the paragraph before it. The
+// block holds the escaped code and no other character, so copying it copies
+// the code alone, and the plain-text part has the code on a line of its own.
+func EmailCode(code string) string {
+	return emailCodeOpen + html.EscapeString(code) + `</div>`
 }
