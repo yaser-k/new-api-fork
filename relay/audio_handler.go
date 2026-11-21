@@ -41,6 +41,9 @@ func AudioHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	ioReader, err := adaptor.ConvertAudioRequest(c, info, *request)
 	if err != nil {
+		if apiErr := newUnsupportedOperationError(c, info, err); apiErr != nil {
+			return apiErr
+		}
 		return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 	}
 
