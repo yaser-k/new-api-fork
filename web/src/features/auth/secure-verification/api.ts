@@ -260,11 +260,12 @@ export async function verify(
         break
     }
     signal.throwIfAborted()
+    // The server alone judges a proof's expiry when the proof is used; the
+    // browser clock may run ahead of the server's.
     if (
       !proof.proof_token ||
       proof.scope !== operation.scope ||
-      proof.method !== input.method ||
-      proof.expires_at * 1000 <= Date.now()
+      proof.method !== input.method
     ) {
       throw new AuthOperationError('Verification proof was not returned')
     }
@@ -294,8 +295,7 @@ async function verifyPasskey(
   if (
     proof.proof_token &&
     proof.method === 'passkey' &&
-    proof.scope === operation.scope &&
-    proof.expires_at * 1000 > Date.now()
+    proof.scope === operation.scope
   ) {
     rememberPasskeyRPID(passkey.rpID)
   }
