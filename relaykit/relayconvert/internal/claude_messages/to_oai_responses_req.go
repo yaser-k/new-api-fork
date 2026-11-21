@@ -173,6 +173,11 @@ func claudeMessagesToResponsesInput(messages []dto.ClaudeMessage) (json.RawMessa
 					"type": partType,
 					"text": block.GetText(),
 				})
+			case "search_result":
+				contentParts = append(contentParts, map[string]any{
+					"type": "input_text",
+					"text": claudeSearchResultText(block),
+				})
 			case "image":
 				if source := claudeSourceURL(block.Source); source != "" {
 					contentParts = append(contentParts, map[string]any{
@@ -298,6 +303,8 @@ func claudeToolResultToResponsesOutput(content any) (any, error) {
 		switch block.Type {
 		case "text", "input_text":
 			parts = append(parts, map[string]any{"type": "input_text", "text": block.GetText()})
+		case "search_result":
+			parts = append(parts, map[string]any{"type": "input_text", "text": claudeSearchResultText(block)})
 		case "image":
 			if source := claudeSourceURL(block.Source); source != "" {
 				parts = append(parts, map[string]any{
