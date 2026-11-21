@@ -503,7 +503,8 @@ func decodeClaudeDefinition(raw json.RawMessage) (Definition, error) {
 			Raw:        cloneRaw(raw),
 		}, nil
 	}
-	if toolType == "" {
+	// The Anthropic API accepts "custom" as the explicit type of a client tool.
+	if toolType == "" || toolType == "custom" {
 		return Definition{
 			Kind:      KindFunction,
 			Execution: ExecutionClient,
