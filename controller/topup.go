@@ -121,6 +121,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
 		"topup_link":              common.TopUpLink,
+		"topup_disabled_message":  common.TopUpDisabledMessage,
 	}
 	common.ApiSuccess(c, data)
 }

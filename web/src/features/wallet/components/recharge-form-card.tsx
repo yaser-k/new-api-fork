@@ -145,6 +145,7 @@ export function RechargeFormCard({
     Array.isArray(waffoPayMethods) && waffoPayMethods.length > 0
   const minTopup = getMinTopupAmount(topupInfo)
   const redemptionEnabled = topupInfo?.enable_redemption !== false
+  const topupDisabledMessage = topupInfo?.topup_disabled_message?.trim()
 
   if (loading) {
     return (
@@ -200,7 +201,11 @@ export function RechargeFormCard({
   return (
     <TitledCard
       title={t('Add Funds')}
-      description={t('Choose an amount and payment method')}
+      description={
+        !hasAnyTopup && redemptionEnabled
+          ? t('Top up with a redemption code')
+          : t('Choose an amount and payment method')
+      }
       icon={<WalletCards className='h-4 w-4' />}
       iconTone='success'
       disableHoverEffect
@@ -498,10 +503,11 @@ export function RechargeFormCard({
         </div>
       ) : (
         <Alert>
-          <AlertDescription>
-            {t(
-              'Online topup is not enabled. Please use redemption code or contact administrator.'
-            )}
+          <AlertDescription className='whitespace-pre-line'>
+            {topupDisabledMessage ||
+              t(
+                'Online topup is not enabled. Please use redemption code or contact administrator.'
+              )}
           </AlertDescription>
         </Alert>
       )}
