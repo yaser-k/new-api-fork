@@ -60,9 +60,18 @@ func ShouldRetryRelayError(c *gin.Context, openaiErr *types.NewAPIError, retryTi
 	return DecideRelayRetry(c, openaiErr, retryTimes).Action == "retry"
 }
 
+// ProcessChannelError handles a failed request to a channel and records its
+// error log row at once.
 func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
+	ProcessAttemptChannelError(c, channelError, err, relayInfo).Record(c, false)
+}
+
+// ProcessAttemptChannelError handles a failed relay attempt like
+// ProcessChannelError but returns its error log row unsaved, or nil when none
+// is due, so a retry loop can record it as retried once another attempt starts.
+func ProcessAttemptChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) *model.ErrorLog {
 	if err == nil {
-		return
+		return nil
 	}
 	upstreamURLs := common.UpstreamAddresses(c)
 	logger.LogError(c, common.LogText("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.MaskSensitiveErrorWithStatusCode(upstreamURLs...))))
@@ -73,14 +82,21 @@ func ProcessChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		})
 	}
 
-	RecordRelayErrorLog(c, channelError.ChannelId, err, relayInfo)
+	return NewRelayErrorLog(c, channelError.ChannelId, err, relayInfo)
 }
 
 // RecordRelayErrorLog writes the error log of a failed relay request when
 // error logs are on. channelId is 0 for a request that reached no channel.
 func RecordRelayErrorLog(c *gin.Context, channelId int, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) {
+	NewRelayErrorLog(c, channelId, err, relayInfo).Record(c, false)
+}
+
+// NewRelayErrorLog builds the error log row of a failed relay request without
+// saving it, or returns nil when error logs are off or the error is not
+// recorded. channelId is 0 for a request that reached no channel.
+func NewRelayErrorLog(c *gin.Context, channelId int, err *types.NewAPIError, relayInfo *relaycommon.RelayInfo) *model.ErrorLog {
 	if !constant.ErrorLogEnabled || !types.IsRecordErrorLog(err) {
-		return
+		return nil
 	}
 	userId := c.GetInt("id")
 	tokenName := c.GetString("token_name")
@@ -103,5 +119,5 @@ func RecordRelayErrorLog(c *gin.Context, channelId int, err *types.NewAPIError, 
 		startTime = time.Now()
 	}
 	useTimeSeconds := int(time.Since(startTime).Seconds())
-	model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(common.UpstreamAddresses(c)...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
+	return model.NewErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(common.UpstreamAddresses(c)...), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 }
