@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gin-gonic/gin"
 )
 
@@ -87,6 +88,10 @@ func textRequestViaResponses(c *gin.Context, info *relaycommon.RelayInfo, adapto
 		if err != nil {
 			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
+		chatJSON, err = relaycommon.SetUpstreamEndUserID(chatJSON, info)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
 
 		chatJSON, apiErr := requestplugin.Outbound(c, info, chatJSON)
 		if apiErr != nil {
@@ -143,6 +148,15 @@ func relayResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, adaptor 
 	jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+	}
+	// After the outbound plugins and the param override ran on the chat
+	// request, keep the field as they and the conversion left it; write it
+	// again only where the conversion or the filter above dropped it.
+	if !outboundApplied || !ojson.GetBytes(jsonData, info.ChannelOtherSettings.UpstreamEndUserIDField).Exists() {
+		jsonData, err = relaycommon.SetUpstreamEndUserID(jsonData, info)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+		}
 	}
 	if !outboundApplied {
 		var apiErr *types.NewAPIError
