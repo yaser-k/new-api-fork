@@ -64,7 +64,12 @@ func GetPricing(c *gin.Context) {
 	usableGroup := pricingVisibleGroups(service.GetUserUsableGroups(userGroup), ratio_setting.GetGroupRatioCopy(),
 		operation_setting.IsPricingShowAllGroups())
 	retirements := operation_setting.GetModelRetirementsCopy()
-	pricing := filterPricingByUsableGroups(withoutRetiredPricing(model.GetPricing(), retirements), usableGroup)
+	// Only administrators see the billing expressions behind public prices.
+	pricing := model.GetPublicPricing()
+	if c.GetInt("role") >= common.RoleAdminUser {
+		pricing = model.GetPricing()
+	}
+	pricing = filterPricingByUsableGroups(withoutRetiredPricing(pricing, retirements), usableGroup)
 	groupRatio := ratio_setting.GetGroupRatioCopy()
 	for group := range groupRatio {
 		if _, ok := usableGroup[group]; !ok {

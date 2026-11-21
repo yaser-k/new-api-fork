@@ -81,6 +81,9 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  // Shown in place of billingExpr to everyone who is not an administrator;
+  // billing never reads it.
+  publicExpr?: string
 }
 
 export function usesTaskModelPricing(
